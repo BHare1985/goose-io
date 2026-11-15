@@ -76,6 +76,20 @@ Reads write into caller-owned buffers. A readiness completion tells the coroutin
 
 The native shim follows tcprouter's proven low-level approach: construct `sockaddr` in C, isolate epoll's platform-specific event layout, create nonblocking sockets, use `MSG_NOSIGNAL`, and return negative errno values. It does not copy tcprouter's proxy engine.
 
+## Optimized Linux engines
+
+The Linux backend also exposes a raw epoll fast path for an existing reactor
+that already owns its connection table and dispatch loop. It passes native
+epoll masks and 64-bit event keys through unchanged, allowing edge-triggered
+engines to keep their packed event dispatch and batching without per-event
+normalization. This is a Linux-specific optimization capability, not the
+portable contract.
+
+tcprouter uses this path on its `integrate/goose-io` branch. Its worker,
+edge-triggered forwarding pump, buffer pool, backpressure and generation
+checks remain tcprouter-owned. The standalone `EpollIo` remains the generic
+reference provider for frameworks without an existing optimized loop.
+
 ## Current backend support
 
 | Backend | Status |
