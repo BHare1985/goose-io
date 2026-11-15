@@ -1,42 +1,51 @@
 // SPDX-License-Identifier: Apache-2.0
-// Linux reference reactor smoke tests. Native execution requires Goose + epoll.
+// Linux reference provider smoke test. Requires Goose + Linux epoll.
 // RUN: goose build -O2 -o %t.exe %s
 // RUN: %t.exe | %FileCheck %s
 
 import std;
 import goose_io from "../..";
 
-fn test_timer_and_wakeup() {
-    var reactor = goose_io::new_epoll_reactor();
-    assert(reactor.is_open);
-    defer goose_io::close_epoll_reactor(reactor);
-    let now = goose_io::native_monotonic_ns();
-    let timer, timer_err = goose_io::epoll_timer_start(reactor, now + 2000000);
-    assert(timer_err == goose_io::IoError.None);
-    var events: goose_io::IoEvent[..64] = [];
-    let n = goose_io::epoll_poll(reactor, 100, events);
+fn test_epoll_timer_and_wake() {
+    var io = goose_io::EpollIo { .. };
+    assert(io.open().kind == goose_io::IoErrorKind.None);
+
+    let timer, timer_error = io.after(io.monotonic_ns() + 2000000);
+    assert(timer_error.kind == goose_io::IoErrorKind.None);
+    assert(goose_io::timer_is_valid(timer));
+
+    var completions: goose_io::Completion[128] = [goose_io::Completion.Wake; 128];
+    let n = io.poll(100, completions);
     assert(n > 0);
     var saw_timer = false;
     for i in n {
-        if (events[i].flags & goose_io::EVENT_TIMER) != 0 &&
-            goose_io::same_timer(events[i].timer, timer) { saw_timer = true; }
+        match completions[i] {
+            Timer { timer: fired, now_ns: _ } => {
+                if goose_io::same_timer(fired, timer) { saw_timer = true; }
+            },
+            _ => {},
+        }
     }
     assert(saw_timer);
-    assert(goose_io::epoll_wake(reactor) == goose_io::IoError.None);
-    events.clear();
-    let woke = goose_io::epoll_poll(reactor, 100, events);
+
+    assert(io.wake().kind == goose_io::IoErrorKind.None);
+    let woke = io.poll(100, completions);
     assert(woke > 0);
     var saw_wake = false;
     for i in woke {
-        if (events[i].flags & goose_io::EVENT_WAKE) != 0 { saw_wake = true; }
+        match completions[i] {
+            Wake => saw_wake = true,
+            _ => {},
+        }
     }
     assert(saw_wake);
+    io.close();
     print("EPOLL_TIMER_WAKE: ok");
 }
 
 fn main() {
     // CHECK: EPOLL_TIMER_WAKE: ok
-    test_timer_and_wakeup();
+    test_epoll_timer_and_wake();
     // CHECK: ALL_REACTOR_CONTRACT_TESTS_PASSED
     print("ALL_REACTOR_CONTRACT_TESTS_PASSED");
 }
