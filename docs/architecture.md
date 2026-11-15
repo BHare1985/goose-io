@@ -108,3 +108,27 @@ queue. The queue entry carries the actual work identity.
 
 Goose coroutine support and the full scheduler are not implemented by this
 repository. The types here define the seam they must use.
+
+## Optimized native reactor path
+
+The Linux backend also exposes an explicitly Linux-specific raw epoll path for
+frameworks that already own their connection tables and dispatch loops:
+
+- `goose_io_epoll_create_raw`
+- `goose_io_epoll_ctl_raw`
+- `goose_io_epoll_wait_raw`
+
+It passes the native epoll event mask and opaque 64-bit user key through
+unchanged. It does not normalize flags, allocate a per-event Link, or translate
+keys through a generic registration table. The caller chooses level- or
+edge-triggering and retains its existing generation validation and dispatch.
+
+This is an optimization capability, not part of the portable I/O contract.
+It exists so a tuned engine such as tcprouter can share the Linux epoll syscall
+boundary without replacing its own pump, connection slots, buffer pool,
+backpressure, ready queue, batching, or scheduler policy.
+
+The standalone `EpollIo` remains the ergonomic reference provider. Its
+normalized event API and its raw fast path serve different use cases; do not
+route a high-throughput proxy through the generic event-normalization layer
+when the raw path is the better fit.
