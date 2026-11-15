@@ -1,0 +1,10 @@
+goose-io
+
+This project is derived in part from the I/O and reactor work in goose-wing.
+Original notice:
+  goose-wing
+  Copyright 2026 Lemon4ksan (Komolov Arsenii)
+
+The goose-wing-derived portions retain their applicable Apache License 2.0
+terms and attribution. New material in this repository is also licensed under
+Apache-2.0 unless a file states otherwise.
