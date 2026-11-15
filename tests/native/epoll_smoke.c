@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/epoll.h>
 #include <unistd.h>
 
 #define READABLE 1u
@@ -19,6 +20,9 @@
 typedef struct __attribute__((packed)) { uint32_t events; uint64_t data; } gio_epoll_event;
 
 extern int64_t goose_io_epoll_create(void);
+extern int64_t goose_io_epoll_create_raw(void);
+extern int32_t goose_io_epoll_ctl_raw(int64_t,int32_t,int32_t,uint32_t,uint64_t);
+extern int32_t goose_io_epoll_wait_raw(int64_t,gio_epoll_event*,int32_t,int32_t);
 extern int32_t goose_io_epoll_ctl(int64_t,int32_t,int32_t,uint32_t,uint64_t);
 extern int32_t goose_io_epoll_wait(int64_t,gio_epoll_event*,int32_t,int32_t);
 extern int32_t goose_io_epoll_wake(int64_t);
