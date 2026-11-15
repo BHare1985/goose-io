@@ -120,6 +120,57 @@ int32_t goose_io_epoll_wait(int64_t handle, gio_epoll_event *out,
     return n;
 }
 
+
+/* Backend-specific raw epoll API for optimized engines such as tcprouter.
+   Native event bits and the opaque 64-bit key pass through unchanged. This
+   avoids per-event normalization or handle-table translation in hot paths. */
+int64_t goose_io_epoll_create_raw(void) {
+    gio_epoll_state *state = (gio_epoll_state *)calloc(1, sizeof(*state));
+    if (!state) return -ENOMEM;
+    state->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+    state->wake_fd = -1;
+    if (state->epoll_fd < 0) {
+        int e = errno;
+        free(state);
+        return -e;
+    }
+    return (int64_t)(intptr_t)state;
+}
+
+int32_t goose_io_epoll_ctl_raw(int64_t handle, int32_t op, int32_t fd,
+                               uint32_t native_events, uint64_t key) {
+    gio_epoll_state *state = get_state(handle);
+    if (!state || fd < 0) return -EINVAL;
+    if (op == EPOLL_CTL_DEL) {
+        if (epoll_ctl(state->epoll_fd, op, fd, NULL) != 0) {
+            if (errno == ENOENT || errno == EBADF) return 0;
+            return -errno;
+        }
+        return 0;
+    }
+    struct epoll_event ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.events = native_events;
+    ev.data.u64 = key;
+    if (epoll_ctl(state->epoll_fd, op, fd, &ev) != 0) return -errno;
+    return 0;
+}
+
+int32_t goose_io_epoll_wait_raw(int64_t handle, gio_epoll_event *out,
+                                int32_t max_events, int32_t timeout_ms) {
+    gio_epoll_state *state = get_state(handle);
+    if (!state || !out || max_events < 1 || timeout_ms < -1) return -EINVAL;
+    if (max_events > 256) max_events = 256;
+    struct epoll_event events[256];
+    int n = epoll_wait(state->epoll_fd, events, max_events, timeout_ms);
+    if (n < 0) return errno == EINTR ? 0 : -errno;
+    for (int i = 0; i < n; i++) {
+        out[i].events = events[i].events;
+        out[i].data = events[i].data.u64;
+    }
+    return n;
+}
+
 int32_t goose_io_epoll_wake(int64_t handle) {
     gio_epoll_state *s=get_state(handle);
     if (!s) return -EINVAL;
@@ -214,6 +265,9 @@ uint64_t goose_io_monotonic_ns(void) {
 
 #else
 #include <stdint.h>
+int64_t goose_io_epoll_create_raw(void) { return -1; }
+int32_t goose_io_epoll_ctl_raw(int64_t a, int32_t b, int32_t c, uint32_t d, uint64_t e) { (void)a;(void)b;(void)c;(void)d;(void)e;return -1; }
+int32_t goose_io_epoll_wait_raw(int64_t a, void *b, int32_t c, int32_t d) { (void)a;(void)b;(void)c;(void)d;return -1; }
 int64_t goose_io_epoll_create(void){return -1;}
 int32_t goose_io_epoll_ctl(int64_t a,int32_t b,int32_t c,uint32_t d,uint64_t e){(void)a;(void)b;(void)c;(void)d;(void)e;return -1;}
 int32_t goose_io_epoll_wait(int64_t a,void*b,int32_t c,int32_t d){(void)a;(void)b;(void)c;(void)d;return -1;}
