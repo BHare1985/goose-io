@@ -1,66 +1,75 @@
 // SPDX-License-Identifier: Apache-2.0
-// Shared, backend-neutral I/O types.
+// The backend-neutral vocabulary shared by frameworks, drivers, and reactors.
 namespace goose_io;
 
 import std;
 
-enum IoError {
+enum IoErrorKind {
     None,
     WouldBlock,
     Eof,
-    UnexpectedEof,
+    Refused,
+    TimedOut,
+    Reset,
+    Unreachable,
+    ResourceExhausted,
+    AddressInUse,
+    AddressNotAvailable,
+    PermissionDenied,
     Closed,
     Cancelled,
-    TimedOut,
     InvalidArgument,
-    CapacityExceeded,
     Unsupported,
     System,
 }
 
+struct IoError {
+    kind: IoErrorKind = IoErrorKind.None,
+    code: i32 = 0,
+}
+
 struct Link {
-    slot:       u32 = 0xFFFFFFFF,
+    slot: u32 = 0xFFFFFFFF,
     generation: u32 = 0,
 }
 
 struct Timer {
-    slot:       u32 = 0xFFFFFFFF,
+    slot: u32 = 0xFFFFFFFF,
     generation: u32 = 0,
 }
 
 struct Address {
-    host: const u8[:] = "",
+    v6: bool = false,
+    ip: u8[16] = [0; 16],
     port: u16 = 0,
 }
 
-enum Interest {
-    None,
-    Readable,
-    Writable,
-    ReadWrite,
+struct ListenOptions {
+    backlog: i32 = 1024,
+    reuse_port: bool = false,
 }
 
-const EVENT_NONE:      u32 = 0;
-const EVENT_READABLE:  u32 = 1 << 0;
-const EVENT_WRITABLE:  u32 = 1 << 1;
-const EVENT_ERROR:     u32 = 1 << 2;
-const EVENT_PEER_EOF:  u32 = 1 << 3;
-const EVENT_TIMER:     u32 = 1 << 4;
-const EVENT_WAKE:      u32 = 1 << 5;
-
-enum Wait {
+enum Interest {
+    Accept { listener: Link },
+    Connected { link: Link },
     Readable { link: Link },
     Writable { link: Link },
     Timer { timer: Timer },
-    Wake,
 }
 
-struct IoEvent {
-    link: Link = Link { .. },
-    timer: Timer = Timer { .. },
-    flags: u32 = EVENT_NONE,
-    error: IoError = IoError.None,
-    timestamp_ns: u64 = 0,
+struct WaitSet {
+    interests: Interest[..4] = [],
+}
+
+enum Completion {
+    AcceptReady { listener: Link },
+    Connected { link: Link },
+    Readable { link: Link },
+    Writable { link: Link },
+    PeerEof { link: Link },
+    Closed { link: Link, error: IoError },
+    Timer { timer: Timer, now_ns: u64 },
+    Wake,
 }
 
 fn link_is_valid(link: Link) -> bool {
@@ -78,8 +87,3 @@ fn same_link(a: Link, b: Link) -> bool {
 fn same_timer(a: Timer, b: Timer) -> bool {
     return a.slot == b.slot && a.generation == b.generation;
 }
-
-fn interest_flags(_: Interest.None) -> u32 { return EVENT_NONE; }
-fn interest_flags(_: Interest.Readable) -> u32 { return EVENT_READABLE; }
-fn interest_flags(_: Interest.Writable) -> u32 { return EVENT_WRITABLE; }
-fn interest_flags(_: Interest.ReadWrite) -> u32 { return EVENT_READABLE | EVENT_WRITABLE; }
