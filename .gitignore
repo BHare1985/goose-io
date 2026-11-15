@@ -1,0 +1,10 @@
+bin/
+build/
+*.tmp
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.sock
+.lit/cache/
