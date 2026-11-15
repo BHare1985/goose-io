@@ -54,6 +54,24 @@ static void test_epoll_and_wake(void) {
     goose_io_epoll_close(ep); close(fds[0]); close(fds[1]);
 }
 
+
+static void test_raw_epoll_fast_path(void) {
+    int fds[2]; assert(socketpair(AF_UNIX,SOCK_STREAM,0,fds)==0);
+    int64_t ep=goose_io_epoll_create_raw(); assert(ep>0);
+    const uint64_t key=UINT64_C(0x123456789ABCDEF0);
+    assert(goose_io_epoll_ctl_raw(ep,EPOLL_CTL_ADD,fds[0],
+                                  EPOLLIN|EPOLLRDHUP|EPOLLET,key)==0);
+    assert(write(fds[1],"raw",3)==3);
+    gio_epoll_event events[256];
+    int n=goose_io_epoll_wait_raw(ep,events,256,100);
+    assert(n==1);
+    assert(events[0].data==key);
+    assert(events[0].events&EPOLLIN);
+    char buf[8]; assert(read(fds[0],buf,sizeof(buf))==3);
+    assert(goose_io_epoll_ctl_raw(ep,EPOLL_CTL_DEL,fds[0],0,0)==0);
+    goose_io_epoll_close(ep); close(fds[0]); close(fds[1]);
+}
+
 static void test_tcp(void) {
     const uint8_t ip[16]={127,0,0,1};
     int32_t listener=goose_io_listen(0,ip,39173,0,32); assert(listener>=0);
@@ -103,7 +121,7 @@ static void test_tcp(void) {
 }
 
 int main(void) {
-    test_epoll_and_wake(); test_tcp();
+    test_epoll_and_wake(); test_raw_epoll_fast_path(); test_tcp();
     assert(goose_io_monotonic_ns()>0);
     puts("EPOLL_NATIVE_SOCKET_SMOKE: ok");
     return 0;
