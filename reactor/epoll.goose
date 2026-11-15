@@ -332,7 +332,7 @@ fn watch(io: EpollIo&, interest: Interest) -> IoError {
         },
         Timer { timer: _ } => return IoError { .. },
     }
-    return _apply_interest(io, i) if (io._links[i].interest & bits) != 0 else _change_interest(io, link, bits, 0);
+    return _change_interest(io, link, bits, 0);
 }
 
 fn _change_interest(io: EpollIo&, link: Link, set_bits: u32, clear_bits: u32) -> IoError {
@@ -363,7 +363,10 @@ fn unwatch(io: EpollIo&, interest: Interest) -> IoError {
         Accept { listener: _ } => {
             guard io._links[i].kind == _Kind.Listener else { return IoError { kind: IoErrorKind.InvalidArgument, .. }; }
         },
-        Readable { link: _ } | Writable { link: _ } => {
+        Readable { link: _ } => {
+            guard io._links[i].kind == _Kind.Stream else { return IoError { kind: IoErrorKind.InvalidArgument, .. }; }
+        },
+        Writable { link: _ } => {
             guard io._links[i].kind == _Kind.Stream else { return IoError { kind: IoErrorKind.InvalidArgument, .. }; }
         },
         Timer { timer: _ } => return IoError { .. },
