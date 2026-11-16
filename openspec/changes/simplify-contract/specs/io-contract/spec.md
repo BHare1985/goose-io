@@ -112,7 +112,7 @@ An event loop that supplies the inspection group SHALL provide `peer_address(lin
 - **THEN** it obtains an empty value
 
 ### Requirement: Send backpressure is explicit and bounded
-An event loop SHALL bound the bytes it holds unsent for each link. `max_send` SHALL report the largest single send it can ever accept: at least 4096 bytes, and one value for every link of the loop. A larger send SHALL return `TooLarge`. A send that does not fit now SHALL return `Full`. An event loop that supplies the sizing group SHALL also provide `send_room(link)`, which returns the number of bytes a send would accept now, never more than `max_send`, and 0 for a link that is not open or can no longer send.
+An event loop SHALL bound the bytes it holds unsent for each link. `max_send` SHALL report the largest single send it can accept: at least 4096 bytes, one value for the whole loop. A larger send SHALL return `TooLarge`, and one that does not fit now `Full`. The sizing group's `send_room(link)` SHALL return the bytes a send would accept now, at most `max_send`, and 0 for a link that cannot send.
 
 #### Scenario: An oversized send never fits
 - **WHEN** a library sends more than `max_send` bytes in one call
@@ -146,7 +146,7 @@ An event loop SHALL bound the bytes it holds unsent for each link. `max_send` SH
 - **THEN** the peer's link ends with reason `PeerReset` and the handler receives one `Closed` with reason `Local` for the reset link
 
 ### Requirement: Peer end of stream and half-close
-When the peer finishes sending, an event loop SHALL transmit the bytes already accepted and close the link with reason `PeerClosed`; this is the whole of the core's behaviour on the peer's end of stream. An event loop that supplies the half-close group SHALL also provide `set_keep_open_on_eof(link, keep)`, `shutdown_write(link)` and the event `PeerEof`: after `set_keep_open_on_eof(link, true)` it SHALL deliver `PeerEof` once, after every `Data`, and keep the link open for sending; `shutdown_write(link)` SHALL end the local sending direction once accepted bytes are out, later sends SHALL return `Closed`, and the link SHALL close when the peer has finished too.
+When the peer finishes sending, an event loop SHALL send the bytes already accepted and close the link with `PeerClosed`. The half-close group adds `set_keep_open_on_eof(link, keep)`, `shutdown_write(link)` and `PeerEof`: with keep set the loop SHALL deliver `PeerEof` once, after every `Data`, and keep the link open; `shutdown_write` SHALL end local sending once accepted bytes are out (later sends return `Closed`), and the link SHALL close when the peer has finished too.
 
 #### Scenario: Default behaviour on peer end of stream
 - **WHEN** a peer sends a request and shuts down its sending side, and the library has not opted in to keep the link open
@@ -157,7 +157,7 @@ When the peer finishes sending, an event loop SHALL transmit the bytes already a
 - **THEN** the handler receives `PeerEof` once after all `Data`, the peer receives the whole reply followed by end of stream, and `Closed` follows
 
 ### Requirement: End-of-pass notification
-An event loop MAY supply the batching group. One that does SHALL deliver exactly one `PassEnd` as the last event of every pass that delivered at least one link event: no link event and no `Tick` of that pass SHALL follow it. A pass that delivered only ticks or nothing SHALL have none. Operations called while handling `PassEnd` SHALL behave as anywhere else, and events they cause SHALL NOT produce a second `PassEnd` for the same pass. A library SHALL NOT depend on `PassEnd` for correctness: it is for batching only.
+An event loop MAY supply the batching group. One that does SHALL deliver exactly one `PassEnd`, last, in every pass that delivered a link event, and none in a pass of only ticks or nothing: no link event or `Tick` of that pass SHALL follow it, and calls made while handling it SHALL NOT cause a second one. A library SHALL NOT depend on `PassEnd` for correctness: it is for batching only.
 
 #### Scenario: Batching replies
 - **WHEN** ten requests on ten links arrive in one pass on an event loop with the batching group

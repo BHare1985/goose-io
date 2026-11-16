@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Defines the provider-neutral contract between an event loop (a provider) and the libraries and application that run on it, so an async client or server library written once runs on any conforming provider, whether that provider is built on readiness (epoll, kqueue) or completion (io_uring, IOCP).
+Defines the event loop-neutral contract between an event loop (an event loop) and the libraries and application that run on it, so an async client or server library written once runs on any conforming event loop, whether that event loop is built on readiness (epoll, kqueue) or completion (io_uring, IOCP).
 
 ## Requirements
 
 ### Requirement: A refused send is always resolved
-After a `send` or `send2` on a link has returned `Full`, the link SHALL receive one `Writable` or its `Closed`; it SHALL NOT stay open and silent for ever. A `Writable` SHALL NOT be delivered for a link whose sending has ended by `shutdown_write`, `close` or `reset`, including one the provider had already queued. Which of `Writable` or `Closed` a provider gives when the peer goes away is the provider's choice.
+After a `send` or `send2` on a link has returned `Full`, the link SHALL receive one `Writable` or its `Closed`; it SHALL NOT stay open and silent for ever. A `Writable` SHALL NOT be delivered for a link whose sending has ended by `shutdown_write`, `close` or `reset`, including one the event loop had already queued. Which of `Writable` or `Closed` an event loop gives when the peer goes away is the event loop's choice.
 
 #### Scenario: The write side is shut while a Writable is owed
 - **WHEN** a library has been refused with `Full`, the peer reads enough that a `Writable` is owed, and a handler calls `shutdown_write` on the link before that `Writable` is delivered
@@ -36,17 +36,6 @@ The contract package SHALL consist of Goose source only: no C sources, no `exter
 - **WHEN** the package's files are searched for C sources, `extern` declarations and a build sidecar
 - **THEN** none are found
 
-### Requirement: Three roles, one contract
-The contract SHALL define a provider (delivers events, performs operations), a library (handles events, calls operations) and a host (the application that runs the loop and passes events to libraries). A library SHALL depend only on the contract, never on a provider's own types. No role SHALL be required to store a callback, allocate from a heap, or call through a function pointer.
-
-#### Scenario: A library compiles against two providers unchanged
-- **WHEN** the same library source is built with two different conforming providers
-- **THEN** both builds succeed with no change to the library source and no adapter code between the library and either provider
-
-#### Scenario: A library imports no provider
-- **WHEN** the example libraries' sources are inspected
-- **THEN** they import the contract and nothing that names a specific provider
-
 ### Requirement: The contract exposes no operating-system primitives
 Contract types and operations SHALL NOT expose file descriptors, socket address structures, poll masks, or any other operating-system or backend object. Addresses SHALL be numeric text: `ip:port` for IPv4 and `[ip]:port` for IPv6. An IPv6 zone identifier is not part of an address: text that contains one SHALL be treated as malformed.
 
@@ -54,12 +43,12 @@ Contract types and operations SHALL NOT expose file descriptors, socket address 
 - **WHEN** a library dials `[fe80::1%eth0]:80`, and listens on it
 - **THEN** the dial ends with one `Closed` with reason `ConnectFailed`, and `listen` returns an error of kind `BadAddress`
 
-#### Scenario: A provider without descriptors conforms
-- **WHEN** a provider that has no file descriptors at all implements the contract in memory
+#### Scenario: An event loop without descriptors conforms
+- **WHEN** an event loop that has no file descriptors at all implements the contract in memory
 - **THEN** every operation and event of the contract is expressible and the conformance suite runs against it
 
 ### Requirement: The contract states its version
-The contract SHALL publish its version as a major and minor number. While the major number is zero, a minor increase MAY change or remove behaviour. From major version one, a minor increase SHALL only add. A provider SHALL state the contract version it conforms to.
+The contract SHALL publish its version as a major and minor number, 0.2 for this specification. While the major number is zero, a minor increase MAY change or remove behaviour. From major version one, a minor increase SHALL only add. An event loop SHALL state the contract version it conforms to and the groups it supplies.
 
 #### Scenario: A library reads the version
 - **WHEN** a program reads the contract's version
@@ -81,7 +70,7 @@ A link SHALL be a fixed-size handle made of a slot and a generation, valid from 
 - **THEN** the answer is no, and every operation on it has no effect
 
 ### Requirement: Events are delivered to one handler, one at a time
-A provider SHALL deliver every event of a loop to the single handler the host supplied, on that loop's thread, one event at a time. A provider SHALL NOT deliver an event from inside a contract operation: an event caused by an operation called during a handler SHALL be delivered after that handler returns. Operations SHALL be called only on that thread.
+An event loop SHALL deliver every event of a loop to the single handler the application supplied, on that loop's thread, one event at a time. An event loop SHALL NOT deliver an event from inside a contract operation: an event caused by an operation called during a handler SHALL be delivered after that handler returns. Operations SHALL be called only on that thread.
 
 #### Scenario: A close does not re-enter the handler
 - **WHEN** a handler calls `close` on an open link
@@ -92,7 +81,7 @@ A provider SHALL deliver every event of a loop to the single handler the host su
 - **THEN** `send` returns before any `Closed` event is delivered, and the `Closed` event arrives as a later, separate delivery
 
 ### Requirement: Link events follow a fixed order
-For each link a provider SHALL deliver at most one `Opened`, before any other event of that link; `Data` events in the order the bytes arrived; at most one `PeerEof`, after every `Data`; and exactly one `Closed`, after which no event for that link is delivered.
+For each link an event loop SHALL deliver at most one `Opened`, before any other event of that link; `Data` events in the order the bytes arrived; at most one `PeerEof`, after every `Data`; and exactly one `Closed`, after which no event for that link is delivered.
 
 #### Scenario: An accepted link
 - **WHEN** a peer connects, sends two messages and disconnects
@@ -103,7 +92,7 @@ For each link a provider SHALL deliver at most one `Opened`, before any other ev
 - **THEN** the handler sees exactly one `Closed` for that link and never an `Opened`
 
 ### Requirement: Every link event names its owner
-Every link event SHALL carry the link, the 16-bit tag given when the link was dialled or its listener was created, and the 32-bit user value last set for the link (zero until set). The host assigns tags to libraries; a library SHALL treat an event whose tag is not its own as not handled. `Tick` and `PassEnd` carry no tag and SHALL be offered to every library.
+Every link event SHALL carry the link, the 16-bit tag given when the link was dialled or its listener was created, and the 32-bit user value last set for the link (zero until set). The application assigns tags to libraries; a library SHALL treat an event whose tag is not its own as not handled. `Tick` and `PassEnd` carry no tag and SHALL be offered to every library.
 
 #### Scenario: Two libraries share one loop
 - **WHEN** a server library with tag 1 and a client library with tag 2 run on the same loop and a `Data` event arrives for a link dialled with tag 2
@@ -118,7 +107,7 @@ Every link event SHALL carry the link, the 16-bit tag given when the link was di
 - **THEN** the `Closed` event carries user value 7
 
 ### Requirement: Listening
-`listen(address, tag)` SHALL start accepting TCP connections and return a listener handle, or an error naming its kind and a provider code. Each accepted connection SHALL produce `Opened` carrying the listener's tag and handle. `listener_port(listener)` SHALL return the bound port, including one the system chose for port zero. `stop_listening(listener)` SHALL stop new connections without closing accepted links.
+`listen(address, tag)` SHALL start accepting TCP connections and return a listener handle, or an error naming its kind and a loop-specific code. Each accepted connection SHALL produce `Opened` carrying the listener's tag and handle. `listener_port(listener)` SHALL return the bound port, including one the system chose for port zero. An event loop that supplies the inspection group SHALL provide `stop_listening(listener)`, which stops new connections without closing accepted links.
 
 #### Scenario: A connection is accepted
 - **WHEN** a library listens on a free port with tag 1 and a peer connects
@@ -126,29 +115,29 @@ Every link event SHALL carry the link, the 16-bit tag given when the link was di
 
 #### Scenario: The address is taken
 - **WHEN** a library listens on a port that is already held exclusively
-- **THEN** `listen` returns an error of kind `AddressInUse` with a provider code, and no events follow
+- **THEN** `listen` returns an error of kind `AddressInUse` with a loop-specific code, and no events follow
 
 #### Scenario: A system-chosen port can be discovered
 - **WHEN** a library listens on port zero and asks for the listener's port
 - **THEN** it obtains a non-zero port, and a dial to that port on the same address opens a link
 
 #### Scenario: Stopping a listener keeps its links
-- **WHEN** a library calls `stop_listening` while a link accepted from that listener is open
+- **WHEN** a library on an event loop with the inspection group calls `stop_listening` while a link accepted from that listener is open
 - **THEN** new connection attempts are no longer accepted and the open link continues to deliver and send data
 
 ### Requirement: Listener handles are never reused
-A listener handle SHALL identify one listener for the life of its loop: a provider SHALL NOT give the same handle to a later listener. An operation on the handle of a listener that has stopped, or on a handle the loop never issued, SHALL have no effect, and `listener_port` SHALL return 0 for it. When a provider has no unused handle left, `listen` SHALL fail with `NoResources`; it SHALL NOT start again from an old handle. A listener SHALL be used only on the loop that created it.
+A listener handle SHALL identify one listener for the life of its loop: an event loop SHALL NOT give the same handle to a later listener. An operation on the handle of a listener that has stopped, or on a handle the loop never issued, SHALL have no effect, and `listener_port` SHALL return 0 for it. When an event loop has no unused handle left, `listen` SHALL fail with `NoResources`; it SHALL NOT start again from an old handle. A listener SHALL be used only on the loop that created it.
 
 #### Scenario: A stale listener handle cannot reach a newer listener
-- **WHEN** a library stops a listener, listens again on the same address, and then calls `stop_listening` with the first handle
+- **WHEN** a library on an event loop with the inspection group stops a listener, listens again on the same address, and then calls `stop_listening` with the first handle
 - **THEN** the second listener has a different handle and keeps accepting connections, and `listener_port` of the first handle returns 0
 
 #### Scenario: Handles run out and do not wrap
-- **WHEN** a provider has issued every listener handle it can
+- **WHEN** an event loop has issued every listener handle it can
 - **THEN** the next `listen` returns an error of kind `NoResources` and no listener
 
 ### Requirement: A link reports its peer's address
-`peer_address(link)` SHALL return the remote endpoint of an open link as numeric text in the form `dial` accepts, and an empty value for a link that is not open or whose handle is stale. IPv6 text SHALL be lower case with the longest run of two or more zero groups written as `::`. The value SHALL be available from the link's `Opened` event until its `Closed` event has been delivered.
+An event loop that supplies the inspection group SHALL provide `peer_address(link)`, which returns the remote endpoint of an open link as numeric text in the form `dial` accepts, and an empty value for a link that is not open or whose handle is stale. IPv6 text SHALL be lower case with the longest run of two or more zero groups written as `::`. The value SHALL be available from the link's `Opened` event until its `Closed` event has been delivered.
 
 #### Scenario: An accepted link names its peer
 - **WHEN** a library dials a listener on the same loop and the listening side asks for the peer address of the accepted link
@@ -163,7 +152,7 @@ A listener handle SHALL identify one listener for the life of its loop: a provid
 - **THEN** it obtains an empty value
 
 ### Requirement: Dialling never blocks and always ends in one event
-`dial(address, tag, connect_ms)` SHALL start an outbound TCP connection and return a valid link at once. A provider SHALL NOT resolve host names. The outcome SHALL be `Opened`, or exactly one `Closed` with reason `ConnectFailed` when the address is malformed, the connection is refused or unreachable, the provider is out of resources, or `connect_ms` elapses. A `connect_ms` of zero SHALL mean the provider's default.
+`dial(address, tag, connect_ms)` SHALL start an outbound TCP connection and return a valid link at once. An event loop SHALL NOT resolve host names. The outcome SHALL be `Opened`, or exactly one `Closed` with reason `ConnectFailed` when the address is malformed, the connection is refused or unreachable, the event loop is out of resources, or `connect_ms` elapses. A `connect_ms` of zero SHALL mean the event loop's default.
 
 #### Scenario: A successful dial
 - **WHEN** a library dials a listening address
@@ -182,7 +171,7 @@ A listener handle SHALL identify one listener for the life of its loop: a provid
 - **THEN** exactly one `Closed` with reason `ConnectFailed` follows and no name lookup is performed
 
 ### Requirement: A failed dial says why
-A `ConnectFailed` reason SHALL carry a kind: `Refused`, `TimedOut`, `Unreachable`, `Denied`, `NoResources`, `BadAddress` or `Other`. A provider SHALL report `BadAddress` for text that is not a numeric address, `TimedOut` when `connect_ms` elapses, and `NoResources` when it has no link left. For every other failure it SHALL translate what its system reports, and report `Other` when it cannot tell. No system error number is part of the reason.
+A `ConnectFailed` reason SHALL carry a kind: `Refused`, `TimedOut`, `Unreachable`, `Denied`, `NoResources`, `BadAddress` or `Other`. An event loop SHALL report `BadAddress` for text that is not a numeric address, `TimedOut` when `connect_ms` elapses, and `NoResources` when it has no link left. For every other failure it SHALL translate what its system reports, and report `Other` when it cannot tell. No system error number is part of the reason.
 
 #### Scenario: A malformed address or a host name
 - **WHEN** a library dials `not an address`, or `db.example.com:5432`
@@ -194,10 +183,10 @@ A `ConnectFailed` reason SHALL carry a kind: `Refused`, `TimedOut`, `Unreachable
 
 #### Scenario: A refused dial
 - **WHEN** a library dials an address nothing listens on
-- **THEN** the `Closed` event's reason is `ConnectFailed` with kind `Refused`, or `Other` on a provider that cannot tell a refusal from other failures
+- **THEN** the `Closed` event's reason is `ConnectFailed` with kind `Refused`, or `Other` on an event loop that cannot tell a refusal from other failures
 
-#### Scenario: A provider out of links
-- **WHEN** a library dials while the provider has no link left
+#### Scenario: An event loop out of links
+- **WHEN** a library dials while the event loop has no link left
 - **THEN** `dial` still returns a valid link and its `Closed` event's reason is `ConnectFailed` with kind `NoResources`
 
 #### Scenario: A library handles every kind
@@ -205,7 +194,7 @@ A `ConnectFailed` reason SHALL carry a kind: `Refused`, `TimedOut`, `Unreachable
 - **THEN** the example client library treats each as a failed dial, reports the kind, and retries a kind it has no special rule for as it retries `Other`
 
 ### Requirement: Received bytes are lent for the duration of the event
-A `Data` event SHALL carry a read-only slice of bytes owned by the provider and valid only until the handler returns. A provider SHALL have at most one undelivered `Data` event per link and SHALL NOT read further from that link until the handler has returned from it.
+A `Data` event SHALL carry a read-only slice of bytes owned by the event loop and valid only until the handler returns. An event loop SHALL have at most one undelivered `Data` event per link and SHALL NOT read further from that link until the handler has returned from it.
 
 #### Scenario: Bytes arrive as a slice
 - **WHEN** a peer sends 100 bytes
@@ -213,10 +202,10 @@ A `Data` event SHALL carry a read-only slice of bytes owned by the provider and 
 
 #### Scenario: A slow handler holds one buffer
 - **WHEN** a peer sends continuously and the handler has not yet returned from a `Data` event
-- **THEN** the provider reads no further bytes from that link until the handler returns
+- **THEN** the event loop reads no further bytes from that link until the handler returns
 
 ### Requirement: Sending is all or nothing
-`send(link, bytes)` SHALL either take every byte and return `Sent`, after which the caller may reuse its memory, or take none and return one of `Full`, `TooLarge`, `NotOpen` or `Closed`. `Sent` means the provider has taken the bytes, not that the peer has received them. Bytes taken SHALL be transmitted in the order the sends were accepted. A send of zero bytes on an open link SHALL return `Sent`.
+`send(link, bytes)` SHALL either take every byte and return `Sent`, after which the caller may reuse its memory, or take none and return one of `Full`, `TooLarge`, `NotOpen` or `Closed`. `Sent` means the event loop has taken the bytes, not that the peer has received them. Bytes taken SHALL be transmitted in the order the sends were accepted. A send of zero bytes on an open link SHALL return `Sent`.
 
 #### Scenario: The caller reuses its memory at once
 - **WHEN** a library sends from a buffer, receives `Sent`, and overwrites that buffer before its handler returns
@@ -235,7 +224,7 @@ A `Data` event SHALL carry a read-only slice of bytes owned by the provider and 
 - **THEN** `send` returns `Closed` and nothing is queued
 
 ### Requirement: Two parts can be sent as one
-`send2(link, first, second)` SHALL behave as one `send` of the two byte ranges joined in that order: both are taken and `Sent` is returned, or neither is taken. Its size for `Full`, `TooLarge` and `send_room` SHALL be the sum of the two lengths.
+An event loop that supplies the sizing group SHALL provide `send2(link, first, second)`, which behaves as one `send` of the two byte ranges joined in that order: both are taken and `Sent` is returned, or neither is taken. Its size for `Full`, `TooLarge` and `send_room` SHALL be the sum of the two lengths.
 
 #### Scenario: A header and a body
 - **WHEN** a library calls `send2` with a 20-byte header and a 100-byte body on an open, idle link
@@ -246,7 +235,7 @@ A `Data` event SHALL carry a read-only slice of bytes owned by the provider and 
 - **THEN** `send2` returns `Full`, the peer receives none of the first part, and one `Writable` follows once room has opened
 
 ### Requirement: Send backpressure is explicit and bounded
-A provider SHALL bound the bytes it holds unsent for each link. `max_send` SHALL report the largest single send it can ever accept: at least 4096 bytes, and one value for every link of the loop. A larger send SHALL return `TooLarge`. A send that does not fit now SHALL return `Full`. `send_room(link)` SHALL return the number of bytes a send would accept now, and 0 for a link that is not open or can no longer send.
+An event loop SHALL bound the bytes it holds unsent for each link. `max_send` SHALL report the largest single send it can accept: at least 4096 bytes, one value for the whole loop. A larger send SHALL return `TooLarge`, and one that does not fit now `Full`. The sizing group's `send_room(link)` SHALL return the bytes a send would accept now, at most `max_send`, and 0 for a link that cannot send.
 
 #### Scenario: An oversized send never fits
 - **WHEN** a library sends more than `max_send` bytes in one call
@@ -254,14 +243,14 @@ A provider SHALL bound the bytes it holds unsent for each link. `max_send` SHALL
 
 #### Scenario: A reader that never reads does not grow memory
 - **WHEN** a library keeps offering bytes to a peer that reads nothing, sending only when `send` accepts
-- **THEN** the provider's memory for that link stays within its per-link bound
+- **THEN** the event loop's memory for that link stays within its per-link bound
 
 #### Scenario: No room on a link that cannot send
-- **WHEN** a library asks for `send_room` of a link before its `Opened`, after `close`, after `shutdown_write`, or with a stale handle
+- **WHEN** a library on an event loop with the sizing group asks for `send_room` of a link before its `Opened`, after `close`, after `shutdown_write`, or with a stale handle
 - **THEN** it obtains 0
 
 ### Requirement: Writable follows Full once
-After one or more sends on a link have returned `Full`, the provider SHALL deliver exactly one `Writable` for that link, once each send refused since the link's previous `Writable` would fit on its own (each one, not all of them together). Further refusals before that `Writable` SHALL NOT add `Writable` events; a `Full` after it SHALL lead to another. A link that was never refused with `Full` SHALL receive no `Writable`.
+After one or more sends on a link have returned `Full`, the event loop SHALL deliver exactly one `Writable` for that link, once each send refused since the link's previous `Writable` would fit on its own (each one, not all of them together). Further refusals before that `Writable` SHALL NOT add `Writable` events; a `Full` after it SHALL lead to another. A link that was never refused with `Full` SHALL receive no `Writable`.
 
 #### Scenario: A full queue is reported and later reopened
 - **WHEN** a peer stops reading and a library keeps sending until `send` returns `Full`, and the peer then resumes reading
@@ -280,14 +269,14 @@ After one or more sends on a link have returned `Full`, the provider SHALL deliv
 - **THEN** a second `Writable` is delivered
 
 ### Requirement: Reading can be paused
-`pause_reading(link, true)` SHALL stop `Data` events for the link, except for one that was already received before the call, until `pause_reading(link, false)`. While reading is paused the provider SHALL NOT read from the link, so the peer experiences backpressure.
+`pause_reading(link, true)` SHALL stop `Data` events for the link, except for one that was already received before the call, until `pause_reading(link, false)`. While reading is paused the event loop SHALL NOT read from the link, so the peer experiences backpressure.
 
 #### Scenario: Pause and resume
 - **WHEN** a library pauses reading on a link, the peer sends bytes, and the library later resumes reading
 - **THEN** no `Data` for bytes received after the pause is delivered while paused, and the bytes are delivered after the resume
 
 ### Requirement: Closing
-`close(link)` SHALL transmit the bytes already accepted and then end the connection cleanly, without waiting for the peer to finish; on a link that has not opened it SHALL cancel the dial. `reset(link)` SHALL end it at once, discarding unsent bytes, so the peer observes an abort. After either call, sends SHALL return `Closed` and the only further event for the link SHALL be exactly one `Closed` with reason `Local`.
+`close(link)` SHALL transmit the bytes already accepted and then end the connection cleanly, without waiting for the peer to finish; on a link that has not opened it SHALL cancel the dial. An event loop that supplies the abort group SHALL also provide `reset(link)`, which ends the link at once, discarding unsent bytes, so the peer observes an abort. After either call, sends SHALL return `Closed` and the only further event for the link SHALL be exactly one `Closed` with reason `Local`.
 
 #### Scenario: Close after a reply
 - **WHEN** a library sends a reply and immediately calls `close`
@@ -302,11 +291,11 @@ After one or more sends on a link have returned `Full`, the provider SHALL deliv
 - **THEN** the connection attempt is abandoned, no `Opened` is delivered, and one `Closed` follows
 
 #### Scenario: Reset
-- **WHEN** a library calls `reset` on an open link with bytes still queued
+- **WHEN** a library on an event loop with the abort group calls `reset` on an open link with bytes still queued
 - **THEN** the peer's link ends with reason `PeerReset` and the handler receives one `Closed` with reason `Local` for the reset link
 
 ### Requirement: Close does not lose accepted bytes
-After `close`, a provider SHALL hand every byte it has accepted to the transport before it ends the connection. Bytes received from the peer and not yet delivered SHALL NOT cause it to discard accepted bytes. A provider MAY abandon accepted bytes after a limit of its own when the peer does not take them. `close` does not promise that the peer's application receives or processes the bytes.
+After `close`, an event loop SHALL hand every byte it has accepted to the transport before it ends the connection. Bytes received from the peer and not yet delivered SHALL NOT cause it to discard accepted bytes. An event loop MAY abandon accepted bytes after a limit of its own when the peer does not take them. `close` does not promise that the peer's application receives or processes the bytes.
 
 #### Scenario: Close with unread input
 - **WHEN** a peer has sent bytes the library has not been given yet, and the library sends a reply and calls `close`
@@ -314,32 +303,32 @@ After `close`, a provider SHALL hand every byte it has accepted to the transport
 
 #### Scenario: A peer that never reads
 - **WHEN** a library sends, calls `close`, and the peer never reads
-- **THEN** the library receives its one `Closed` with reason `Local` no later than the provider's limit, and the provider holds nothing for the link after that
+- **THEN** the library receives its one `Closed` with reason `Local` no later than the event loop's limit, and the event loop holds nothing for the link after that
 
 ### Requirement: Peer end of stream and half-close
-By default, when the peer finishes sending, the provider SHALL transmit accepted bytes and close the link with reason `PeerClosed`. After `set_keep_open_on_eof(link, true)` it SHALL instead deliver `PeerEof` once and keep the link open for sending. `shutdown_write(link)` SHALL end the local sending direction once accepted bytes are out; later sends SHALL return `Closed`, and the link SHALL close when the peer has finished too.
+When the peer finishes sending, an event loop SHALL send the bytes already accepted and close the link with `PeerClosed`. The half-close group adds `set_keep_open_on_eof(link, keep)`, `shutdown_write(link)` and `PeerEof`: with keep set the loop SHALL deliver `PeerEof` once, after every `Data`, and keep the link open; `shutdown_write` SHALL end local sending once accepted bytes are out (later sends return `Closed`), and the link SHALL close when the peer has finished too.
 
 #### Scenario: Default behaviour on peer end of stream
 - **WHEN** a peer sends a request and shuts down its sending side, and the library has not opted in to keep the link open
 - **THEN** bytes the library already sent reach the peer and the handler receives `Closed` with reason `PeerClosed`
 
 #### Scenario: Answering after the peer half-closes
-- **WHEN** a library has opted in, the peer half-closes, and the library then sends a reply and calls `shutdown_write`
+- **WHEN** a library on an event loop with the half-close group has opted in, the peer half-closes, and the library then sends a reply and calls `shutdown_write`
 - **THEN** the handler receives `PeerEof` once after all `Data`, the peer receives the whole reply followed by end of stream, and `Closed` follows
 
 ### Requirement: Close reasons are portable
-A `Closed` event SHALL carry one of the portable reasons `PeerClosed`, `PeerReset`, `ConnectFailed`, `IdleTimeout`, `HalfCloseTimeout`, `Local`, `Shutdown` or `Error`, or a provider-specific reason carrying a numeric code. A provider MAY close a link on its own policy at any time. A portable library SHALL handle every reason and SHALL treat a provider-specific reason as it treats `Error`.
+A `Closed` event SHALL carry one of the portable reasons `PeerClosed`, `PeerReset`, `ConnectFailed`, `IdleTimeout`, `HalfCloseTimeout`, `Local`, `Shutdown` or `Error`, or a loop-specific reason carrying a numeric code. An event loop MAY close a link on its own policy at any time. A portable library SHALL handle every reason and SHALL treat a loop-specific reason as it treats `Error`.
 
 #### Scenario: The peer resets the connection
 - **WHEN** a peer aborts an open link
 - **THEN** the handler receives `Closed` with reason `PeerReset`
 
-#### Scenario: A provider-specific reason reaches a portable library
-- **WHEN** a provider closes a link for a reason outside the portable set
-- **THEN** the `Closed` event carries the provider-specific reason and its code, and the example client library handles it as it handles `Error`
+#### Scenario: A loop-specific reason reaches a portable library
+- **WHEN** an event loop closes a link for a reason outside the portable set
+- **THEN** the `Closed` event carries the loop-specific reason and its code, and the example client library handles it as it handles `Error`
 
 ### Requirement: Time and ticks
-A provider SHALL expose `now_ms`, a monotonic millisecond clock that never goes backwards, and SHALL deliver a `Tick` carrying that clock at least every 100 ms while the loop runs. `tick_by(at_ms)` SHALL cause a `Tick` at or after `at_ms` to be delivered promptly once the clock reaches `at_ms`. A provider need keep only the earliest outstanding request, which the first such `Tick` satisfies.
+An event loop SHALL expose `now_ms`, a monotonic millisecond clock that never goes backwards, and SHALL deliver a `Tick` carrying that clock at least every 100 ms while the loop runs. `tick_by(at_ms)` SHALL cause a `Tick` at or after `at_ms` to be delivered promptly once the clock reaches `at_ms`. An event loop need keep only the earliest outstanding request, which the first such `Tick` satisfies.
 
 #### Scenario: Regular ticks
 - **WHEN** a loop runs for one second of its clock with no link activity
@@ -354,22 +343,26 @@ A provider SHALL expose `now_ms`, a monotonic millisecond clock that never goes 
 - **THEN** each library observes a `Tick` at or after its own deadline before the next regular tick after it
 
 ### Requirement: End-of-pass notification
-A provider SHALL deliver exactly one `PassEnd` as the last event of every pass that delivered at least one link event: no link event and no `Tick` of that pass SHALL follow it. A pass that delivered only ticks or nothing SHALL have none. `PassEnd` is not requested and cannot be turned off. Operations called while handling `PassEnd` SHALL behave as anywhere else, and events they cause SHALL NOT produce a second `PassEnd` for the same pass.
+An event loop MAY supply the batching group. One that does SHALL deliver exactly one `PassEnd`, last, in every pass that delivered a link event, and none in a pass of only ticks or nothing: no link event or `Tick` of that pass SHALL follow it, and calls made while handling it SHALL NOT cause a second one. A library SHALL NOT depend on `PassEnd` for correctness: it is for batching only.
 
 #### Scenario: Batching replies
-- **WHEN** ten requests on ten links arrive in one pass
+- **WHEN** ten requests on ten links arrive in one pass on an event loop with the batching group
 - **THEN** the handler receives the ten `Data` events and then exactly one `PassEnd`
 
 #### Scenario: PassEnd is last
-- **WHEN** one pass delivers a `Tick` and link events
-- **THEN** `PassEnd` is delivered after all of them, and the host offers it to every library once
+- **WHEN** one pass delivers a `Tick` and link events on an event loop with the batching group
+- **THEN** `PassEnd` is delivered after all of them, and the application offers it to every library once
 
 #### Scenario: An idle pass
 - **WHEN** a pass delivers only a `Tick`
 - **THEN** no `PassEnd` is delivered
 
-### Requirement: The host runs and stops the loop
-`serve` SHALL run the loop on the calling thread, delivering events to the host's handler, until the loop has stopped. `stop(grace_ms)` SHALL stop every listener at once and make `draining` true. `serve` SHALL return once no link remains, or after `grace_ms`, when the provider SHALL close each remaining link with reason `Shutdown` and deliver its `Closed` before returning.
+#### Scenario: A loop without batching
+- **WHEN** an event loop does not supply the batching group
+- **THEN** it never delivers `PassEnd`, and every library that sends as it handles each event still works
+
+### Requirement: The application runs and stops the loop
+`serve` SHALL run the loop on the calling thread, delivering events to the application's handler, until the loop has stopped. `stop(grace_ms)` SHALL stop every listener at once and make `draining` true. `serve` SHALL return once no link remains, or after `grace_ms`, when the event loop SHALL close each remaining link with reason `Shutdown` and deliver its `Closed` before returning.
 
 #### Scenario: Stop with nothing open
 - **WHEN** a handler calls `stop` while no links are open
@@ -383,8 +376,8 @@ A provider SHALL deliver exactly one `PassEnd` as the last event of every pass t
 - **WHEN** a handler calls `stop` with a grace period and every library closes its links on seeing `draining`
 - **THEN** `serve` returns as soon as the last `Closed` has been delivered
 
-### Requirement: Draining is the same on every provider
-After `stop`, `listen` SHALL fail and `dial` SHALL still work; a link opened while draining ends with the same grace period and does not extend it. Of several `stop` calls the earliest end of grace SHALL stand. `serve` and `stop` belong to the host: a library SHALL NOT call them. A loop whose `serve` has returned SHALL NOT be run again.
+### Requirement: Draining is the same on every event loop
+After `stop`, `listen` SHALL fail and `dial` SHALL still work; a link opened while draining ends with the same grace period and does not extend it. Of several `stop` calls the earliest end of grace SHALL stand. `serve` and `stop` belong to the application: a library SHALL NOT call them. A loop whose `serve` has returned SHALL NOT be run again.
 
 #### Scenario: Listening while draining
 - **WHEN** a library calls `listen` after `stop`
@@ -398,24 +391,68 @@ After `stop`, `listen` SHALL fail and `dial` SHALL still work; a link opened whi
 - **WHEN** a handler calls `stop` with a grace period of 300 ms and later calls `stop` with a grace period of five seconds
 - **THEN** remaining links are closed with reason `Shutdown` 300 ms after the first call
 
-### Requirement: Providers can be layered
-A provider SHALL be able to wrap another provider, transforming the bytes of some or all links, and present the same contract to libraries above it. Nothing in the contract SHALL prevent the wrapper from delaying `Opened`, changing the size of what is sent or received, or closing a link with a provider-specific reason.
+### Requirement: Event loops can be layered
+An event loop SHALL be able to wrap another event loop, transforming the bytes of some or all links, and present the same contract to libraries above it. Nothing in the contract SHALL prevent the wrapper from delaying `Opened`, changing the size of what is sent or received, or closing a link with a loop-specific reason. A wrapper SHALL supply at least the groups it passes through.
 
 #### Scenario: A transforming wrapper conforms
-- **WHEN** a wrapper that alters every byte on the way out and restores it on the way in is placed over a conforming provider
-- **THEN** the conformance suite passes against the wrapper, with no change to the suite or to the provider underneath
+- **WHEN** a wrapper that alters every byte on the way out and restores it on the way in is placed over a conforming event loop
+- **THEN** the conformance suite passes against the wrapper for the groups the wrapper supplies, with no change to the suite or to the event loop underneath
 
 #### Scenario: A library cannot tell
 - **WHEN** the example client and server libraries run over the wrapper
 - **THEN** their tests pass with no change to either library's source
 
-### Requirement: Scope of the base contract
-The base contract SHALL cover TCP byte streams over IPv4 and IPv6, ticks and deadlines, and running and stopping one loop, and nothing else. Name resolution, TLS, UDP, Unix sockets, files, signals, cross-thread messaging, starting several loops, and joining two links for forwarding SHALL NOT be required of a provider.
+### Requirement: The contract is a core and groups of extras
+The contract SHALL be a core, which every event loop supplies, and five groups of extras: half-close, sizing, abort, inspection and batching. An event loop MAY supply any group. A rule that belongs to a group SHALL bind only an event loop that supplies that group, and a rule of the core SHALL NOT depend on any group.
 
-#### Scenario: IPv6 is supported
+#### Scenario: A loop that supplies only the core
+- **WHEN** an event loop supplies the core and none of the groups
+- **THEN** it conforms to the core, and a library that uses only the core runs on it unchanged
+
+#### Scenario: A library uses an extra the loop lacks
+- **WHEN** a library that calls `send2` is built against an event loop that does not supply the sizing group
+- **THEN** the build fails and the error names `send2`
+
+#### Scenario: An event the loop never delivers
+- **WHEN** an event loop does not supply the half-close group
+- **THEN** it never delivers `PeerEof`, and a library's handling of `PeerEof` is never run
+
+### Requirement: The core is thirteen operations and five events
+The core operations SHALL be `listen`, `listener_port`, `dial`, `send`, `max_send`, `pause_reading`, `close`, `set_user`, `now_ms`, `tick_by`, `serve`, `stop` and `draining`. The core events SHALL be `Opened`, `Data`, `Writable`, `Closed` and `Tick`. `listener_port` and `pause_reading` are in the core because a suite that runs both ends of every link on one loop cannot otherwise reach a system-chosen port or make a peer that does not read.
+
+#### Scenario: The core is enough for a client
+- **WHEN** the example line client is built against an event loop that supplies only the core
+- **THEN** the build succeeds and the client's tests pass
+
+### Requirement: Each group is named and checked on its own
+The groups SHALL be half-close (`shutdown_write`, `set_keep_open_on_eof`, `PeerEof`), sizing (`send_room`, `send2`), abort (`reset`), inspection (`peer_address`, `stop_listening`, `user`) and batching (`PassEnd`). The contract package SHALL offer a compile-time check for the core and for each group that has operations, each naming every operation of its part. Batching has only an event, and so no check.
+
+#### Scenario: The core check
+- **WHEN** an event loop's root program calls the core check
+- **THEN** it compiles if the loop supplies every operation of the core with the contract's types, and otherwise the error names the first operation that is missing
+
+#### Scenario: A group check
+- **WHEN** an event loop that supplies the abort group calls the abort check
+- **THEN** it compiles, and an event loop without `reset` calling it gets an error naming `reset`
+
+### Requirement: Three roles: event loop, library, application
+The contract SHALL define an event loop (owns the thread and the sockets, delivers events, performs operations), a library (handles events, calls operations) and an application (the program that runs the event loop and passes events to its libraries). A library SHALL depend only on the contract, never on the types of one event loop. No role SHALL be required to store a callback, allocate from a heap, or call through a function pointer.
+
+#### Scenario: A library runs on two event loops unchanged
+- **WHEN** the same library source is built with two different conforming event loops that supply what the library uses
+- **THEN** both builds succeed with no change to the library source and no adapter code between the library and either loop
+
+#### Scenario: A library imports no event loop
+- **WHEN** the example libraries' sources are inspected
+- **THEN** they import the contract and nothing that names a specific event loop
+
+### Requirement: What the contract covers
+The contract SHALL cover TCP byte streams over IPv4 and IPv6, ticks and deadlines, and running and stopping one loop, and nothing else. Name resolution, TLS, UDP, Unix sockets, files, signals, cross-thread messaging, starting several loops, and joining two links for forwarding SHALL NOT be required of an event loop. Nothing in a group SHALL be required of an event loop that does not supply the group.
+
+#### Scenario: IPv6 is covered
 - **WHEN** a library listens on `[::1]` and dials that address
 - **THEN** the link opens and carries data as an IPv4 link does
 
-#### Scenario: A provider without extras conforms
-- **WHEN** a provider implements only the operations and events of this specification
-- **THEN** it passes the conformance suite
+#### Scenario: An event loop without extras conforms to the core
+- **WHEN** an event loop implements only the operations and events of the core
+- **THEN** it passes the core of the conformance suite

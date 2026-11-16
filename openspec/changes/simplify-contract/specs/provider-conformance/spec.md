@@ -101,7 +101,7 @@ The project SHALL ship a small server library and a small client library written
 - **THEN** each names the groups of the contract it uses, and a program that builds the client against an event loop that supplies only the core succeeds
 
 ### Requirement: Candidate event loops have a recorded mapping
-For each planned example event loop and each event-loop library the contract claims to fit, the project SHALL record how every contract operation and event maps onto that loop's own interface at a named revision of its source, with the core and each group in their own part of the record. Each row SHALL be marked as checked against the source or as unverified, and an operation with no workable mapping SHALL be resolved in the contract or recorded as a known gap before the contract version is published.
+For each planned example event loop and each library the contract claims to fit, the project SHALL record, at a named revision of its source, how every operation and event maps onto it, the core and each group apart. Each row SHALL be marked checked against the source or unverified, and an operation with no workable mapping SHALL be resolved in the contract or recorded as a known gap before the version is published.
 
 #### Scenario: Every operation has a row
 - **WHEN** a mapping document is compared with the operations and events of the contract
