@@ -44,6 +44,7 @@ Ground rules for every task: work on the branch `simplify-contract` (made from `
 
 - [ ] 7.1 Make `.github/workflows/ci.yml` and `CONTRIBUTING.md` run the core and each group, the core-only loop, the groups check, the needs check and the vocabulary check; add the groups to the README's table of conforming loops; verify every `run:` command of the workflow and every command of `CONTRIBUTING.md` exits 0 locally
 - [ ] 7.2 Run everything from a fresh clone of the branch, then `openspec validate simplify-contract --strict`; verify both succeed and record the Goose version and the commit in `docs/history.md`
+- [x] 7.3 Run the macos-arm64 build of `.github/workflows/ci.yml` on `macos-26`, because the label `macos-15` is never picked up for this private repository (the job stays queued); verify the first run of all four builds (linux-x64, macos-x64, macos-arm64, windows-x64) passed on GitHub, and that 7.1's edits to the workflow keep the label
 
 ## Workflow follow-up
 
