@@ -11,7 +11,7 @@
 set -u
 cd "$(dirname "$0")/../.."
 
-words="\\b(provider|host)(s|'s)?\\b"
+words="(^|[^A-Za-z0-9_])(provider|host)(s|'s)?($|[^A-Za-z0-9_])"
 allowed="provider-conformance|localhost|host name|host-name|hostname|host part|host or"
 
 files=()

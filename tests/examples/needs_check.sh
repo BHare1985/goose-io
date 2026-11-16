@@ -6,13 +6,16 @@
 set -u
 cd "$(dirname "$0")/../.."
 
-# the operations of each group (docs/contract.md), as the calls `io.<operation>(`
-declare -A ops=(
-    [half-close]='set_keep_open_on_eof|shutdown_write'
-    [sizing]='send_room|send2'
-    [abort]='reset'
-    [inspection]='peer_address|stop_listening|user'
-)
+# the operations of each group (docs/contract.md), as the calls `io.<operation>(` (a function and not an array, which
+# the bash of macOS lacks)
+ops_of() {
+    case "$1" in
+        half-close) echo 'set_keep_open_on_eof|shutdown_write' ;;
+        sizing) echo 'send_room|send2' ;;
+        abort) echo 'reset' ;;
+        inspection) echo 'peer_address|stop_listening|user' ;;
+    esac
+}
 groups=(half-close sizing abort inspection)
 
 files=("$@")
@@ -30,7 +33,7 @@ named() {
 needed() {
     local f="$1" g
     for g in "${groups[@]}"; do
-        if grep -vE '^\s*//' "$f" | grep -qE "\.(${ops[$g]})\("; then echo "$g"; fi
+        if grep -vE '^[[:space:]]*//' "$f" | grep -qE "\.($(ops_of "$g"))\("; then echo "$g"; fi
     done
     while IFS= read -r name; do
         local lib="${name//./\/}.goose"

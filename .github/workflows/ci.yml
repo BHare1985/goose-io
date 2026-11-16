@@ -1,6 +1,7 @@
 # goose-io is pure Goose, so every build runs the same checks with the Goose release for its platform: the contract
-# compiles, the tests and the conformance suite pass on the in-memory event loop and on the wrapper over it, every check is
-# shown to fail against its fault, and the documents agree with the code. The commands are the ones CONTRIBUTING.md lists.
+# compiles, the tests and the conformance suite (the core and each group) pass on the in-memory event loop and on the
+# wrapper over it, the core passes on a loop that supplies nothing else, every check is shown to fail against its fault,
+# the example libraries name what they need, the documents agree with the code, and the old words stay out. The commands are the ones CONTRIBUTING.md lists.
 name: ci
 
 # One run for each commit: a branch is built when it has a pull request, and main is built when it changes. A push
@@ -90,9 +91,13 @@ jobs:
         shell: bash
         run: bash tests/checks/docs.sh
 
-      - name: Conformance suite on the in-memory event loop
+      - name: Conformance suite on the in-memory event loop (the core and each group)
         shell: bash
         run: bash tests/conformance/run.sh --repeat 3
+
+      - name: Core of the suite on an event loop that supplies only the core
+        shell: bash
+        run: bash tests/conformance/run.sh --core-only
 
       - name: Conformance suite on the wrapper over it
         shell: bash
@@ -106,6 +111,10 @@ jobs:
         shell: bash
         run: bash tests/conformance/table_check.sh
 
+      - name: Every check is in the group of the operations it calls
+        shell: bash
+        run: bash tests/conformance/groups_check.sh
+
       - name: Example libraries over the wrapper
         shell: bash
         run: bash tests/examples/over_wrapper.sh
@@ -114,6 +123,10 @@ jobs:
         shell: bash
         run: bash tests/examples/imports_test.sh
 
+      - name: Example libraries name the groups they need
+        shell: bash
+        run: bash tests/examples/needs_check.sh
+
       - name: Event loop mappings are complete
         shell: bash
         run: bash tests/checks/event_loops.sh
@@ -121,6 +134,10 @@ jobs:
       - name: The layout listed in the README is the layout
         shell: bash
         run: bash tests/checks/layout.sh
+
+      - name: The old vocabulary stays out
+        shell: bash
+        run: bash tests/checks/vocabulary.sh
 
       # fifty repetitions: a check that fails once in any of them fails the run (docs/event-loops.md)
       - name: Fifty repetitions of the suite
