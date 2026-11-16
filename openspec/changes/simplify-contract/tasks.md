@@ -34,7 +34,7 @@ Ground rules for every task: work on the branch `simplify-contract` (made from `
 
 ## 6. Words and documents
 
-- [ ] 6.1 Write `tests/checks/vocabulary.sh` first: it fails on "provider" or "host" in the documents, code, scripts and `openspec/specs/`, outside the allowed lines (design D10), and runs in `tests/run_tests.sh`; verify it fails now and lists the files
+- [x] 6.1 Write `tests/checks/vocabulary.sh` first: it fails on "provider" or "host" in the documents, code, scripts and `openspec/specs/`, outside the allowed lines (design D10), and runs in `tests/run_tests.sh`; verify it fails now and lists the files
 - [ ] 6.2 Sweep the code, tests and scripts for the old words (names, comments, messages, the output of the suite) in the order of the lists the script prints; verify the script reports nothing for them and `tests/run_tests.sh` passes
 - [ ] 6.3 Rewrite `docs/contract.md` around the core and the groups (the core first, each group in its own section with its rules), rewrite `docs/libraries.md`, `README.md` and `CONTRIBUTING.md` in the new words, move `docs/providers.md` to `docs/event-loops.md` and `docs/providers/` to `docs/event-loops/`, and update the README layout section and every caller; verify `tests/checks/docs.sh`, `layout.sh` and `vocabulary.sh` pass
 - [ ] 6.4 Regroup the rows of each mapping document into the core and the groups, add to each a section "What a loop with only the core costs" listing the core's adapter work, and update `tests/checks/providers.sh` for the new layout; verify it passes and every document has the section
