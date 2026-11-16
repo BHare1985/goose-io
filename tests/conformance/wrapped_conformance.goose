@@ -15,7 +15,11 @@ fn main() {
         for c in text { if c >= '0' && c <= '9' { part = part * 10 + (c - '0'); } }
     }
     var io = wrapper::Layer { .. };
-    goose_io::require_provider(io);
+    goose_io::require_core(io);
+    goose_io::require_half_close(io);
+    goose_io::require_sizing(io);
+    goose_io::require_abort(io);
+    goose_io::require_inspection(io);
     io.silent("10.255.0.1:81");
     io.hold("127.0.0.1:9999");
     let up = io.add_peer();

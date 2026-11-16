@@ -295,7 +295,7 @@ fn peer_gone() {
 
 fn policy_event(p: kit::Pair&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
     if kit::track(p, log, io, ev) {
-        io.provider_close(p.server, goose_io::CloseReason.Provider { code: 77 });
+        io.provider_close(p.server, goose_io::CloseReason.LoopSpecific { code: 77 });
     }
     kit::stop_after(io, ev, 200);
 }
@@ -312,8 +312,8 @@ fn provider_reasons() {
         let why = log.entries[i].why;
         kit::check(!goose_io::is_portable(why), "carrying the provider's own reason");
         match why {
-            Provider r => { kit::check(r.code == 77, "and its code"); },
-            _ => { kit::check(false, "the reason is Provider"); },
+            LoopSpecific r => { kit::check(r.code == 77, "and its code"); },
+            _ => { kit::check(false, "the reason is LoopSpecific"); },
         }
     }
     kit::check(kit::closed_once(log, p.client, PeerClosed), "the other end sees a clean end");

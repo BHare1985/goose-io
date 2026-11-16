@@ -1215,7 +1215,7 @@ fn _peer_deliver(io: Loop&, kind: u8, i: i64) {
 // --- scripting: the provider's own decisions -----------------------------------------------------
 
 // Closes a link as a provider may on its own policy, with any reason (IdleTimeout, Error,
-// Provider { code }, ...), so a library can be tested against each. The other end sees a clean end.
+// LoopSpecific { code }, ...), so a library can be tested against each. The other end sees a clean end.
 fn provider_close(io: Loop&, link: goose_io::Link, why: goose_io::CloseReason) {
     let i = io._slot_of(link);
     if i >= 0 { io._close(i, why, false); }

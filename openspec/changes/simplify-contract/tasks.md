@@ -9,8 +9,8 @@ Ground rules for every task: work on the branch `simplify-contract` (made from `
 
 ## 2. The contract: a core and groups
 
-- [ ] 2.1 Write the tests first in `tests/unit/types_test.goose` and a new `tests/unit/groups_test.goose`: `VERSION_MINOR` is 2; `require_core` compiles for the in-memory loop and each `require_` group check does too (`require_half_close`, `require_sizing`, `require_abort`, `require_inspection`, `require_batching`); `CloseReason.LoopSpecific { code }` exists and `is_portable` is false for it; a `*_mustfail.goose` stub that lacks `send2` passes `require_core` and fails `require_sizing` with an error that names `send2`; verify these fail to build on the current `goose_io.goose`
-- [ ] 2.2 In `goose_io.goose` replace `require_provider` by the six checks of design D4, rename `Provider { code }` to `LoopSpecific { code }`, set the version to 0.2 and rewrite the comments in the new words; update every caller; verify 2.1 passes and `goose check goose_io.goose` is clean
+- [x] 2.1 Write the tests first in `tests/unit/types_test.goose` and a new `tests/unit/groups_test.goose`: `VERSION_MINOR` is 2; `require_core` compiles for the in-memory loop and each `require_` group check does too (`require_half_close`, `require_sizing`, `require_abort`, `require_inspection`; the batching group has no operation to name, so no check); `CloseReason.LoopSpecific { code }` exists and `is_portable` is false for it; a `*_mustfail.goose` stub that lacks `send2` passes `require_core` and fails `require_sizing` with an error that names `send2`; verify these fail to build on the current `goose_io.goose`
+- [x] 2.2 In `goose_io.goose` replace `require_provider` by the five checks of design D4, rename `Provider { code }` to `LoopSpecific { code }`, set the version to 0.2 and rewrite the comments in the new words; update every caller; verify 2.1 passes and `goose check goose_io.goose` is clean
 
 ## 3. The in-memory loop and the wrapper
 

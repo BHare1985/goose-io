@@ -25,7 +25,7 @@ The core operations SHALL be `listen`, `listener_port`, `dial`, `send`, `max_sen
 - **THEN** the build succeeds and the client's tests pass
 
 ### Requirement: Each group is named and checked on its own
-The groups SHALL be: half-close (`shutdown_write`, `set_keep_open_on_eof`, `PeerEof`), sizing (`send_room`, `send2`), abort (`reset`), inspection (`peer_address`, `stop_listening`, `user`) and batching (`PassEnd`). The contract package SHALL offer one compile-time check for the core and one for each group, each naming every operation of its group, so that a missing or mistyped operation is an error at one place.
+The groups SHALL be half-close (`shutdown_write`, `set_keep_open_on_eof`, `PeerEof`), sizing (`send_room`, `send2`), abort (`reset`), inspection (`peer_address`, `stop_listening`, `user`) and batching (`PassEnd`). The contract package SHALL offer a compile-time check for the core and for each group that has operations, each naming every operation of its part. Batching has only an event, and so no check.
 
 #### Scenario: The core check
 - **WHEN** an event loop's root program calls the core check

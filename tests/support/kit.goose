@@ -166,7 +166,7 @@ fn reason_name(why: goose_io::CloseReason) -> const u8[:] {
         Local => "Local",
         Shutdown => "Shutdown",
         Error => "Error",
-        Provider p => "Provider",
+        LoopSpecific p => "LoopSpecific",
     }
 }
 

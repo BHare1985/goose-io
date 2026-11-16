@@ -81,7 +81,7 @@ This change makes loops easier to write by making operations optional, not by ma
 
 ### D4. Compile-time checks, one per part
 
-`require_provider<Io>` is replaced by `require_core<Io>`, `require_half_close<Io>`, `require_sizing<Io>`, `require_abort<Io>`, `require_inspection<Io>` and `require_batching<Io>`. Each names every operation of its part once with the contract's types and never runs, as `require_provider` did. A loop's root program calls the core check and the check of each group it supplies. The version is 0.2 (`VERSION_MINOR` 2) and `require_provider` is removed, not kept as an alias: the contract is at major version 0 and nothing outside this repository uses it.
+`require_provider<Io>` is replaced by `require_core<Io>`, `require_half_close<Io>`, `require_sizing<Io>`, `require_abort<Io>` and `require_inspection<Io>`. The batching group has no operation (only the event `PassEnd`), so there is nothing for a compile-time check to name and it has none; the conformance suite is what shows that a loop delivers `PassEnd` as the contract says. Each names every operation of its part once with the contract's types and never runs, as `require_provider` did. A loop's root program calls the core check and the check of each group it supplies that has one. The version is 0.2 (`VERSION_MINOR` 2) and `require_provider` is removed, not kept as an alias: the contract is at major version 0 and nothing outside this repository uses it.
 
 ### D5. The suite runs by group
 
