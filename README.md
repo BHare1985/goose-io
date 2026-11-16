@@ -1,5 +1,7 @@
 # goose-io
 
+[![ci](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml)
+
 **One I/O contract between an event loop and the libraries that run on it, in pure Goose.**
 
 A Postgres client, a Redis client and an HTTP server should not each need to know which event loop they run on, and
@@ -13,7 +15,7 @@ that answers requests) and five **groups of extras** that it may add or leave ou
 inspection and batching. A library says in its header what it needs; on a loop that lacks it, it fails to compile and
 the error names the missing operation. The cheapest event loop to write is one that supplies only the core.
 
-Version 0.1 of the contract, an in-memory event loop for testing, a conformance suite that is run by group, and two
+Version 0.1 of the contract (CI builds and tests it on linux-x64, macos-x64, macos-arm64 and windows-x64), an in-memory event loop for testing, a conformance suite that is run by group, and two
 example libraries. Nothing here opens a socket or builds C: the package is Goose source and links nothing.
 
 ## What it is not
