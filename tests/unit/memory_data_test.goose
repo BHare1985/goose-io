@@ -1,4 +1,4 @@
-// In-memory provider: sending, receiving, backpressure, pausing.
+// In-memory event loop: sending, receiving, backpressure, pausing.
 import std;
 import goose_io from "../..";
 import goose_io.memory;
@@ -23,7 +23,7 @@ fn basics_event(p: kit::Pair&, log: kit::Log&, io: goose_io_memory::Loop&, ev: g
         kit::check(io.send2(p.client, "", ",tail") == goose_io::SendStatus.Sent, "send2 with an empty first part");
         kit::check(io.send2(p.client, "", "") == goose_io::SendStatus.Sent, "send2 of nothing returns Sent");
         kit::check(io.send(p.server, "reply") == goose_io::SendStatus.Sent, "the accepted end sends too");
-        // Sent means the provider has the bytes: the caller's memory is its own again at once
+        // Sent means the event loop has the bytes: the caller's memory is its own again at once
         var mine: u8[>..] = [];
         mine.append(",original");
         kit::check(io.send(p.client, mine) == goose_io::SendStatus.Sent, "fixture: a send from a buffer");
@@ -102,7 +102,7 @@ fn back_event(b: Back&, log: kit::Log&, chunk: u8[>..]&, io: goose_io_memory::Lo
             }
         }
         kit::check(b.accepted == 8, "exactly what fits the bound is accepted (8 x 1000 of 8192)");
-        kit::check(io.stored_bytes(b.p.client) == 8000, "the provider holds what it accepted");
+        kit::check(io.stored_bytes(b.p.client) == 8000, "the event loop holds what it accepted");
         kit::check(io.stored_bytes(b.p.client) <= io.cfg.link_buffer, "and never more than the per-link bound");
         kit::check(io.send_room(b.p.client) == 192, "send_room is what a send would accept now");
         // send2: the first part alone would fit, the two together do not: neither is taken
@@ -365,7 +365,7 @@ fn full_when_the_peer_closes() {
     io.serve() { io, ev => vanish_event(k, io, ev); };
     kit::check(k.refused && k.eof == 1, "fixture: the library was refused, then the peer closed");
     let resolved = k.writables == 1 || (k.closed && k.why != goose_io::CloseReason.Shutdown);
-    kit::check(resolved, "a Full is resolved by one Writable or by the link's Closed, not by the host's stop");
+    kit::check(resolved, "a Full is resolved by one Writable or by the link's Closed, not by the application's stop");
     kit::check(k.writables <= 1, "never by more than one Writable");
     if k.writables == 1 {
         kit::check(k.retry == goose_io::SendStatus.Sent || k.retry == goose_io::SendStatus.Closed, "the retry after that Writable is not refused again");

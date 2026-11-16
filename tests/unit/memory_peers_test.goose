@@ -1,4 +1,4 @@
-// In-memory provider: scripted peers. A peer is the other end of a link, played by the test
+// In-memory event loop: scripted peers. A peer is the other end of a link, played by the test
 // instead of by a library: it accepts or refuses a dial, or connects to a listener, then does its
 // steps in order, each a delay after the one before. The test reads back what it was sent.
 import std;

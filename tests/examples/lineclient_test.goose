@@ -1,8 +1,8 @@
 // examples/lineclient: a pooled, pipelining client for the same newline protocol, written only against the
-// contract and run on the in-memory provider with scripted peers: the pool fills to its size, pipelined
+// contract and run on the in-memory event loop with scripted peers: the pool fills to its size, pipelined
 // replies are matched in order, a deadline is reported once and a late reply is discarded, an aborted link
 // fails each outstanding request once and the client reconnects after its backoff on the virtual clock,
-// `Full` and `Writable`, every kind of failed dial, and a close reason only the provider has.
+// `Full` and `Writable`, every kind of failed dial, and a close reason only the event loop has.
 import std;
 import goose_io from "../..";
 import goose_io.memory;
@@ -257,9 +257,9 @@ fn bad_address<Io>(io: Io&) {
     kit::check(outcome_of(a, a.ids[0]) == R_FAILED, "and a request made meanwhile fails");
 }
 
-// --- a close reason only the provider has ------------------------------------------------------------------------------------
+// --- a close reason only the event loop has ------------------------------------------------------------------------------------
 
-fn provider_reason<Io>(io: Io&) {
+fn loop_reason<Io>(io: Io&) {
     var a = App { .. };
     var c = lineclient::LineClient { .. };
     a.stop_at = 900;
@@ -284,7 +284,7 @@ fn provider_reason<Io>(io: Io&) {
             _ => {},
         }
     };
-    kit::check(outcome_of(a, a.ids[0]) == R_LINK_LOST, "a link closed with a provider-specific reason fails its request as an error does");
+    kit::check(outcome_of(a, a.ids[0]) == R_LINK_LOST, "a link closed with a loop-specific reason fails its request as an error does");
     kit::check(c.dial_count() == 2, "and is replaced");
 }
 
@@ -303,12 +303,12 @@ fn run<Io>(n: i64, io: Io&) {
     if n == 9 { refused_dial(io); }
     if n == 10 { timed_out_dial(io); }
     if n == 11 { bad_address(io); }
-    if n == 12 { provider_reason(io); }
+    if n == 12 { loop_reason(io); }
 }
 
 let SCENARIOS = 13;
 
-// With no argument every scenario runs, each on a loop of its own, on the in-memory provider. With a scenario
+// With no argument every scenario runs, each on a loop of its own, on the in-memory event loop. With a scenario
 // number that scenario runs on the wrapper (tests/examples/over_wrapper.sh runs them all).
 fn main() {
     let only = kit::scenario();

@@ -1,4 +1,4 @@
-// In-memory provider: closing, resetting, the peer's end of stream, half-close, reasons, stale handles.
+// In-memory event loop: closing, resetting, the peer's end of stream, half-close, reasons, stale handles.
 import std;
 import goose_io from "../..";
 import goose_io.memory;
@@ -291,7 +291,7 @@ fn peer_gone() {
     kit::check(kit::closed_once(log, g.p.client, PeerReset), "with reason PeerReset: the bytes were lost");
 }
 
-// --- the provider's own reasons ------------------------------------------------------------------
+// --- the event loop's own reasons ------------------------------------------------------------------
 
 fn policy_event(p: kit::Pair&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
     if kit::track(p, log, io, ev) {
@@ -300,17 +300,17 @@ fn policy_event(p: kit::Pair&, log: kit::Log&, io: goose_io_memory::Loop&, ev: g
     kit::stop_after(io, ev, 200);
 }
 
-fn provider_reasons() {
+fn loop_reasons() {
     var io = goose_io_memory::Loop { .. };
     var log = kit::Log { .. };
     var p = kit::Pair { .. };
     kit::connect(io, p, "127.0.0.1:8107");
     io.serve() { io, ev => policy_event(p, log, io, ev); };
     let i = kit::first_for(log, kit::CLOSED, p.server);
-    kit::check(i >= 0 && kit::count_for(log, kit::CLOSED, p.server) == 1, "a link the provider closed on its own gets one Closed");
+    kit::check(i >= 0 && kit::count_for(log, kit::CLOSED, p.server) == 1, "a link the event loop closed on its own gets one Closed");
     if i >= 0 {
         let why = log.entries[i].why;
-        kit::check(!goose_io::is_portable(why), "carrying the provider's own reason");
+        kit::check(!goose_io::is_portable(why), "carrying the event loop's own reason");
         match why {
             LoopSpecific r => { kit::check(r.code == 77, "and its code"); },
             _ => { kit::check(false, "the reason is LoopSpecific"); },
@@ -354,7 +354,7 @@ fn stale_event(s: Stale&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_
             }
             if s.second_open && !s.checked {
                 s.checked = true;
-                kit::check(goose_io::is_valid(s.reuser), "fixture: the provider used the slot again");
+                kit::check(goose_io::is_valid(s.reuser), "fixture: the event loop used the slot again");
                 kit::check(!goose_io::same(s.first, s.reuser), "a reused slot gives a different handle");
                 // every operation on the old handle is a no-op and leaves the new link alone
                 kit::check(io.send(s.first, "x") == goose_io::SendStatus.Closed, "send on the stale handle returns Closed");
@@ -399,7 +399,7 @@ fn main() {
     half_close(false);
     half_close(true);
     peer_gone();
-    provider_reasons();
+    loop_reasons();
     stale_handles();
     kit::finish();
 }

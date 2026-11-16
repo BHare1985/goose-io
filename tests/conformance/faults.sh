@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shows that every conformance check can fail. For each row of tests/conformance/checks.tsv that names a fault,
-# switches the in-memory provider to that fault, runs the check's part, and requires the output to name the
+# switches the in-memory event loop to that fault, runs the check's part, and requires the output to name the
 # check as failed. A check that passes against its own fault is a defect in the suite.
 # Also requires that with no fault every part passes (the same as run.sh).
 # Usage: tests/conformance/faults.sh [check-name ...]   (default: every check)

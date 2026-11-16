@@ -3,7 +3,7 @@
 // Needs: core and half-close (the line server keeps a link open after the peer finishes sending, to answer what it
 // has read, so it calls set_keep_open_on_eof). It fails to build on a loop that lacks half-close.
 //
-// It imports the contract and nothing else, so it runs on every provider that passes the conformance suite.
+// It imports the contract and nothing else, so it runs on every event loop that passes the conformance suite.
 // It shows the shape of a library (docs/libraries.md): a state struct, one event entry point that says whether
 // it handled the event, the tag and the user value to tell links apart, `Full` and `Writable` for
 // backpressure, and what to do while the loop is stopping.
@@ -40,7 +40,7 @@ struct Conn {
     eof:     bool           = false,        // the peer has finished sending
     closing: bool           = false,        // close was called
     paused:  bool           = false,        // reading is paused
-    sent:    i64            = 0,            // bytes of `out` the provider has taken
+    sent:    i64            = 0,            // bytes of `out` the event loop has taken
     in_buf:  u8[..4096]     = [],
     out:     u8[..32768]    = [],
 }
@@ -88,7 +88,7 @@ fn _find_newline(b: const u8[:]) -> i64 {
 fn _out_pending(c: Conn&) -> bool { c.out.len > c.sent }
 
 // doc:begin flush
-// Sends what the provider will take of the connection's output. A refusal waits for Writable.
+// Sends what the event loop will take of the connection's output. A refusal waits for Writable.
 fn _flush<Io>(s: LineServer&, io: Io&, i: i64) {
     let c .= s.conns[i];
     while c.in_use && c.out.len > c.sent {

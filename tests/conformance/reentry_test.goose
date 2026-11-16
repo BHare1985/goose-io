@@ -1,7 +1,7 @@
 // The driver's guard against re-entrancy, shown to work. Every check runs under it: an event delivered from
-// inside the handler of another fails the check that is running. A queue-based provider cannot be made to
+// inside the handler of another fails the check that is running. A queue-based event loop cannot be made to
 // re-enter (an operation has no handler to call), so the check events_not_reentrant has no fault in the
-// provider; here the nesting is made by hand: the driver is told a handler is already running.
+// event loop; here the nesting is made by hand: the driver is told a handler is already running.
 import std;
 import goose_io from "../..";
 import goose_io.conformance.suite;
@@ -18,7 +18,7 @@ fn main() {
     let tick: goose_io::Event = goose_io::Event.Tick { now_ms: 0 };
     goose_io_conformance::_drive(g, d, k, fx, io, tick);          // begins the check
     kit::check(d.running && k.verdict == goose_io_conformance::RUNNING, "fixture: the check is running");
-    d.depth = 1;                                       // as if the provider delivered this event from inside another handler
+    d.depth = 1;                                       // as if the event loop delivered this event from inside another handler
     goose_io_conformance::_drive(g, d, k, fx, io, tick);
     kit::check(k.verdict == goose_io_conformance::FAILED, "an event delivered inside another handler fails the running check");
     kit::finish();

@@ -1,4 +1,4 @@
-// In-memory provider: the clock, ticks, tick_by, PassEnd, stop and draining, the time limit.
+// In-memory event loop: the clock, ticks, tick_by, PassEnd, stop and draining, the time limit.
 import std;
 import goose_io from "../..";
 import goose_io.memory;
@@ -69,7 +69,7 @@ fn short_deadline() {
     io.serve() { io, ev => early_event(e, io, ev); };
     kit::check(e.got_at >= e.asked_at + 20, "the Tick asked for comes at or after the requested time");
     kit::check(e.got_at < e.asked_at + 100, "and before the next regular tick would have");
-    kit::check(e.got_at == e.asked_at + 20, "on this provider's clock, exactly then");
+    kit::check(e.got_at == e.asked_at + 20, "on this event loop's clock, exactly then");
     kit::check(e.past_got >= 0 && e.past_got - e.past_asked <= 1, "tick_by with a time already passed gives a Tick promptly");
 }
 

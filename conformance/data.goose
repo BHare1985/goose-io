@@ -77,7 +77,7 @@ fn c_data_slice_stable_in_handler<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         match ev {
             Data d => {
                 if k.owns(d.tag) && goose_io::same(d.link, k.link[1]) && k.flag == false {
-                    // while this handler runs, make the provider busy with the same link and others
+                    // while this handler runs, make the event loop busy with the same link and others
                     var copy: u8[>..] = [];
                     copy.append(d.bytes);
                     io.send(k.link[1], "reply while handling");
@@ -258,7 +258,7 @@ fn c_send_too_large<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-// --- 308: a reader that never reads does not make the provider hold more and more ----------------------------
+// --- 308: a reader that never reads does not make the event loop hold more and more ----------------------------
 
 fn c_send_is_bounded<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {

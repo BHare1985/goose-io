@@ -24,7 +24,7 @@ for f in docs/providers/*.md; do
     # a row marked as having no mapping must be answered by the Known gaps section naming it
     if grep -qi "no workable mapping" "$f" && ! grep -q "^## Known gaps" "$f"; then echo "BAD   $f has a row without a mapping and no Known gaps"; bad=$((bad + 1)); fi
 done
-# five provider documents in all: tcprouter-engine, usockets, io-uring, libuv, libevent
+# five event loop documents in all: tcprouter-engine, usockets, io-uring, libuv, libevent
 for n in tcprouter-engine usockets io-uring libuv libevent; do
     [ -f "docs/providers/$n.md" ] || { echo "BAD   docs/providers/$n.md is missing"; bad=$((bad + 1)); }
 done

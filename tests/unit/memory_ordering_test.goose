@@ -1,4 +1,4 @@
-// In-memory provider: adversarial event ordering. Each case arranges for two or more events to be
+// In-memory event loop: adversarial event ordering. Each case arranges for two or more events to be
 // queued in one pass and for the handler of the earlier one to act on the link of the later one, or
 // for an operation to be made where it is most likely to go wrong: inside a handler, inside the
 // link's own Closed, before an Opened. The links are made so that slot order, which is the order in

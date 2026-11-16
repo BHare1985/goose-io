@@ -1,5 +1,5 @@
 # goose-io is pure Goose, so every build runs the same checks with the Goose release for its platform: the contract
-# compiles, the tests and the conformance suite pass on the in-memory provider and on the wrapper over it, every check is
+# compiles, the tests and the conformance suite pass on the in-memory event loop and on the wrapper over it, every check is
 # shown to fail against its fault, and the documents agree with the code. The commands are the ones CONTRIBUTING.md lists.
 name: ci
 
@@ -90,7 +90,7 @@ jobs:
         shell: bash
         run: bash tests/checks/docs.sh
 
-      - name: Conformance suite on the in-memory provider
+      - name: Conformance suite on the in-memory event loop
         shell: bash
         run: bash tests/conformance/run.sh --repeat 3
 
@@ -114,7 +114,7 @@ jobs:
         shell: bash
         run: bash tests/examples/imports_test.sh
 
-      - name: Provider mappings are complete
+      - name: Event loop mappings are complete
         shell: bash
         run: bash tests/checks/providers.sh
 

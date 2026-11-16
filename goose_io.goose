@@ -63,7 +63,7 @@ enum SendStatus {
 enum ConnectFailure {
     Refused,        // the address answered that nothing accepts connections there
     TimedOut,       // no answer within connect_ms
-    Unreachable,    // no route to the network or the host
+    Unreachable,    // no route to the address, its network or its machine
     Denied,         // the system does not allow this connection
     NoResources,    // the event loop or the system is out of links, descriptors, ports or memory
     BadAddress,     // the text is not a numeric address: malformed, a host name, a zone identifier

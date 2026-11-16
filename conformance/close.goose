@@ -140,7 +140,7 @@ fn c_close_when_peer_never_reads<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         io.pause_reading(k.link[1], true);
         io.send(k.link[0], pattern(1000)[..]);
         io.close(k.link[0]);
-        // a provider may keep accepted bytes for a limit of its own: two minutes of the loop's clock
+        // an event loop may keep accepted bytes for a limit of its own: two minutes of the loop's clock
         k.within(io, 120000);
         k.step = 2;
     } else if k.step == 2 && k.first(0, 'C') >= 0 {

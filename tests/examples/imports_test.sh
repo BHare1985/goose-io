@@ -21,7 +21,7 @@ for lib in lineserver lineclient; do
                 *) if [ ! -f "examples/$lib/$name.goose" ]; then echo "BAD   $f imports $name"; bad=$((bad + 1)); fi ;;
             esac
         done < <(grep -E '^import ' "$f" | sed -E 's/^import ([A-Za-z0-9_.]+).*/\1/')
-        if grep -qiE "$other|goose_io_memory|goose_io.memory|core_only|wrapper" "$f"; then echo "BAD   $f names $other or a provider"; bad=$((bad + 1)); fi
+        if grep -qiE "$other|goose_io_memory|goose_io.memory|core_only|wrapper" "$f"; then echo "BAD   $f names $other or an event loop"; bad=$((bad + 1)); fi
     done
 done
 echo "$checked library files inspected, $bad problems"

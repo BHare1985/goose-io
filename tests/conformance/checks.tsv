@@ -1,8 +1,8 @@
 # One row per conformance check. Columns (tab separated):
 #   check  part  requirement  scenarios (separated by " | ")  fault  group
-# A check's fault is a named break of the in-memory provider (memory.goose, set_fault) that makes the check fail.
+# A check's fault is a named break of the in-memory event loop (memory.goose, set_fault) that makes the check fail.
 # The group is the one the check belongs to (core, half-close, sizing, abort, inspection, batching); "pending" is a check
-# not yet assigned (tasks 4.2 to 4.4 of simplify-contract). "-" in the fault column means no fault can be injected in a queue-based provider; the reason is in docs/providers.md.
+# not yet assigned (tasks 4.2 to 4.4 of simplify-contract). "-" in the fault column means no fault can be injected in a queue-based event loop; the reason is in docs/providers.md.
 handles_stale_reuse	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	core
 handles_stale_reset	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	abort
 handles_stale_send_room	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	sizing
@@ -64,9 +64,9 @@ tick_by_is_prompt	0	Time and ticks	A deadline shorter than the tick period	TickB
 tick_by_two_deadlines	0	Time and ticks	Two libraries with different deadlines	TickByKeepsLatest	core
 pass_end_follows_link_events	0	End-of-pass notification	Batching replies | PassEnd is last	NoPassEnd	batching
 pass_end_not_on_idle_pass	0	End-of-pass notification	An idle pass	IdlePassEnd	batching
-stop_with_nothing_open	0	The host runs and stops the loop	Stop with nothing open	StopWaitsForGrace	core
-stop_link_stays_open	1	The host runs and stops the loop	Stop with a link that stays open	ShutdownEarly	core
-stop_libraries_finish	2	The host runs and stops the loop	Libraries finish and the loop ends early	StopWaitsForGrace	core
-listen_while_draining	3	Draining is the same on every provider	Listening while draining	ListenAfterStop	core
-dial_while_draining	4	Draining is the same on every provider	Dialling while draining	DialFailsWhileDraining	core
-stop_called_twice	5	Draining is the same on every provider	Stop called twice	StopLatestWins	core
+stop_with_nothing_open	0	The application runs and stops the loop	Stop with nothing open	StopWaitsForGrace	core
+stop_link_stays_open	1	The application runs and stops the loop	Stop with a link that stays open	ShutdownEarly	core
+stop_libraries_finish	2	The application runs and stops the loop	Libraries finish and the loop ends early	StopWaitsForGrace	core
+listen_while_draining	3	Draining is the same on every event loop	Listening while draining	ListenAfterStop	core
+dial_while_draining	4	Draining is the same on every event loop	Dialling while draining	DialFailsWhileDraining	core
+stop_called_twice	5	Draining is the same on every event loop	Stop called twice	StopLatestWins	core

@@ -1,4 +1,4 @@
-// In-memory provider: listening, dialling, joining, peer addresses, user values.
+// In-memory event loop: listening, dialling, joining, peer addresses, user values.
 import std;
 import goose_io from "../..";
 import goose_io.memory;
@@ -184,7 +184,7 @@ fn timeouts() {
         kit::check(log.entries[si].at_ms < start + 300, "and promptly after it");
     }
     let di = kit::first_for(log, kit::CLOSED, default);
-    kit::check(di >= 0 && log.entries[di].at_ms >= start + io.cfg.connect_timeout_ms, "connect_ms 0 uses the provider's default");
+    kit::check(di >= 0 && log.entries[di].at_ms >= start + io.cfg.connect_timeout_ms, "connect_ms 0 uses the event loop's default");
 }
 
 struct Cancel { link: goose_io::Link = goose_io::Link { .. }, done: bool = false }

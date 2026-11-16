@@ -1,5 +1,5 @@
 // Runs one part of the conformance suite against the wrapper of tests/support/wrapper.goose, which sits over the
-// in-memory provider, changes every byte and delays Opened by one pass: `goose run tests/conformance/wrapped_conformance.goose -- 3`.
+// in-memory event loop, changes every byte and delays Opened by one pass: `goose run tests/conformance/wrapped_conformance.goose -- 3`.
 import std;
 import os;
 import goose_io from "../..";
