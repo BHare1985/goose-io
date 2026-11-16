@@ -1,0 +1,25 @@
+// Runs one part of the core of the conformance suite against the loop of tests/support/core_only.goose, which supplies
+// the core and nothing else: `goose run tests/conformance/core_only_conformance.goose -- 3`. The part is the first argument (0 to 5).
+import std;
+import os;
+import goose_io from "../..";
+import goose_io.conformance.suite;
+import goose_io.tests.support.core_only;
+
+fn main() {
+    var part = 0;
+    if arg_count() > 1 {
+        var text: u8[>..] = [];
+        arg(1, text);
+        part = 0;
+        for c in text { if c >= '0' && c <= '9' { part = part * 10 + (c - '0'); } }
+    }
+    var io = core_only::Core { .. };
+    goose_io::require_core(io);
+    io.silent("10.255.0.1:81");
+    io.hold("127.0.0.1:9999");
+    let up = io.add_peer();
+    io.peer_accept(up, "10.255.0.2:80");
+    let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80" };
+    exit(goose_io_conformance::conformance_core_part(io, fixture, part));
+}

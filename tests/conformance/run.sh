@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Runs the conformance suite against the in-memory event loop, one group at a time and one process for each part of a
 # group: the core (parts 0 to 5, one for each scenario of `stop`) and then each group of extras (part 0).
-# Usage: tests/conformance/run.sh [--wrapped] [--group G] [--repeat N]
+# Usage: tests/conformance/run.sh [--wrapped | --core-only] [--group G] [--repeat N]
 # With --wrapped the parts run on the wrapper of tests/support/wrapper.goose, over the in-memory event loop.
+# With --core-only the core runs on the loop of tests/support/core_only.goose, which supplies nothing else.
 # With --group G only that group runs (core, half-close, sizing, abort, inspection or batching).
 # A part that fails in any repetition fails the run, and the output of every repetition of a part must be
 # identical to the first (the in-memory event loop is deterministic), so an intermittent failure is never hidden.
@@ -15,6 +16,7 @@ only=
 while [ $# -gt 0 ]; do
     case "$1" in
         --wrapped) prog=wrapped_conformance ;;
+        --core-only) prog=core_only_conformance; only=core ;;
         --group) shift; only="${1:?--group needs a name}" ;;
         --repeat) shift; repeat="${1:?--repeat needs a number}" ;;
         *) echo "unknown argument $1"; exit 2 ;;
