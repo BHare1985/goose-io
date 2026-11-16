@@ -104,9 +104,9 @@ and the commit.
 
 | Event loop | Contract | Core | Groups | Suite last passed at | Where |
 |---|---|---|---|---|---|
-| in-memory (`memory.goose`) | 0.2 | yes | half-close, sizing, abort, inspection, batching | to be recorded when `simplify-contract` is accepted | this repository |
-| wrapper over it (`tests/support/wrapper.goose`) | 0.2 | yes | half-close, sizing, abort, inspection | to be recorded when `simplify-contract` is accepted | this repository |
-| core only (`tests/support/core_only.goose`) | 0.2 | yes | none | to be recorded when `simplify-contract` is accepted | this repository |
+| in-memory (`memory.goose`) | 0.2 | yes | half-close, sizing, abort, inspection, batching | `650c8c5` | this repository |
+| wrapper over it (`tests/support/wrapper.goose`) | 0.2 | yes | half-close, sizing, abort, inspection | `650c8c5` | this repository |
+| core only (`tests/support/core_only.goose`) | 0.2 | yes | none | `650c8c5` | this repository |
 
 Planned example event loops, each its own change: tcprouter's engine (with performance-parity gates), uSockets, io_uring.
 How every operation and event maps onto each, what the core alone costs each, and what is still unverified, is in
