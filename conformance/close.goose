@@ -14,6 +14,7 @@ fn close_info(id: i64) -> Info {
     if id == 404 { return Info { name: "close_with_unread_input", req: "Close does not lose accepted bytes", part: 0 }; }
     if id == 405 { return Info { name: "close_when_peer_never_reads", req: "Close does not lose accepted bytes", part: 0 }; }
     if id == 406 { return Info { name: "peer_eof_closes_by_default", req: "Peer end of stream and half-close", part: 0 }; }
+    if id == 408 { return Info { name: "shutdown_write_ends_sending", req: "Peer end of stream and half-close", part: 0 }; }
     if id == 407 { return Info { name: "half_close_then_answer", req: "Peer end of stream and half-close", part: 0 }; }
     return Info { .. };
 }
@@ -93,7 +94,6 @@ fn c_reset_aborts_the_peer<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         k.connect_local(io, 0);
         k.step = 1;
     } else if k.step == 1 && k.pair_open(0) {
-        io.set_keep_open_on_eof(k.link[1], true);
         io.pause_reading(k.link[1], true);
         io.send(k.link[0], "queued, and never read");
         io.reset(k.link[0]);
@@ -204,6 +204,26 @@ fn c_half_close_then_answer<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
+// --- 408: shutdown_write ends sending and waits for the peer ---------------------------------------------------------
+
+// The half-close group: after shutdown_write a send returns Closed, the bytes sent before it still arrive, and the link
+// closes with PeerClosed when the peer has finished too.
+fn c_shutdown_write_ends_sending<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        k.connect_local(io, 0);
+        k.step = 1;
+    } else if k.step == 1 && k.pair_open(0) {
+        io.send(k.link[0], "before");
+        io.shutdown_write(k.link[0]);
+        k.expect(io.send(k.link[0], "after") == goose_io::SendStatus.Closed, "send after shutdown_write did not return Closed");
+        k.step = 2;
+    } else if k.step == 2 && k.first(0, 'C') >= 0 && k.first(1, 'C') >= 0 {
+        k.expect(k.received(1) == "before", "the bytes sent before shutdown_write did not arrive, or those after it did");
+        k.expect(k.closed_with(0, goose_io::CloseReason.PeerClosed) && k.closed_with(1, goose_io::CloseReason.PeerClosed), "after shutdown_write and the peer's end of stream the links did not close with PeerClosed");
+        k.finish();
+    }
+}
+
 // Runs the checks of the core: true if the check is one of them.
 fn close_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 400 { c_close_after_reply(k, io, ev); return true; }
@@ -218,11 +238,12 @@ fn close_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> b
 fn close_half_close_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 406 { c_peer_eof_closes_by_default(k, io, ev); return true; }
     if k.id == 407 { c_half_close_then_answer(k, io, ev); return true; }
+    if k.id == 408 { c_shutdown_write_ends_sending(k, io, ev); return true; }
     return false;
 }
 
-// Runs the checks still to be split between groups (task 4.3): true if the check is one of them.
-fn close_pending_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+// Runs the checks of the abort group: true if the check is one of them.
+fn close_abort_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 403 { c_reset_aborts_the_peer(k, io, ev); return true; }
     return false;
 }

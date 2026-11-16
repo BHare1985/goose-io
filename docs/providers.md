@@ -174,11 +174,11 @@ fails when this table, that file, the suite and the specification disagree.
 | The contract exposes no operating-system primitives | A zone identifier is rejected | check `dial_bad_address` | 0 | `BadAddressAsRefused` |
 | The contract exposes no operating-system primitives | A provider without descriptors conforms | inspection: the in-memory provider has no descriptors and passes `tests/conformance/run.sh` | - | - |
 | The contract states its version | A library reads the version | build: `tests/unit/types_test.goose` reads `VERSION_MAJOR` and `VERSION_MINOR` | - | - |
-| Links are generation-checked handles | A stale handle cannot reach a reused slot | check `handles_stale_reuse` | 0 | `StaleHandleAccepted` |
+| Links are generation-checked handles | A stale handle cannot reach a reused slot | check `handles_stale_reuse`, `handles_stale_reset`, `handles_stale_send_room`, `handles_stale_user` | 0 | `StaleHandleAccepted`, `StaleHandleAccepted`, `StaleHandleAccepted`, `StaleHandleAccepted` |
 | Links are generation-checked handles | The handle is still valid while Closed is handled | check `handles_valid_in_closed` | 0 | `ClosedHandleStaleEarly` |
-| Links are generation-checked handles | An unset handle is recognisably invalid | check `handles_unset` | 0 | `UnsetLinkHasRoom` |
+| Links are generation-checked handles | An unset handle is recognisably invalid | check `handles_unset`, `handles_unset_reset`, `handles_unset_shutdown_write`, `handles_unset_sizing`, `handles_unset_inspection` | 0 | `UnsetHandleAccepted`, `UnsetHandleAccepted`, `UnsetHandleAccepted`, `UnsetLinkHasRoom`, `UnsetHandleAccepted` |
 | Events are delivered to one handler, one at a time | A close does not re-enter the handler | check `events_not_reentrant` | 0 | none (see below) |
-| Events are delivered to one handler, one at a time | A send that closes the link does not re-enter the handler | check `events_not_reentrant` | 0 | none (see below) |
+| Events are delivered to one handler, one at a time | A send that closes the link does not re-enter the handler | check `events_not_reentrant_after_reset` | 0 | none (see below) |
 | Link events follow a fixed order | An accepted link | check `order_accepted_link` | 0 | `PeerCloseDropsData` |
 | Link events follow a fixed order | A link that never opens | check `order_failed_dial` | 0 | `OpenedBeforeFailure` |
 | Every link event names its owner | Two libraries share one loop | check `owner_tags` | 0 | `WrongTag` |
@@ -212,7 +212,7 @@ fails when this table, that file, the suite and the specification disagree.
 | Two parts can be sent as one | Neither part is taken when both do not fit | check `send2_all_or_nothing` | 0 | `Send2TakesFirstPart` |
 | Send backpressure is explicit and bounded | An oversized send never fits | check `send2_refusals`, `send_too_large` | 0 | `SendBeforeOpenSent`, `TooLargeGivesWritable` |
 | Send backpressure is explicit and bounded | A reader that never reads does not grow memory | check `send_is_bounded` | 0 | `NeverFull` |
-| Send backpressure is explicit and bounded | No room on a link that cannot send | check `send_room_is_zero_when_closed` | 0 | `RoomAfterShutdown` |
+| Send backpressure is explicit and bounded | No room on a link that cannot send | check `send_room_is_zero_when_closed` | 0 | `RoomWhenClosed` |
 | Writable follows Full once | A full queue is reported and later reopened | check `writable_after_full` | 0 | `NoWritable` |
 | Writable follows Full once | Several refusals share one Writable | check `writable_once_for_many_refusals` | 0 | `WritablePerRefusal` |
 | Writable follows Full once | Writable means the refused send fits | check `writable_means_it_fits` | 0 | `WritableOnFirstByte` |
@@ -225,7 +225,7 @@ fails when this table, that file, the suite and the specification disagree.
 | Close does not lose accepted bytes | Close with unread input | check `close_with_unread_input` | 0 | `CloseWithUnreadResets` |
 | Close does not lose accepted bytes | A peer that never reads | check `close_when_peer_never_reads` | 0 | `ClosedNeverDelivered` |
 | Peer end of stream and half-close | Default behaviour on peer end of stream | check `peer_eof_closes_by_default` | 0 | `EofIgnoresDefault` |
-| Peer end of stream and half-close | Answering after the peer half-closes | check `half_close_then_answer` | 0 | `PeerEofBeforeData` |
+| Peer end of stream and half-close | Answering after the peer half-closes | check `half_close_then_answer`, `shutdown_write_ends_sending` | 0 | `PeerEofBeforeData`, `SendAfterShutdownAccepted` |
 | Close reasons are portable | The peer resets the connection | check `reset_aborts_the_peer` | 0 | `ResetIsGraceful` |
 | Close reasons are portable | A provider-specific reason reaches a portable library | unit test: `tests/unit/memory_close_test.goose` (`close_with_reason`) and `tests/examples/lineclient_test.goose` (task 5.3) | - | - |
 | Time and ticks | Regular ticks | check `ticks_are_regular` | 0 | `TickEvery250` |
@@ -261,8 +261,8 @@ provider.
 
 ### What cannot be shown by a fault
 
-`events_not_reentrant` (*A close does not re-enter the handler*, *A send that closes the link does not re-enter the
-handler*) has no fault in the in-memory provider. An operation of a queue-based provider has no handler to call, so
+`events_not_reentrant` (*A close does not re-enter the handler*) and `events_not_reentrant_after_reset` (*A send that closes
+the link does not re-enter the handler*, in the abort group) have no fault in the in-memory provider. An operation of a queue-based provider has no handler to call, so
 it cannot be made to deliver an event from inside itself. The check is the driver's own guard: every check runs
 under a counter of handler nesting, and the check fails if an event arrives while another is being handled. The
 guard is shown to work by `tests/conformance/reentry_test.goose`, which tells the driver that a handler is already

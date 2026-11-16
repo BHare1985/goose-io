@@ -289,10 +289,7 @@ fn c_send_room_is_zero_when_closed<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     } else if k.step == 1 && k.pair_open(0) {
         let room = io.send_room(k.link[0]);
         k.expect(room > 0 && room <= io.max_send(), "send_room of an idle open link was not between 1 and max_send");
-        io.shutdown_write(k.link[0]);
-        k.expect(io.send_room(k.link[0]) == 0, "send_room after shutdown_write was not 0");
-        k.expect(io.send(k.link[0], "x") == goose_io::SendStatus.Closed, "send after shutdown_write did not return Closed");
-        k.expect(io.send_room(k.link[1]) > 0, "shutdown_write on one link took away the other's room");
+        k.expect(io.send_room(k.link[1]) > 0, "the other link had no room");
         io.close(k.link[0]);
         k.expect(io.send_room(k.link[0]) == 0, "send_room after close was not 0");
         k.step = 2;
@@ -510,6 +507,7 @@ fn data_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bo
 fn data_sizing_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 305 { c_send2_joins_parts(k, io, ev); return true; }
     if k.id == 306 { c_send2_all_or_nothing(k, io, ev); return true; }
+    if k.id == 309 { c_send_room_is_zero_when_closed(k, io, ev); return true; }
     if k.id == 317 { c_send2_refusals(k, io, ev); return true; }
     return false;
 }
@@ -518,11 +516,5 @@ fn data_sizing_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> 
 fn data_half_close_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 315 { c_full_not_writable_after_shutdown_write(k, io, ev); return true; }
     if k.id == 316 { c_full_resolved_when_peer_closes(k, io, ev); return true; }
-    return false;
-}
-
-// Runs the checks still to be split between groups (task 4.3): true if the check is one of them.
-fn data_pending_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
-    if k.id == 309 { c_send_room_is_zero_when_closed(k, io, ev); return true; }
     return false;
 }

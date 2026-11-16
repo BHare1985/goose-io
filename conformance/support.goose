@@ -53,6 +53,7 @@ struct BatchingGroup { n: i64 = 0 }
 struct SizingGroup { n: i64 = 0 }
 struct HalfCloseGroup { n: i64 = 0 }
 struct InspectionGroup { n: i64 = 0 }
+struct AbortGroup { n: i64 = 0 }
 struct AllGroups { n: i64 = 0 }
 
 struct Rec {

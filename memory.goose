@@ -389,6 +389,10 @@ fn _start(io: Loop&) {
 
 // The slot of a link whose handle is current (any state but free), or -1.
 fn _slot_of(io: Loop&, link: goose_io::Link) -> i64 {
+    if io._fault == 54 && link.gen == 0 {          // fault UnsetHandleAccepted: an unset handle names the first live link
+        for i in io._slots.len { if io._slots[i].state != _FREE { return i; } }
+        return -1;
+    }
     guard link.gen != 0 && link.slot < io._slots.len else { return -1; }
     let s .= io._slots[link.slot];
     guard s.state != _FREE && (s.gen == link.gen || io._fault == 1) else { return -1; }
@@ -579,7 +583,7 @@ fn send_room(io: Loop&, link: goose_io::Link) -> i64 {
     let i = io._slot_of(link);
     guard i >= 0 else { return 0; }
     let s .= io._slots[i];
-    guard s.state == _OPEN && (!s.wr_shut || io._fault == 29) else { return 0; }
+    guard (s.state == _OPEN || (io._fault == 29 && s.state == _CLOSED)) && !s.wr_shut else { return 0; }      // fault RoomWhenClosed
     guard s.peer >= 0 else { return io.cfg.max_send; }
     let room = io.cfg.link_buffer - io._slots[s.peer].in_len;
     return if room < io.cfg.max_send { room } else { io.cfg.max_send };
@@ -602,6 +606,7 @@ fn _send(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:
     let s .= io._slots[i];
     if io._fault == 21 && io._scratch.len > 0 { io._scratch[0] = 'X'; }      // fault SendClobbersLentBytes
     if s.state == _CLOSED && io._fault == 24 { return goose_io::SendStatus.Sent; }      // fault SendAfterCloseAccepted
+    if s.wr_shut && io._fault == 55 { return goose_io::SendStatus.Sent; }      // fault SendAfterShutdownAccepted
     if s.state == _CLOSED || s.wr_shut { return goose_io::SendStatus.Closed; }
     if s.state != _OPEN { return if io._fault == 23 { goose_io::SendStatus.Sent } else { goose_io::SendStatus.NotOpen }; }      // fault SendBeforeOpenSent
     let total = first.len + second.len;
@@ -1259,12 +1264,12 @@ fn _fault_named(name: const u8[:]) -> i64 {
         "PortZeroReportsZero", "StopListeningClosesLinks", "ListenerHandleReused", "StalePeerAddress", "DialReturnsInvalid",
         "RefusedAsUnreachable", "TimeoutEarly", "BadAddressAsRefused", "Ipv6Unsupported", "DataCorrupted",
         "SendClobbersLentBytes", "SendDropsLastByte", "SendBeforeOpenSent", "SendAfterCloseAccepted", "Send2SwapsParts",
-        "Send2TakesFirstPart", "TooLargeGivesWritable", "NeverFull", "RoomAfterShutdown", "NoWritable",
+        "Send2TakesFirstPart", "TooLargeGivesWritable", "NeverFull", "RoomWhenClosed", "NoWritable",
         "WritablePerRefusal", "WritableOnFirstByte", "OneWritableOnly", "PauseIgnored", "WritableAfterShutdown",
         "FullUnresolvedOnPeerClose", "WritableAfterClose", "CancelledDialOpens", "ResetIsGraceful", "CloseWithUnreadResets",
         "ClosedNeverDelivered", "EofIgnoresDefault", "PeerEofBeforeData", "TickEvery250", "TickByIgnored",
         "TickByKeepsLatest", "NoPassEnd", "IdlePassEnd", "StopWaitsForGrace", "ShutdownEarly",
-        "ListenAfterStop", "DialFailsWhileDraining", "StopLatestWins",
+        "ListenAfterStop", "DialFailsWhileDraining", "StopLatestWins", "UnsetHandleAccepted", "SendAfterShutdownAccepted",
     ];
     for n, i in names { if n == name { return i + 1; } }
     return 0;
