@@ -116,13 +116,13 @@ jobs:
 
       - name: Event loop mappings are complete
         shell: bash
-        run: bash tests/checks/providers.sh
+        run: bash tests/checks/event_loops.sh
 
       - name: The layout listed in the README is the layout
         shell: bash
         run: bash tests/checks/layout.sh
 
-      # fifty repetitions: a check that fails once in any of them fails the run (docs/providers.md)
+      # fifty repetitions: a check that fails once in any of them fails the run (docs/event-loops.md)
       - name: Fifty repetitions of the suite
         if: runner.os == 'Linux'
         shell: bash

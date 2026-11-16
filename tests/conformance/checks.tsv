@@ -2,7 +2,7 @@
 #   check  part  requirement  scenarios (separated by " | ")  fault  group
 # A check's fault is a named break of the in-memory event loop (memory.goose, set_fault) that makes the check fail.
 # The group is the one the check belongs to (core, half-close, sizing, abort, inspection, batching); "pending" is a check
-# not yet assigned (tasks 4.2 to 4.4 of simplify-contract). "-" in the fault column means no fault can be injected in a queue-based event loop; the reason is in docs/providers.md.
+# not yet assigned (tasks 4.2 to 4.4 of simplify-contract). "-" in the fault column means no fault can be injected in a queue-based event loop; the reason is in docs/event-loops.md.
 handles_stale_reuse	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	core
 handles_stale_reset	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	abort
 handles_stale_send_room	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	sizing

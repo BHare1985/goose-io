@@ -1,6 +1,6 @@
 # Mapping: uSockets
 
-Candidate provider: uSockets upstream (`github.com/uNetworking/uSockets`), pinned at commit
+Candidate event loop: uSockets upstream (`github.com/uNetworking/uSockets`), pinned at commit
 `166a04810c9fa970fc22096a7b35b792378364fb` ("Set last_write_failed when us_socket_write2 writes partially (#265)").
 Read from source, not only from `libusockets.h`: `src/socket.c`, `src/loop.c`, `src/context.c`, `src/bsd.c`,
 `src/eventing/epoll_kqueue.c` and the header. Nothing was built or run. A row is **checked** when the code named was
@@ -32,10 +32,10 @@ Changing behaviour (all checked in source):
 
 | Contract item | uSockets | Status | Adapter work |
 |---|---|---|---|
-| `listen` | `us_socket_context_listen(ssl, ctx, host, port, options, ext_size)`; `bsd_create_listen_socket` resolves `host` with `getaddrinfo`, binds, listens with backlog 512 (`bsd.c`). Each accepted socket calls `on_open` (`loop.c`, accept branch of `us_internal_dispatch_ready_poll`). | checked | Parse the address text first (numeric only) and hand uSockets the numeric host so nothing is resolved. A bind failure returns NULL with errno possibly clobbered by the `close` that follows it: probe with a throwaway `bind` to the same address to tell `AddressInUse`. |
+| `listen` | `us_socket_context_listen(ssl, ctx, <host-name>, port, options, ext_size)`; `bsd_create_listen_socket` resolves its host-name argument with `getaddrinfo`, binds, listens with backlog 512 (`bsd.c`). Each accepted socket calls `on_open` (`loop.c`, accept branch of `us_internal_dispatch_ready_poll`). | checked | Parse the address text first (numeric only) and hand uSockets the numeric text so nothing is resolved. A bind failure returns NULL with errno possibly clobbered by the `close` that follows it: probe with a throwaway `bind` to the same address to tell `AddressInUse`. |
 | `listener_port` | `us_socket_local_port(ssl, s)` | unverified: declaration | Call it on the listen socket (cast). Port 0 binds a system-chosen port. |
 | `stop_listening` | `us_listen_socket_close(ssl, ls)` | unverified: declaration | Links accepted from it are other sockets and stay open. |
-| `dial` | `us_socket_context_connect`; `bsd_create_connect_socket` calls `getaddrinfo` then `connect` on a non-blocking descriptor (`bsd.c`); the socket polls writable as a semi-socket (`loop.c`). | checked | Numeric host only. Returns at once; success is `on_open`, failure `on_connect_error` (below). |
+| `dial` | `us_socket_context_connect`; `bsd_create_connect_socket` calls `getaddrinfo` then `connect` on a non-blocking descriptor (`bsd.c`); the socket polls writable as a semi-socket (`loop.c`). | checked | Numeric text only. Returns at once; success is `on_open`, failure `on_connect_error` (below). |
 | `peer_address` | `us_socket_remote_address(ssl, s, buf, &length)` | unverified: declaration | Format the bytes as the contract's text. A closed link must give empty. |
 | `send` | `us_socket_write(ssl, s, data, length, msg_more)`: writes what the kernel takes, returns the count, and on a short write sets `last_write_failed` and asks for writable (`socket.c`). | checked | Keep a bounded queue in the adapter and write from it: accept the whole send into the queue or refuse; `Full` while the queue is at its bound; `TooLarge` above its largest entry. Never rely on the count. |
 | `send2` | `us_socket_write2(ssl, s, header, header_length, payload, payload_length)` (non-SSL): one `bsd_write2` call; a short write is flagged (`socket.c`, the fix of the pinned commit). | checked | Append both parts to the queue as one entry. |
@@ -64,8 +64,8 @@ Changing behaviour (all checked in source):
 ## How events reach a Goose handler
 
 This was the open question of the research (design D9) and the reading above settles part of it. `us_loop_run` does not
-return per iteration, but it calls `pre_cb` and `post_cb` every iteration, so the adapter can run the host's handler from `post_cb` if Goose
-code can be called from C there. The host's handler is a compile-time block (not a function pointer), so a C
+return per iteration, but it calls `pre_cb` and `post_cb` every iteration, so the adapter can run the application's handler from `post_cb` if Goose
+code can be called from C there. The application's handler is a compile-time block (not a function pointer), so a C
 `post_cb` cannot name it. Two ways that do not need a block value in C: the adapter collects flat event records in
 C during the iteration and a Goose `serve` function drives the loop one step at a time through a build that adds a
 return-per-iteration entry point to uSockets (a small, local patch); or the adapter is written as the Goose loop over

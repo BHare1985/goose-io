@@ -1,6 +1,6 @@
 # Mapping: libevent
 
-Candidate provider: libevent, release `release-2.1.13-stable` (commit `79ddfb460847999b807cba76d04e73891f29c6ee`).
+Candidate event loop: libevent, release `release-2.1.13-stable` (commit `79ddfb460847999b807cba76d04e73891f29c6ee`).
 Read from source and headers: `include/event2/bufferevent.h`, `listener.h`, `event.h`, `buffer.h`, `evutil.c`
 (`evutil_parse_sockaddr_port`), `bufferevent_sock.c`. Nothing was built or run. The mapping is through the
 `bufferevent` interface, the one a client library would use. A row is **checked** when the code named was read and does

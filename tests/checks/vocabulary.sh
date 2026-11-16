@@ -3,7 +3,7 @@
 # events and calls operations) and "application" (what runs the loop). The old words "provider" and "host" must not
 # come back: this fails on either, in the documents, the code, the scripts and the specification, and lists the
 # files with the number of lines for each, most first, which is the order to sweep them in.
-# Allowed: the capability id `provider-conformance` (OpenSpec does not rename a capability: design D1), the word
+# Allowed: tests/conformance/table_check.sh, which names the old words to translate them; the capability id `provider-conformance` (OpenSpec does not rename a capability: design D1), the word
 # "host" in "localhost" or in the host-name sense of an address, and the records of changes under
 # openspec/changes/ and docs/history.md, which say what was true when they were written.
 # Also checked: no file or directory name contains the old words (the capability directory excepted).
@@ -17,7 +17,7 @@ allowed="provider-conformance|localhost|host name|host-name|hostname|host part|h
 files=()
 while IFS= read -r f; do
     case "$f" in
-        openspec/changes/*|docs/history.md|tests/checks/vocabulary.sh|skills-lock.json) continue ;;
+        openspec/changes/*|docs/history.md|tests/checks/vocabulary.sh|tests/conformance/table_check.sh|skills-lock.json) continue ;;
     esac
     [ -f "$f" ] && files+=("$f")
 done < <(git ls-files --cached --others --exclude-standard)

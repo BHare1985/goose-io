@@ -1,6 +1,6 @@
 # Mapping: libuv
 
-Candidate provider: libuv, release `v1.53.0` (commit `840404ce8ba7cc0204be52389a6cfff9f2c90fb6`, 2026-09-24).
+Candidate event loop: libuv, release `v1.53.0` (commit `840404ce8ba7cc0204be52389a6cfff9f2c90fb6`, 2026-09-24).
 Read from source and header: `include/uv.h`, `src/unix/stream.c`, `src/unix/tcp.c`, `src/unix/core.c`,
 `src/uv-common.c`. Nothing was built or run, and only the Unix implementation was read (not Windows). A row is
 **checked** when the code named was read and does what the row says, **unverified** when only a declaration was read or

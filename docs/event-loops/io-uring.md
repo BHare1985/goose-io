@@ -1,6 +1,6 @@
 # Mapping: io_uring
 
-Candidate provider: an io_uring engine, from c_proxy's (`~/dev/cnamecloud/c_proxy`, commit `7f6fc2c`, file `proxy.c`).
+Candidate event loop: an io_uring engine, from c_proxy's (`~/dev/cnamecloud/c_proxy`, commit `7f6fc2c`, file `proxy.c`).
 c_proxy is a forwarding proxy, not a handler API: it uses io_uring to copy between two descriptors. So the rows say
 which io_uring operations c_proxy already uses for each contract item, and mark as **unverified** the ones it does
 not use. A row is **checked** when the code named was read and does what the row says, **unverified** otherwise.
@@ -64,7 +64,7 @@ Changing behaviour (checked):
 c_proxy closes by `io_uring_prep_close`, or `close(2)` on the epoll path, after both directions have been read to end
 of stream: "have been read to EOF, so close() alone sends the last FIN" (`proxy.c`, comment above the finish of a
 direction). That is the safe order: the peer's end of stream has been read, so there is no unread input to reset the
-connection. For the contract, `close` is the same sequence as for the other providers: let the output queue drain,
+connection. For the contract, `close` is the same sequence as for the other event loops: let the output queue drain,
 `shutdown(fd, SHUT_WR)`, keep receiving and discarding until the receive completes with 0 or a limit (a linked
 timeout on the receive) passes, then close. A peer that never reads: the limit ends it, `Closed` with `Local`.
 `reset` is the socket option and a close.

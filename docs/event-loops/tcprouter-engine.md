@@ -1,6 +1,6 @@
 # Mapping: tcprouter's engine
 
-Candidate provider: the epoll engine of tcprouter (`~/dev/cnamecloud/tcprouter`), read at commit `05995d1`
+Candidate event loop: the epoll engine of tcprouter (`~/dev/cnamecloud/tcprouter`), read at commit `05995d1`
 (`handler.goose`, `engine.goose`, `conn.goose`, `address.goose`, `src/c_sys.c`). Nothing was built or run: a row is
 **checked** when the code named in it was read and does what the row says, and **unverified** when it was not, or
 when the code was read and the row records what is missing. The contract is `docs/contract.md`.
@@ -45,7 +45,7 @@ slot), or keep the failure in a small side table keyed by slot and generation th
 | `send_room` | `send_room` (`handler.goose`): free room of the queue, 0 for a stale, closing or write-shut link and before `Opened` (a dialling slot is not a handler slot). | checked | None. |
 | `max_send` | `buffer_size * 4` (64 KB at the default, comment in `send`). | checked: comment, `send_room` | Refuse a configuration where it is below 4096. |
 | `pause_reading` | `pause_reading`: `paused` and `_update_epoll_interest` (`handler.goose`). Bytes stay in the kernel. | checked | None. |
-| `set_keep_open_on_eof` | `set_keep_open_on_eof`. Off by default: the peer's end of stream closes the link after the queue is flushed (`PeerClosed`). On: `PeerEof` once, link stays open (`_read_for_handler`). | checked | None. A half-close timeout (`HalfCloseTimeout`) is the provider's own limit, which the contract allows. |
+| `set_keep_open_on_eof` | `set_keep_open_on_eof`. Off by default: the peer's end of stream closes the link after the queue is flushed (`PeerClosed`). On: `PeerEof` once, link stays open (`_read_for_handler`). | checked | None. A half-close timeout (`HalfCloseTimeout`) is the event loop's own limit, which the contract allows. |
 | `shutdown_write` | `shutdown_write`: `shut_wr_pending`, then `c_shutdown_wr` once the queue is out; closes with `PeerClosed` when the peer has finished too (`_flush_output`). | checked | None. |
 | `close` | `close`: cancels a dial; otherwise `_begin_close`, which closes once the queue is empty (`_flush_output`). | checked | See *Closing*: the final `c_close` can reset a link with unread input. |
 | `reset` | `reset`: `c_reset` (`SO_LINGER` 1, 0) then `_close_connection` (`src/c_sys.c`, `handler.goose`). | checked | None. |
@@ -60,7 +60,7 @@ slot), or keep the failure in a small side table keyed by slot and generation th
 | `Data` | One read into a pool buffer; one pending `Data` per connection, the buffer returned after the block (`_read_for_handler`, `_data_delivered`). The event has no tag. | checked | Add `tag`. Maximum bytes per event is `buffer_size`. |
 | `Writable` | `want_writable`; delivered when the queue holds less than one buffer (`_flush_output`: `_output_bytes() < buffer_size`). It does not remember the size that was refused. | checked | Remember the largest refused size and deliver `Writable` only when `send_room` is at least that (*Writable follows Full once*). A refusal resolved by the connection closing is already covered by `Closed`. |
 | `PeerEof` | Delivered once, only with keep-open (`_read_for_handler`). | checked | None. |
-| `Closed` | Exactly once, always last (`engine.goose` `Event` comment). Reasons differ: `ByHandler` is `Local`, `Drained` is `Shutdown`, `PeerClosed`, `PeerReset`, `IdleTimeout`, `HalfCloseTimeout`, `Error` as named, `ConnectFailed` needs a kind; `Fenced`, `InspectTimeout`, `InvalidHello` have no portable name. | checked | Translate; the three extras are `Provider { code }`. |
+| `Closed` | Exactly once, always last (`engine.goose` `Event` comment). Reasons differ: `ByHandler` is `Local`, `Drained` is `Shutdown`, `PeerClosed`, `PeerReset`, `IdleTimeout`, `HalfCloseTimeout`, `Error` as named, `ConnectFailed` needs a kind; `Fenced`, `InspectTimeout`, `InvalidHello` have no portable name. | checked | Translate; the three extras are `LoopSpecific { code }`. |
 | `Tick` | At least every 100 ms (`engine.goose` `Event` comment; the 100 ms wait in `_wait_limit`). | checked | None. |
 | `PassEnd` | `want_pass_end(w, on)` opts in; one per pass that delivered handler events; none for Tick-only or idle passes; sends during it cause no second one (`handler.goose` `_finish_pass`). | checked | The contract has no switch: call `want_pass_end(true)` always. |
 

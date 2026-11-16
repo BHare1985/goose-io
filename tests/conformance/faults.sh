@@ -42,7 +42,7 @@ while IFS=$'\t' read -r check part req scenarios fault group; do
     fi
 done < tests/conformance/checks.tsv
 
-if [ ${#unfaulted[@]} -gt 0 ]; then echo "no fault possible, see docs/providers.md: ${unfaulted[*]}"; fi
+if [ ${#unfaulted[@]} -gt 0 ]; then echo "no fault possible, see docs/event-loops.md: ${unfaulted[*]}"; fi
 echo "$tested faults tried, $bad checks that did not fail"
 
 # an unknown fault name must not silently pass: the fault table in memory.goose has to know every name used

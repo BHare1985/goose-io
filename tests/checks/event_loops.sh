@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Checks the mapping documents of docs/providers/: every operation and event of the contract has a row, each
+# Checks the mapping documents of docs/event-loops/: every operation and event of the contract has a row, each
 # document has its "Closing", "Connect failures" and "Known gaps" sections, and the documents that list
-# unverified rows list them before the table. Usage: tests/checks/providers.sh
+# unverified rows list them before the table. Usage: tests/checks/event_loops.sh
 set -u
 cd "$(dirname "$0")/../.."
 
 items="listen listener_port stop_listening dial peer_address send send2 send_room max_send pause_reading set_keep_open_on_eof shutdown_write close reset set_user user now_ms tick_by serve stop draining Opened Data Writable PeerEof Closed Tick PassEnd"
 bad=0
 docs=0
-for f in docs/providers/*.md; do
+for f in docs/event-loops/*.md; do
     [ -f "$f" ] || continue
     docs=$((docs + 1))
     for i in $items; do
@@ -26,7 +26,7 @@ for f in docs/providers/*.md; do
 done
 # five event loop documents in all: tcprouter-engine, usockets, io-uring, libuv, libevent
 for n in tcprouter-engine usockets io-uring libuv libevent; do
-    [ -f "docs/providers/$n.md" ] || { echo "BAD   docs/providers/$n.md is missing"; bad=$((bad + 1)); }
+    [ -f "docs/event-loops/$n.md" ] || { echo "BAD   docs/event-loops/$n.md is missing"; bad=$((bad + 1)); }
 done
 echo "$docs documents, $bad problems"
 [ $bad -eq 0 ] && [ $docs -gt 0 ]
