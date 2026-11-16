@@ -1,5 +1,5 @@
 // goose-io conformance suite: two checks that exist only to test the driver. One passes, one fails on
-// purpose. They are in part -1, which a provider's runner never runs.
+// purpose. They are in part -1, which an event loop's runner never runs.
 namespace goose_io_conformance;
 import std;
 import goose_io;

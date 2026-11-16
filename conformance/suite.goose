@@ -1,11 +1,14 @@
-// goose-io conformance suite: the driver and the entry point.
+// goose-io conformance suite: the driver and the entry points.
 //
-// The suite is written only against the contract. Both ends of every link are on the provider under test:
+// The suite is written only against the contract. Both ends of every link are on the event loop under test:
 // a check listens and dials on the same loop and makes the peer's behaviour with contract calls (`reset`,
-// `shutdown_write`, `pause_reading`, not sending). What calls cannot produce, an address that never answers
-// and an address that is held, the runner supplies in a Fixture.
+// `shutdown_write`, `pause_reading`, not sending). What calls cannot produce (an address that never answers,
+// one that is held, one that nothing listens on) the runner supplies in a Fixture.
 //
-// A provider's root program is about ten lines (docs/providers.md):
+// The suite is run one group at a time (design D5 of the change simplify-contract): there is an entry point for the
+// core and one for each group of extras, and each compiles only the checks of its group, so an event loop that
+// supplies the core can run the core suite and nothing that needs more. An event loop's root program is about
+// ten lines (docs/event-loops.md):
 //
 //     import goose_io from "../..";
 //     import goose_io.conformance.suite;
@@ -14,13 +17,13 @@
 //         var io = goose_io_memory::Loop { .. };
 //         io.silent("10.255.0.1:81");
 //         io.hold("127.0.0.1:9999");
-//         let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999" };
-//         exit(goose_io_conformance::conformance_part(io, fixture, 0));
+//         let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9" };
+//         exit(goose_io_conformance::conformance_core_part(io, fixture, 0));
 //     }
 //
-// Only one `stop` can be observed in one `serve`, so the suite is divided into parts and each part is run
-// by its own process: part 0 is every check that does not need `stop` and ends with "stop with nothing
-// open"; each other part is one scenario of `stop`. `conformance_parts()` is the number of parts.
+// Only one `stop` can be observed in one `serve`, so the core suite is divided into parts and each part is run by
+// its own process: part 0 is every check that does not need `stop` and ends with "stop with nothing open"; parts 1
+// to 5 are one scenario of `stop` each. The other groups have part 0 only.
 namespace goose_io_conformance;
 import std;
 import goose_io;
@@ -42,21 +45,70 @@ fn info(id: i64) -> Info {
     if i.name.len == 0 { i = data_info(id); }
     if i.name.len == 0 { i = close_info(id); }
     if i.name.len == 0 { i = time_info(id); }
+    i.group = group_of(i.name);
     return i;
 }
 
-fn run_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+// The group a check belongs to: the group whose operation or event is its subject.
+fn group_of(name: const u8[:]) -> i64 {
+    if name == "selftest_pass" || name == "selftest_fail" { return GROUP_CORE; }
+    if name == "close_after_reply" || name == "close_cancels_a_dial" || name == "close_with_unread_input" || name == "close_when_peer_never_reads" || name == "data_arrives_as_slices" || name == "send_copies_at_once" || name == "send_is_bounded" || name == "writable_once_for_many_refusals" || name == "writable_next_episode" || name == "pause_and_resume_reading" || name == "order_accepted_link" || name == "owner_tags" || name == "owner_user_value" || name == "owner_user_after_failed_dial" || name == "listen_accepts" || name == "listen_held_address" || name == "dial_succeeds" || name == "dial_times_out" || name == "dial_bad_address" || name == "ticks_are_regular" || name == "tick_by_is_prompt" || name == "tick_by_two_deadlines" || name == "stop_with_nothing_open" || name == "stop_link_stays_open" || name == "stop_libraries_finish" || name == "listen_while_draining" || name == "dial_while_draining" || name == "stop_called_twice" || name == "close_leaves_only_closed" || name == "data_slice_stable_in_handler" || name == "send_before_open" || name == "send_after_close" || name == "send_too_large" || name == "writable_after_full" || name == "writable_means_it_fits" || name == "order_failed_dial" || name == "listen_port_zero" || name == "dial_refused" || name == "ipv6_loopback" || name == "handles_stale_reuse" || name == "handles_unset" || name == "events_not_reentrant" { return GROUP_CORE; }
+    if name == "peer_eof_closes_by_default" || name == "half_close_then_answer" || name == "full_not_writable_after_shutdown_write" || name == "full_resolved_when_peer_closes" || name == "shutdown_write_ends_sending" || name == "handles_unset_shutdown_write" { return GROUP_HALF_CLOSE; }
+    if name == "send2_joins_parts" || name == "send2_all_or_nothing" || name == "send2_refusals" || name == "send_room_is_zero_when_closed" || name == "handles_stale_send_room" || name == "handles_unset_sizing" { return GROUP_SIZING; }
+    if name == "reset_aborts_the_peer" || name == "handles_stale_reset" || name == "handles_unset_reset" || name == "events_not_reentrant_after_reset" { return GROUP_ABORT; }
+    if name == "listen_stop_keeps_links" || name == "listener_handle_never_reused" || name == "peer_address_names_peer" || name == "peer_address_ipv6" || name == "handles_valid_in_closed" || name == "handles_stale_user" || name == "handles_unset_inspection" { return GROUP_INSPECTION; }
+    if name == "pass_end_follows_link_events" || name == "pass_end_not_on_idle_pass" { return GROUP_BATCHING; }
+    return GROUP_NONE;
+}
+
+// What a check of each group is run by: the functions `step` runs the check whose id the case holds, and `takes` says
+// whether a check belongs to the suite being run.
+fn step<Io>(g: CoreGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if selftest_step(k, fx, io, ev) { return; }
-    if handles_step(k, fx, io, ev) { return; }
-    if net_step(k, fx, io, ev) { return; }
-    if data_step(k, fx, io, ev) { return; }
-    if close_step(k, fx, io, ev) { return; }
-    if time_step(k, fx, io, ev) { return; }
+    if handles_core_step(k, fx, io, ev) { return; }
+    if net_core_step(k, fx, io, ev) { return; }
+    if data_core_step(k, fx, io, ev) { return; }
+    if close_core_step(k, fx, io, ev) { return; }
+    if time_core_step(k, fx, io, ev) { return; }
     k.fail("the check is not known to the driver");
 }
 
-// The number of parts: 0 and one for each `stop` scenario.
-fn conformance_parts() -> i64 { 6 }
+fn step<Io>(g: BatchingGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if time_batching_step(k, fx, io, ev) { return; }
+    k.fail("the check is not known to the driver");
+}
+
+fn step<Io>(g: SizingGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if handles_sizing_step(k, fx, io, ev) { return; }
+    if data_sizing_step(k, fx, io, ev) { return; }
+    k.fail("the check is not known to the driver");
+}
+
+fn step<Io>(g: HalfCloseGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if handles_half_close_step(k, fx, io, ev) { return; }
+    if data_half_close_step(k, fx, io, ev) { return; }
+    if close_half_close_step(k, fx, io, ev) { return; }
+    k.fail("the check is not known to the driver");
+}
+
+fn step<Io>(g: AbortGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if handles_abort_step(k, fx, io, ev) { return; }
+    if close_abort_step(k, fx, io, ev) { return; }
+    k.fail("the check is not known to the driver");
+}
+
+fn step<Io>(g: InspectionGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if handles_inspection_step(k, fx, io, ev) { return; }
+    if net_inspection_step(k, fx, io, ev) { return; }
+    k.fail("the check is not known to the driver");
+}
+
+fn takes(g: CoreGroup&, i: Info) -> bool { i.group == GROUP_CORE }
+fn takes(g: BatchingGroup&, i: Info) -> bool { i.group == GROUP_BATCHING }
+fn takes(g: SizingGroup&, i: Info) -> bool { i.group == GROUP_SIZING }
+fn takes(g: HalfCloseGroup&, i: Info) -> bool { i.group == GROUP_HALF_CLOSE }
+fn takes(g: InspectionGroup&, i: Info) -> bool { i.group == GROUP_INSPECTION }
+fn takes(g: AbortGroup&, i: Info) -> bool { i.group == GROUP_ABORT }
 
 struct Driver {
     part:     i64      = 0,
@@ -80,15 +132,15 @@ fn _report(d: Driver&, k: Case&) {
     }
 }
 
-fn _begin<Io>(d: Driver&, k: Case&, fx: Fixture, io: Io&) {
+fn _begin<Io, G>(g: G&, d: Driver&, k: Case&, fx: Fixture, io: Io&) {
     k.reset(d.ids[d.pos], (d.pos + 1) * TAGS_PER_CHECK);
     d.running = true;
     k.within(io, 10000);
     let start: goose_io::Event = goose_io::Event.Tick { now_ms: io.now_ms() };
-    run_step(k, fx, io, start);
+    g.step(k, fx, io, start);
 }
 
-fn _drive<Io>(d: Driver&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+fn _drive<Io, G>(g: G&, d: Driver&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     d.depth++;
     if d.depth > 1 && d.running { k.fail("an event was delivered from inside the handler of another event"); }
     if d.pos >= d.ids.len {
@@ -96,9 +148,9 @@ fn _drive<Io>(d: Driver&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
         d.depth--;
         return;
     }
-    if !d.running { d._begin(k, fx, io); }
+    if !d.running { g._begin(d, k, fx, io); }
     k.track(io, ev);
-    run_step(k, fx, io, ev);
+    g.step(k, fx, io, ev);
     if k.verdict == RUNNING && io.now_ms() >= k.deadline {
         k.fail("not finished in time on the loop's clock");
     }
@@ -108,27 +160,27 @@ fn _drive<Io>(d: Driver&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
         d._report(k);
         d.pos++;
         d.running = false;
-        if d.pos < d.ids.len { d._begin(k, fx, io); }
+        if d.pos < d.ids.len { g._begin(d, k, fx, io); }
     }
     d.depth--;
 }
 
-// Runs one part of the suite on `io`. Returns the number of checks that failed and prints one line for
+// Runs one part of the suite for one group on `io`. Returns the number of checks that failed and prints one line for
 // each check, naming a failed check and the requirement it proves.
-fn conformance_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+fn _run_part<Io, G>(g: G&, io: Io&, fx: Fixture, part: i64) -> i32 {
     var d = Driver { part: part, .. };
     var k = Case { .. };
     for id in 1000 {
         let i = info(id);
-        if i.name.len > 0 && i.part == part { d.ids.push(id); }
+        if i.name.len > 0 && i.part == part && g.takes(i) { d.ids.push(id); }
     }
     if d.ids.len == 0 { print("FAIL no checks in part ", part); return 1; }
-    io.serve() { io, ev => _drive(d, k, fx, io, ev); };
+    io.serve() { io, ev => _drive(g, d, k, fx, io, ev); };
     // serve has returned: a check that waited for `stop` to take effect gives its verdict now
     if d.running {
         k.after = true;
         let end: goose_io::Event = goose_io::Event.Tick { now_ms: io.now_ms() };
-        run_step(k, fx, io, end);
+        g.step(k, fx, io, end);
         if k.verdict == RUNNING {
             if k.done { k.verdict = PASSED; } else { k.fail("serve returned before the check finished"); }
         }
@@ -143,4 +195,40 @@ fn conformance_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     }
     print(d.ran, " checks run in part ", part, ", ", d.failures, " failed");
     return d.failures as i32;
+}
+
+// The checks of the core: what every event loop supplies, and nothing that needs a group.
+fn conformance_core_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    var g = CoreGroup { .. };
+    return _run_part(g, io, fx, part);
+}
+
+// The checks of the batching group (`PassEnd`).
+fn conformance_batching_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    var g = BatchingGroup { .. };
+    return _run_part(g, io, fx, part);
+}
+
+// The checks of the half-close group: `shutdown_write`, `set_keep_open_on_eof` and `PeerEof`.
+fn conformance_half_close_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    var g = HalfCloseGroup { .. };
+    return _run_part(g, io, fx, part);
+}
+
+// The checks of the sizing group: `send_room` and `send2`.
+fn conformance_sizing_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    var g = SizingGroup { .. };
+    return _run_part(g, io, fx, part);
+}
+
+// The checks of the abort group: `reset`.
+fn conformance_abort_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    var g = AbortGroup { .. };
+    return _run_part(g, io, fx, part);
+}
+
+// The checks of the inspection group: `peer_address`, `stop_listening` and `user`.
+fn conformance_inspection_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    var g = InspectionGroup { .. };
+    return _run_part(g, io, fx, part);
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shows that every conformance check can fail. For each row of tests/conformance/checks.tsv that names a fault,
-# switches the in-memory provider to that fault, runs the check's part, and requires the output to name the
+# switches the in-memory event loop to that fault, runs the check's part, and requires the output to name the
 # check as failed. A check that passes against its own fault is a defect in the suite.
 # Also requires that with no fault every part passes (the same as run.sh).
 # Usage: tests/conformance/faults.sh [check-name ...]   (default: every check)
@@ -25,11 +25,11 @@ limited() {
 bad=0
 tested=0
 unfaulted=()
-while IFS=$'\t' read -r check part req scenarios fault; do
+while IFS=$'\t' read -r check part req scenarios fault group; do
     case "$check" in ''|'#'*) continue ;; esac
     want "$check" || continue
     if [ "$fault" = "-" ]; then unfaulted+=("$check"); continue; fi
-    out=$(GOOSE_IO_FAULT="$fault" limited goose run tests/conformance/memory_conformance.goose -- "$part" 2>&1)
+    out=$(GOOSE_IO_FAULT="$fault" limited goose run tests/conformance/memory_conformance.goose -- "$part" "$group" 2>&1)
     code=$?
     tested=$((tested + 1))
     if grep -q "^FAIL $check " <<<"$out"; then
@@ -42,7 +42,7 @@ while IFS=$'\t' read -r check part req scenarios fault; do
     fi
 done < tests/conformance/checks.tsv
 
-if [ ${#unfaulted[@]} -gt 0 ]; then echo "no fault possible, see docs/providers.md: ${unfaulted[*]}"; fi
+if [ ${#unfaulted[@]} -gt 0 ]; then echo "no fault possible, see docs/event-loops.md: ${unfaulted[*]}"; fi
 echo "$tested faults tried, $bad checks that did not fail"
 
 # an unknown fault name must not silently pass: the fault table in memory.goose has to know every name used

@@ -1,6 +1,6 @@
-// goose-io conformance suite, group 4.7: time, ticks, end-of-pass, and the host side (run and stop).
-// Requirements: Time and ticks; End-of-pass notification; The host runs and stops the loop; Draining is the same
-// on every provider.
+// goose-io conformance suite, group 4.7: time, ticks, end-of-pass, and the application side (run and stop).
+// Requirements: Time and ticks; End-of-pass notification; The application runs and stops the loop; Draining is the same
+// on every event loop.
 //
 // The contract does not let a check see where one pass ends and the next begins, so the PassEnd checks assert
 // what the rules make visible in the event sequence: a PassEnd comes only after link events, never twice with
@@ -20,12 +20,12 @@ fn time_info(id: i64) -> Info {
     if id == 502 { return Info { name: "tick_by_two_deadlines", req: "Time and ticks", part: 0 }; }
     if id == 503 { return Info { name: "pass_end_follows_link_events", req: "End-of-pass notification", part: 0 }; }
     if id == 504 { return Info { name: "pass_end_not_on_idle_pass", req: "End-of-pass notification", part: 0 }; }
-    if id == 505 { return Info { name: "stop_with_nothing_open", req: "The host runs and stops the loop", part: 0 }; }
-    if id == 510 { return Info { name: "stop_link_stays_open", req: "The host runs and stops the loop", part: 1 }; }
-    if id == 520 { return Info { name: "stop_libraries_finish", req: "The host runs and stops the loop", part: 2 }; }
-    if id == 530 { return Info { name: "listen_while_draining", req: "Draining is the same on every provider", part: 3 }; }
-    if id == 540 { return Info { name: "dial_while_draining", req: "Draining is the same on every provider", part: 4 }; }
-    if id == 550 { return Info { name: "stop_called_twice", req: "Draining is the same on every provider", part: 5 }; }
+    if id == 505 { return Info { name: "stop_with_nothing_open", req: "The application runs and stops the loop", part: 0 }; }
+    if id == 510 { return Info { name: "stop_link_stays_open", req: "The application runs and stops the loop", part: 1 }; }
+    if id == 520 { return Info { name: "stop_libraries_finish", req: "The application runs and stops the loop", part: 2 }; }
+    if id == 530 { return Info { name: "listen_while_draining", req: "Draining is the same on every event loop", part: 3 }; }
+    if id == 540 { return Info { name: "dial_while_draining", req: "Draining is the same on every event loop", part: 4 }; }
+    if id == 550 { return Info { name: "stop_called_twice", req: "Draining is the same on every event loop", part: 5 }; }
     return Info { .. };
 }
 
@@ -314,17 +314,23 @@ fn c_stop_called_twice<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-fn time_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+// Runs the checks of the core: true if the check is one of them.
+fn time_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 500 { c_ticks_are_regular(k, io, ev); return true; }
     if k.id == 501 { c_tick_by_is_prompt(k, io, ev); return true; }
     if k.id == 502 { c_tick_by_two_deadlines(k, io, ev); return true; }
-    if k.id == 503 { c_pass_end_follows_link_events(k, io, ev); return true; }
-    if k.id == 504 { c_pass_end_not_on_idle_pass(k, io, ev); return true; }
     if k.id == 505 { c_stop_with_nothing_open(k, io, ev); return true; }
     if k.id == 510 { c_stop_link_stays_open(k, io, ev); return true; }
     if k.id == 520 { c_stop_libraries_finish(k, io, ev); return true; }
     if k.id == 530 { c_listen_while_draining(k, io, ev); return true; }
     if k.id == 540 { c_dial_while_draining(k, fx, io, ev); return true; }
     if k.id == 550 { c_stop_called_twice(k, io, ev); return true; }
+    return false;
+}
+
+// Runs the checks of the batching group: true if the check is one of them.
+fn time_batching_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+    if k.id == 503 { c_pass_end_follows_link_events(k, io, ev); return true; }
+    if k.id == 504 { c_pass_end_not_on_idle_pass(k, io, ev); return true; }
     return false;
 }

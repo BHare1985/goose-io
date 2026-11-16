@@ -46,9 +46,15 @@ for f in "${files[@]}"; do
     fi
 done
 
-# the package stays pure Goose (docs/providers.md, "Which check proves which scenario")
+# the package stays pure Goose (docs/event-loops.md, "Which check proves which scenario")
 if [ -z "${SKIP_PURITY:-}" ] && [ ${#targets[@]} -eq 1 ] && [ "${targets[0]}" = "tests" ]; then
     tests/checks/purity.sh || failed=$((failed + 1))
+fi
+
+# the old words stay out of the documents, the code and the specification (design D10)
+if [ -z "${SKIP_VOCABULARY:-}" ] && [ ${#targets[@]} -eq 1 ] && [ "${targets[0]}" = "tests" ]; then
+    tests/checks/vocabulary.sh > /tmp/goose-io-vocabulary.$$ 2>&1 || { head -n 12 /tmp/goose-io-vocabulary.$$; echo "FAIL  tests/checks/vocabulary.sh (run it for the whole list)"; failed=$((failed + 1)); }
+    rm -f /tmp/goose-io-vocabulary.$$
 fi
 
 echo "${#files[@]} files, $failed failed"

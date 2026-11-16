@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Checks that the specification, docs/providers.md, tests/conformance/checks.tsv and the suite agree:
-#  - the table in docs/providers.md has one row for each scenario of specs/io-contract/spec.md (counted with grep -c)
+# Checks that the specification, docs/event-loops.md, tests/conformance/checks.tsv and the suite agree:
+#  - the table in docs/event-loops.md has one row for each scenario of specs/io-contract/spec.md (counted with grep -c)
 #  - every check in checks.tsv is named in the table or in the document, and every check the suite defines is in checks.tsv
 #  - every fault named in checks.tsv is one memory.goose knows
 # The specification is the one of the change define-contract-v1, wherever it is: active, or archived under
@@ -15,9 +15,13 @@ if [ -z "$spec" ]; then
     done
 fi
 [ -f "$spec" ] || { echo "BAD   no specification of define-contract-v1 found (active or archived)"; exit 1; }
-doc=docs/providers.md
+doc=docs/event-loops.md
 tsv=tests/conformance/checks.tsv
 bad=0
+
+# the scenarios of define-contract-v1 are quoted in the table with the old words replaced by the new ones
+# (simplify-contract, design D10): "a provider" is "an event loop", "provider-specific" is "loop-specific"
+words() { sed -E 's/provider-specific/loop-specific/; s/^A provider/An event loop/; s/ a provider/ an event loop/g; s/providers/event loops/g; s/provider/event loop/g; s/Provider/Event loop/g'; }
 
 want=$(grep -c "^#### Scenario" "$spec")
 have=$(awk '/<!-- scenarios:begin -->/{on=1; next} /<!-- scenarios:end -->/{on=0} on && /^\| / && !/^\| Requirement/ && !/^\|---/' "$doc" | wc -l)
@@ -25,7 +29,7 @@ if [ "$want" -ne "$have" ]; then echo "BAD   the table has $have rows, the speci
 
 while IFS= read -r scenario; do
     grep -qF "| $scenario |" "$doc" || { echo "BAD   scenario not in the table: $scenario"; bad=$((bad + 1)); }
-done < <(grep "^#### Scenario" "$spec" | sed 's/^#### Scenario: //')
+done < <(grep "^#### Scenario" "$spec" | sed 's/^#### Scenario: //' | words)
 
 suite=$(grep -ho 'name: "[a-z0-9_]*"' conformance/*.goose | sed 's/name: "//; s/"//' | grep -v '^selftest_' | sort)
 listed=$(grep -v '^#' "$tsv" | cut -f1 | sort)

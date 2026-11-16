@@ -1,5 +1,7 @@
 // A line client: a library on the goose-io contract that sends newline-delimited requests over a pool of links.
 //
+// Needs: core only. It runs on every loop that supplies the core.
+//
 // Like the line server it imports the contract and nothing else. It shows what a client needs on top of the
 // contract (docs/libraries.md): a pool of links it dials itself, requests pipelined on a link and matched to
 // replies in order, a deadline for each request kept with `Deadlines` and `tick_by`, a reconnect after a backoff
@@ -50,7 +52,7 @@ struct Slot {
     state:    u8             = 0,
     retry_at: i64            = 0,
     fails:    i64            = 0,                 // failures in a row, for the backoff
-    sent:     i64            = 0,                 // bytes of `out` the provider has taken
+    sent:     i64            = 0,                 // bytes of `out` the event loop has taken
     queue:    u32[..32]      = [],                // ids of the requests waiting for a reply, in the order sent
     in_buf:   u8[..4096]     = [],
     out:      u8[..16384]    = [],
@@ -178,7 +180,7 @@ fn _backoff(c: LineClient&, i: i64) -> i64 {
     return d;
 }
 
-// Sends what the provider will take of a link's output. A refusal waits for Writable.
+// Sends what the event loop will take of a link's output. A refusal waits for Writable.
 fn _flush<Io>(c: LineClient&, io: Io&, i: i64) {
     let s .= c.slots[i];
     while s.state == OPEN && s.out.len > s.sent {
@@ -328,7 +330,7 @@ fn _expire<Io>(c: LineClient&, io: Io&) {
 }
 // doc:end expire
 // doc:begin rearm
-// Asks the provider to wake the client for its next deadline or redial, whichever is first.
+// Asks the event loop to wake the client for its next deadline or redial, whichever is first.
 fn _rearm<Io>(c: LineClient&, io: Io&) {
     if !c.deadlines.is_empty() { io.tick_by(c.deadlines.next_at()); }
     for i in c.size { if c.slots[i].state == BACKOFF { io.tick_by(c.slots[i].retry_at); } }

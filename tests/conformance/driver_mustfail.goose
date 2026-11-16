@@ -8,5 +8,5 @@ import goose_io.memory;
 fn main() {
     var io = goose_io_memory::Loop { .. };
     let fx = goose_io_conformance::Fixture { .. };
-    exit(goose_io_conformance::conformance_part(io, fx, -1));
+    exit(goose_io_conformance::conformance_core_part(io, fx, -1));
 }

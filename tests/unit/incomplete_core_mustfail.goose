@@ -1,14 +1,13 @@
-// expect: unknown function or member: send2
-// A provider that lacks one operation does not compile, and the error names the operation.
+// expect: unknown function or member: listener_port
+// A loop that lacks one operation of the core does not compile, and the error names the operation.
 // (A *_mustfail.goose file passes when it exits non-zero and prints the text after "expect:".)
 import std;
 import goose_io from "../..";
 
-// Every operation of the contract except the two-part send.
+// Every operation of the contract except listener_port.
 struct Almost { n: i64 = 0 }
 
 fn listen(io: Almost&, address: const u8[:], tag: u16) -> goose_io::Listener, goose_io::ListenError { return goose_io::Listener { .. }, goose_io::ListenError { .. }; }
-fn listener_port(io: Almost&, l: goose_io::Listener) -> u16 { 0 }
 fn stop_listening(io: Almost&, l: goose_io::Listener) {}
 fn dial(io: Almost&, address: const u8[:], tag: u16, connect_ms: i64) -> goose_io::Link { goose_io::Link { .. } }
 fn peer_address(io: Almost&, link: goose_io::Link) -> goose_io::Address { goose_io::Address { .. } }
@@ -33,5 +32,5 @@ fn serve<F>(io: Almost&) {
 
 fn main() {
     var io = Almost { .. };
-    goose_io::require_provider(io);
+    goose_io::require_core(io);
 }

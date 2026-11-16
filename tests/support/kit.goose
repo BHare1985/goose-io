@@ -2,9 +2,9 @@
 // ("kit" is short for "test kit"; it is not an acronym.) It has
 //   check / finish    a failure counter: `kit::check(ok, "what must hold")` prints a failure, `kit::finish()` sets the
 //                     exit status;
-//   Log / note        an event recorder that works on any provider, with queries over it (kinds_of, data_of, ...);
+//   Log / note        an event recorder that works on any event loop, with queries over it (kinds_of, data_of, ...);
 //   Pair / connect    a listener and a dialled link on one loop, and `track`, which keeps the pair up to date;
-//   scenario          which scenario of a test to run (`-- 3`), so a provider that holds one loop per process can.
+//   scenario          which scenario of a test to run (`-- 3`), so a test over a wrapper, which holds one loop per process, can.
 // The conformance suite has its own, in conformance/support.goose, because it must not import test code.
 // Imported from a test as `import goose_io.tests.support.kit;`.
 namespace kit;
@@ -166,7 +166,7 @@ fn reason_name(why: goose_io::CloseReason) -> const u8[:] {
         Local => "Local",
         Shutdown => "Shutdown",
         Error => "Error",
-        Provider p => "Provider",
+        LoopSpecific p => "LoopSpecific",
     }
 }
 
@@ -215,8 +215,16 @@ fn closed_once(log: Log&, link: goose_io::Link, why: goose_io::CloseReason) -> b
     return i >= 0 && count_for(log, CLOSED, link) == 1 && log.entries[i].why == why;
 }
 
-// The scenario a test program was asked to run (`goose run test.goose -- 3`), or -1 for all of them. A
-// provider that holds one loop per process (the wrapper) runs one scenario per process.
+// True when the second argument is `core-only`: the test then runs on the loop of tests/support/core_only.goose.
+fn core_only() -> bool {
+    if arg_count() < 3 { return false; }
+    var text: u8[>..] = [];
+    arg(2, text);
+    return text == "core-only";
+}
+
+// The scenario a test program was asked to run (`goose run test.goose -- 3`), or -1 for all of them. A test over a
+// wrapper, which holds one loop per process, runs one scenario per process.
 fn scenario() -> i64 {
     if arg_count() < 2 { return -1; }
     var text: u8[>..] = [];

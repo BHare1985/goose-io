@@ -18,6 +18,7 @@ fn net_info(id: i64) -> Info {
     if id == 208 { return Info { name: "dial_times_out", req: "A failed dial says why", part: 0 }; }
     if id == 209 { return Info { name: "dial_bad_address", req: "A failed dial says why", part: 0 }; }
     if id == 210 { return Info { name: "ipv6_loopback", req: "Scope of the base contract", part: 0 }; }
+    if id == 211 { return Info { name: "peer_address_ipv6", req: "A link reports its peer's address", part: 0 }; }
     return Info { .. };
 }
 
@@ -71,8 +72,6 @@ fn c_listen_port_zero<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     } else if k.step == 1 && k.pair_open(0) {
         k.expect(io.listener_port(k.l) as i64 == k.port, "listener_port changed between calls");
         io.close(k.link[0]);
-        io.stop_listening(k.l);
-        io.stop_listening(k.l2);
         k.step = 2;
         k.finish();
     }
@@ -168,12 +167,10 @@ fn c_dial_succeeds<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 
 // --- 207: a refused dial -----------------------------------------------------------------------------
 
-fn c_dial_refused<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+fn c_dial_refused<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
-        if k.listen_local(io, 0) {
-            io.stop_listening(k.l);
-            k.dial_local(io, 0, 0);
-        }
+        k.expect(fx.refused.len > 0, "the fixture supplied no address that nothing listens on");
+        k.dial_to(io, fx.refused, 0, 0);
         k.step = 1;
     } else if k.step == 1 && k.first(0, 'C') >= 0 {
         k.expect(k.kinds(0) == "C", "a refused dial did not give exactly one Closed and no Opened");
@@ -235,9 +232,6 @@ fn c_ipv6_loopback<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         k.dial_to(io, text, 0, 0);
         k.step = 1;
     } else if k.step == 1 && k.pair_open(0) {
-        var text: u8[>..] = [];
-        format(text, "[::1]:", k.port);
-        k.expect(addr_text(io.peer_address(k.link[0])) == text, "the peer address of an IPv6 link was not [::1]:port in lower case");
         io.send(k.link[0], "over v6");
         k.step = 2;
     } else if k.step == 2 && k.received(1).len >= 7 {
@@ -248,17 +242,46 @@ fn c_ipv6_loopback<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-fn net_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+// --- 211: the peer address of an IPv6 link -------------------------------------------------------------------
+
+fn c_peer_address_ipv6<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        let l, err = io.listen("[::1]:0", k.tag(0));
+        k.expect(goose_io::is_listener(l) && !goose_io::failed(err), "could not listen on [::1]");
+        k.l = l;
+        k.port = io.listener_port(l) as i64;
+        var text: u8[>..] = [];
+        format(text, "[::1]:", k.port);
+        k.dial_to(io, text, 0, 0);
+        k.step = 1;
+    } else if k.step == 1 && k.pair_open(0) {
+        var text: u8[>..] = [];
+        format(text, "[::1]:", k.port);
+        k.expect(addr_text(io.peer_address(k.link[0])) == text, "the peer address of an IPv6 link was not [::1]:port in lower case");
+        io.close(k.link[0]);
+        k.step = 2;
+        k.finish();
+    }
+}
+
+// Runs the checks of the core: true if the check is one of them.
+fn net_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 200 { c_listen_accepts(k, io, ev); return true; }
     if k.id == 201 { c_listen_held_address(k, fx, io, ev); return true; }
     if k.id == 202 { c_listen_port_zero(k, io, ev); return true; }
-    if k.id == 203 { c_listen_stop_keeps_links(k, io, ev); return true; }
-    if k.id == 204 { c_listener_handle_never_reused(k, io, ev); return true; }
-    if k.id == 205 { c_peer_address_names_peer(k, io, ev); return true; }
     if k.id == 206 { c_dial_succeeds(k, io, ev); return true; }
-    if k.id == 207 { c_dial_refused(k, io, ev); return true; }
+    if k.id == 207 { c_dial_refused(k, fx, io, ev); return true; }
     if k.id == 208 { c_dial_times_out(k, fx, io, ev); return true; }
     if k.id == 209 { c_dial_bad_address(k, io, ev); return true; }
     if k.id == 210 { c_ipv6_loopback(k, io, ev); return true; }
+    return false;
+}
+
+// Runs the checks of the inspection group: true if the check is one of them.
+fn net_inspection_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+    if k.id == 203 { c_listen_stop_keeps_links(k, io, ev); return true; }
+    if k.id == 204 { c_listener_handle_never_reused(k, io, ev); return true; }
+    if k.id == 205 { c_peer_address_names_peer(k, io, ev); return true; }
+    if k.id == 211 { c_peer_address_ipv6(k, io, ev); return true; }
     return false;
 }

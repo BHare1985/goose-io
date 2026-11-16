@@ -1,7 +1,7 @@
 # Writing a library
 
 A library is Goose code that speaks a protocol over links: an HTTP server, a database client, a
-proxy. It is generic over the provider, so the same source runs on any provider that meets the
+proxy. It is generic over the event loop, so the same source runs on any event loop that meets the
 contract in [contract.md](contract.md).
 
 This document covers the shape of a library, what the contract gives it to work with, and how to test it with
@@ -9,13 +9,42 @@ no network. Every excerpt of code in it is copied from a file that the tests bui
 `tests/checks/docs.sh` fails if one drifts: `examples/lineserver/server.goose`, `examples/lineclient/client.goose`
 and `examples/gateway.goose` are the libraries, and `tests/examples/` runs them on scripted peers.
 
+## What a library needs
+
+A library uses the **core** of the contract and, if it must, some of the **groups** (`contract.md`, section 2).
+It says which in its header, in one line that `tests/examples/needs_check.sh` reads:
+
+```text
+// Needs: core only.                                   examples/lineclient/client.goose
+// Needs: core and half-close (...).                   examples/lineserver/server.goose
+```
+
+and its test calls the matching checks, so that an event loop that lacks one fails with the name of the operation
+and not somewhere inside the library:
+
+```goose
+goose_io::require_core(io);
+goose_io::require_half_close(io);       // the line server keeps its link open after the peer finishes sending
+```
+
+The fewer groups a library needs, the more event loops it runs on, so ask first whether the core is enough. It
+usually is: `send` and `Full` do what `send_room` and `send2` do (join the two parts into a buffer of your own, and
+wait for `Writable` on `Full`), `close` ends a link as `shutdown_write` does for a protocol where the peer's end of
+stream means it is done, `Tick` and `tick_by` replace `PassEnd` for a library that does not batch, and the user
+value is yours to keep (`set_user` sets it; you do not need `user` to read it back). A library that needs a group
+fails to build on an event loop without it, naming the operation. `examples/lineclient/` needs only the core and its
+tests run on `tests/support/core_only.goose`; `examples/lineserver/` answers after the peer has finished sending, so it needs half-close.
+
+An event the loop never delivers is simply never handled: the `PeerEof` and `PassEnd` arms of the example libraries
+are never run on a loop without those groups.
+
 ## The shape of a library
 
-A library is a **state struct** and **functions generic over the provider**, with one **event entry point** that
-says whether the event was its own. It imports the contract and nothing that names a provider (the check is
-`tests/examples/imports_test.sh`), so one source runs on every provider that passes the conformance suite.
+A library is a **state struct** and **functions generic over the event loop**, with one **event entry point** that
+says whether the event was its own. It imports the contract and nothing that names an event loop (the check is
+`tests/examples/imports_test.sh`), so one source runs on every event loop that passes the conformance suite.
 
-The state is one struct that the host owns: a local or a global variable, passed by reference. It holds the
+The state is one struct that the application owns: a local or a global variable, passed by reference. It holds the
 library's tag, its listener or its pool of links, and its buffers. Buffers have fixed sizes in these examples, so
 a peer that is too fast, too slow or silent cannot make the library grow; a library that needs more may use
 growable arrays, with the one rule of Goose that an array element cannot itself be resizable.
@@ -32,7 +61,7 @@ root struct LineServer {
 }
 ```
 
-The entry point takes the library, the provider and the event. It returns true when the event was for the
+The entry point takes the library, the event loop and the event. It returns true when the event was for the
 library and false when it is not: another library's, or a `Tick` or `PassEnd`, which every library is offered and
 none owns.
 
@@ -93,7 +122,7 @@ fn server_event<Io>(s: LineServer&, io: Io&, ev: goose_io::Event) -> bool {
 ### Tags and the user value
 
 Every link event names its owner. The **tag** is given to `listen` or `dial` and comes back on every event of the
-link: it is how a library tells its links from another library's, and the host gives each library its own. The
+link: it is how a library tells its links from another library's, and the application gives each library its own. The
 **user value** is the library's own number for one link, set with `set_user` and carried by every later event of
 that link. Both examples use it as an index into their table of connections, so an event leads straight to its
 state, and check that the link in the table is the link in the event (`same`) before trusting the index. A link
@@ -102,14 +131,13 @@ that failed at once still carries the user value set after `dial` returned, so a
 ### `Full` and `Writable`
 
 `send` takes every byte or none. When it answers `Full` the library keeps what it could not send and waits: the
-provider delivers one `Writable` when each refused send would now fit, and the library tries again. Meanwhile it
+event loop delivers one `Writable` when each refused send would now fit, and the library tries again. Meanwhile it
 must not take on more work for that link; both examples stop handing out requests for a link until its output is
-empty, and a link that falls behind is held back with `pause_reading` until it has caught up. `send_room` and
-`max_send` say how much a send would take.
+empty, and a link that falls behind is held back with `pause_reading` until it has caught up. `max_send` says the largest send the loop will ever take, and with the sizing group `send_room` says how much a send would take now.
 
 <!-- excerpt: examples/lineserver/server.goose#flush -->
 ```goose
-// Sends what the provider will take of the connection's output. A refusal waits for Writable.
+// Sends what the event loop will take of the connection's output. A refusal waits for Writable.
 fn _flush<Io>(s: LineServer&, io: Io&, i: i64) {
     let c .= s.conns[i];
     while c.in_use && c.out.len > c.sent {
@@ -136,7 +164,7 @@ that has gone (*A refused send is always resolved*).
 
 ### Deadlines
 
-The provider keeps no timers. A library keeps its own deadlines in a `goose_io::Deadlines` (`deadlines.goose`, a
+The event loop keeps no timers. A library keeps its own deadlines in a `goose_io::Deadlines` (`deadlines.goose`, a
 bounded heap of time and id) and asks for a wake with `tick_by(next_at)`. On every `Tick` it takes what is due,
 and asks again for the next. The line client does this for each request's deadline and for the time to redial a
 lost link.
@@ -164,7 +192,7 @@ thrown away: a late reply can never be taken for the reply of a later request.
 
 <!-- excerpt: examples/lineclient/client.goose#rearm -->
 ```goose
-// Asks the provider to wake the client for its next deadline or redial, whichever is first.
+// Asks the event loop to wake the client for its next deadline or redial, whichever is first.
 fn _rearm<Io>(c: LineClient&, io: Io&) {
     if !c.deadlines.is_empty() { io.tick_by(c.deadlines.next_at()); }
     for i in c.size { if c.slots[i].state == BACKOFF { io.tick_by(c.slots[i].retry_at); } }
@@ -175,7 +203,7 @@ fn _rearm<Io>(c: LineClient&, io: Io&) {
 
 `stop(grace_ms)` makes `draining()` true. A library that sees it finishes what it has in hand and closes the
 links it has no work on; when no link is left, `serve` returns, and what remains at the end of the grace period is
-closed by the provider with `Shutdown`. The line server closes the connections with nothing in progress on the
+closed by the event loop with `Shutdown`. The line server closes the connections with nothing in progress on the
 next `Tick`:
 
 <!-- excerpt: examples/lineserver/server.goose#draining -->
@@ -194,9 +222,9 @@ fn _close_idle<Io>(s: LineServer&, io: Io&) {
 
 A library may still `dial` while draining to finish work in hand; it may not `listen`.
 
-### The host
+### The application
 
-The host is the only code that names a provider, and it assigns the tags. It runs the loop and hands each event to
+The application is the only code that names an event loop, and it assigns the tags. It runs the loop and hands each event to
 its libraries. `examples/gateway.goose` runs the line server twice (a front and a backend) and the line client on
 one loop, and connects them without either library naming the other: the front's requests become the client's
 requests to the backend, and the client's results become the front's replies.
@@ -238,7 +266,7 @@ fn step<Io>(front: lineserver::LineServer&, back: lineserver::LineServer&, clien
 
 ## Testing a library
 
-The package includes a provider that needs no network and no real clock: `goose_io_memory::Loop`
+The package includes an event loop that needs no network and no real clock: `goose_io_memory::Loop`
 in `memory.goose`. A test runs the library on it, plays the other end of each link with a
 scripted peer, and reads back what the library sent. Time is a number that the loop moves
 forward itself, so a test that covers ten seconds of timeouts finishes at once, and the same test
@@ -401,7 +429,7 @@ read more than that adds the step and a deadline for it, and does not stop the l
 `now_ms` starts at 0. The loop delivers everything that is due and then moves the clock straight
 to the next moment something is due: the next regular `Tick` (every `cfg.tick_ms`), the earliest
 `tick_by`, a dial's connect time, a peer's next step, or the end of a grace period. Nothing
-sleeps and the host's clock is never read.
+sleeps and the application's clock is never read.
 
 Everything that happens in answer to an event happens at the same millisecond. Only when the
 loop stays busy for `cfg.passes_per_ms` passes in a row without the clock moving does the clock
@@ -436,7 +464,7 @@ things fail sooner, so none can make `serve` run for ever.
 | `hold(address)` | `listen` on the address fails with `AddressInUse`, as if another process held it. |
 | `silent(address)` | A dial to the address never answers and ends only when its connect time passes, with kind `TimedOut`. |
 | `fail_dials(address, kind)` | A dial to the address fails at once with `ConnectFailed` of that kind, whatever listens there: `Unreachable`, `Denied`, `NoResources`, `Other`. |
-| `provider_close(link, why)` | Closes a library's link as a provider may on its own policy, with any reason: `IdleTimeout`, `Error`, `Provider { code }`. The other end sees a clean end. |
+| `close_with_reason(link, why)` | Closes a library's link as an event loop may on its own policy, with any reason: `IdleTimeout`, `Error`, `LoopSpecific { code }`. The other end sees a clean end. |
 | `peer_refuse`, `peer_abort`, `peer_stop_reading` | See "Scripted peers". |
 
 And for checking afterwards:
@@ -450,7 +478,7 @@ And for checking afterwards:
 ### Limits
 
 - **A test cannot hang.** If `serve` has not returned after `cfg.time_limit_ms` of the loop's
-  clock, the provider prints a message naming the limit and exits with status 1. With
+  clock, the event loop prints a message naming the limit and exits with status 1. With
   `cfg.exit_on_time_limit = false`, `serve` returns instead and `hit_time_limit()` is true.
   The usual cause is a test that never calls `stop`, or a link that nothing closes.
   `tests/unit/memory_runaway_mustfail.goose` shows the failure.
@@ -460,12 +488,12 @@ And for checking afterwards:
 - **It is not a network.** Bytes arrive in the pass after they were sent, complete and in order.
   There is no delay, loss or reordering to script, apart from what peers do with their steps.
 - **Sending to an end that has gone** returns `Sent`; the bytes are lost and the link then ends
-  with `PeerReset`. A real provider behaves the same way one round trip later.
+  with `PeerReset`. A real event loop behaves the same way one round trip later.
 - **Host names** do not resolve: a dial to one fails with `ConnectFailed`, kind `BadAddress`, as the contract says.
-- **Tables grow as needed.** The provider uses growable arrays, so it has no fixed table sizes to
+- **Tables grow as needed.** The event loop uses growable arrays, so it has no fixed table sizes to
   configure; `max_links` and `link_buffer` are the bounds a library can observe.
 
-Passing on this provider does not make a library correct on every provider: a real provider may
+Passing on this event loop does not make a library correct on every event loop: a real event loop may
 split `Data` differently, refuse sends at other moments, and close links for its own reasons.
 A library that follows [contract.md](contract.md) and passes its tests here with a small
-`read_chunk` and a small `link_buffer` has covered what the contract lets a provider vary.
+`read_chunk` and a small `link_buffer` has covered what the contract lets an event loop vary.

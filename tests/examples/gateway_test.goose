@@ -10,6 +10,8 @@ import goose_io.examples.lineserver.server;
 import goose_io.examples.lineclient.client;
 
 fn answered<Io>(io: Io&) {
+    goose_io::require_core(io);
+    goose_io::require_half_close(io);
     var front = lineserver::LineServer { .. };
     var back = lineserver::LineServer { .. };
     var client = lineclient::LineClient { .. };
@@ -33,7 +35,7 @@ fn answered<Io>(io: Io&) {
     kit::check(front.open_connections() == 0 && back.open_connections() == 0 && client.open_links() == 0, "and no link is left open");
 }
 
-// With no argument the scenario runs on the in-memory provider; with `-- 0` it runs on the wrapper.
+// With no argument the scenario runs on the in-memory event loop; with `-- 0` it runs on the wrapper.
 fn main() {
     if kit::scenario() >= 0 {
         var w = wrapper::Layer { .. };

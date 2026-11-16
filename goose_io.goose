@@ -1,11 +1,15 @@
 // goose-io: the I/O contract.
 //
-// One contract between an event loop (a provider) and the libraries and application (the host)
-// that run on it. A provider delivers events and performs operations; a library handles events
-// and calls operations; the host runs the loop and passes each event to its libraries.
+// One contract between an event loop and the libraries and application that run on it. The event loop
+// owns the thread and the sockets, delivers events and performs operations; a library handles events and
+// calls operations; the application runs the loop and passes each event to its libraries.
 //
-// This file is the whole contract surface: the shared types, pure helpers over them, the
-// version, and require_provider, which names every operation a provider must supply.
+// The contract is a core, which every event loop supplies, and five groups of extras it may add:
+// half-close, sizing, abort, inspection and batching. A library uses what it needs, and fails to compile
+// on a loop that lacks it.
+//
+// This file is the whole contract surface: the shared types, pure helpers over them, the version, and
+// the compile-time checks (require_core and one for each group) that name every operation of a part.
 // The rules (ordering, ownership, backpressure) are in docs/contract.md.
 //
 // Pure Goose: no C, no extern. Importing this links nothing.
@@ -53,30 +57,30 @@ enum SendStatus {
     Closed,     // the link is closing, closed, write-shut, or the handle is stale
 }
 
-// Why a dial did not open. A provider translates what its system reports into one of these and
+// Why a dial did not open. An event loop translates what its system reports into one of these and
 // uses Other when it cannot tell; no system error number is part of the contract. The kind is
 // for reporting and for choosing how to retry.
 enum ConnectFailure {
     Refused,        // the address answered that nothing accepts connections there
     TimedOut,       // no answer within connect_ms
-    Unreachable,    // no route to the network or the host
+    Unreachable,    // no route to the address, its network or its machine
     Denied,         // the system does not allow this connection
-    NoResources,    // the provider or the system is out of links, descriptors, ports or memory
+    NoResources,    // the event loop or the system is out of links, descriptors, ports or memory
     BadAddress,     // the text is not a numeric address: malformed, a host name, a zone identifier
-    Other,          // any other failure, and any the provider cannot classify
+    Other,          // any other failure, and any the event loop cannot classify
 }
 
-// Why a link ended. A portable library handles every reason and treats Provider as Error.
+// Why a link ended. A portable library handles every reason and treats LoopSpecific as Error.
 enum CloseReason {
     PeerClosed,         // the peer finished cleanly
     PeerReset,          // the peer aborted
     ConnectFailed { kind: ConnectFailure },     // a dial did not open; no Opened was delivered
-    IdleTimeout,        // the provider's idle limit
-    HalfCloseTimeout,   // the provider's limit on a half-closed link
+    IdleTimeout,        // the event loop's idle limit
+    HalfCloseTimeout,   // the event loop's limit on a half-closed link
     Local,              // this side called close or reset
     Shutdown,           // the loop stopped while the link was open
     Error,              // any other failure
-    Provider { code: i32 },     // a reason only this provider has; the code is for logs, not for control flow
+    LoopSpecific { code: i32 },     // a reason only this event loop has; the code is for logs, not for control flow
 }
 
 fn is_connect_failed(why: CloseReason) -> bool {
@@ -88,7 +92,7 @@ fn is_connect_failed(why: CloseReason) -> bool {
 
 fn is_portable(why: CloseReason) -> bool {
     match why {
-        Provider p => false,
+        LoopSpecific p => false,
         _ => true,
     }
 }
@@ -106,7 +110,7 @@ fn failed(e: ListenError) -> bool {
 
 // --- events --------------------------------------------------------------------------------------
 
-// What the host's serve block is called with. Read it with `match`.
+// What the application's serve block is called with. Read it with `match`.
 //
 // Every link event carries the link, the tag given to dial or listen (which library owns it) and
 // the user value last set with set_user (which of that library's connections it is; 0 until set).
@@ -114,7 +118,7 @@ enum Event {
     // The link is open. `listener` is the listener that accepted it, or none for a dialled link.
     // Always the first event of a link that opens; a dial that fails gets Closed and no Opened.
     Opened { link: Link, tag: u16, user: u32, listener: Listener },
-    // Bytes from the peer, in order. `bytes` belongs to the provider and is valid only until the
+    // Bytes from the peer, in order. `bytes` belongs to the event loop and is valid only until the
     // handler returns: copy what must be kept.
     Data { link: Link, tag: u16, user: u32, bytes: const u8[:] },
     // One or more sends returned Full and now any one of them would fit (each on its own, not all
@@ -176,46 +180,37 @@ fn link_of(ev: Event) -> Link {
     }
 }
 
-// --- what a provider must supply -----------------------------------------------------------------
+// --- what an event loop must supply ---------------------------------------------------------------
 
-// Names every operation of the contract once, with the contract's argument and result types.
-// Never runs anything. A provider's root program calls it once, so that a missing or mistyped
-// operation is a compile error here and not somewhere inside a library.
+// The contract is a core and five groups (docs/contract.md). Each check below names every operation of its part
+// once, with the contract's argument and result types, and never runs anything. An event loop's root program calls
+// require_core and the check of each group it supplies, so that a missing or mistyped operation is a compile error
+// here, naming the operation, and not somewhere inside a library. The batching group has no operation, only the
+// event PassEnd, so it has no check: the conformance suite is what shows that a loop delivers it as the contract says.
 //
-// The operations, each a function whose first parameter is the provider:
+// Each operation is a function whose first parameter is the event loop.
 //
+// The core:
 //   listen(address, tag) -> Listener, ListenError      listener_port(listener) -> u16
-//   stop_listening(listener)
-//   dial(address, tag, connect_ms) -> Link             peer_address(link) -> Address
-//   send(link, bytes) -> SendStatus                    send2(link, first, second) -> SendStatus
-//   send_room(link) -> i64                             max_send() -> i64
-//   pause_reading(link, paused)                        set_keep_open_on_eof(link, keep)
-//   shutdown_write(link)                               close(link)   reset(link)
-//   set_user(link, user)                               user(link) -> u32
+//   dial(address, tag, connect_ms) -> Link             send(link, bytes) -> SendStatus
+//   max_send() -> i64                                  pause_reading(link, paused)
+//   close(link)                                        set_user(link, user)
 //   now_ms() -> i64                                    tick_by(at_ms)
 //   serve() { io, ev => ... }                          stop(grace_ms)   draining() -> bool
-fn require_provider<Io>(io: Io&) {
+fn require_core<Io>(io: Io&) {
     if _never() {
         let listener, listen_error = io.listen("127.0.0.1:0", 1);
         _is_listener_type(listener);
         _is_listen_error_type(listen_error);
         _is_u16(io.listener_port(listener));
-        io.stop_listening(listener);
 
         let link = io.dial("127.0.0.1:1", 1, 0);
         _is_link_type(link);
-        _is_address_type(io.peer_address(link));
         _is_send_status_type(io.send(link, "x"));
-        _is_send_status_type(io.send2(link, "x", "y"));
-        _is_i64(io.send_room(link));
         _is_i64(io.max_send());
         io.pause_reading(link, false);
-        io.set_keep_open_on_eof(link, false);
-        io.shutdown_write(link);
         io.close(link);
-        io.reset(link);
         io.set_user(link, 1);
-        _is_u32(io.user(link));
 
         _is_i64(io.now_ms());
         io.tick_by(0);
@@ -223,6 +218,41 @@ fn require_provider<Io>(io: Io&) {
         io.stop(0);
         _is_bool(io.draining());
         io.serve() { inner, ev => _is_event_type(ev); _is_bool(inner.draining()); };
+    }
+}
+
+// Half-close: set_keep_open_on_eof(link, keep), shutdown_write(link), and the event PeerEof.
+fn require_half_close<Io>(io: Io&) {
+    if _never() {
+        let link = Link { .. };
+        io.set_keep_open_on_eof(link, false);
+        io.shutdown_write(link);
+    }
+}
+
+// Sizing: send_room(link) -> i64, send2(link, first, second) -> SendStatus.
+fn require_sizing<Io>(io: Io&) {
+    if _never() {
+        let link = Link { .. };
+        _is_i64(io.send_room(link));
+        _is_send_status_type(io.send2(link, "x", "y"));
+    }
+}
+
+// Abort: reset(link).
+fn require_abort<Io>(io: Io&) {
+    if _never() {
+        io.reset(Link { .. });
+    }
+}
+
+// Inspection: peer_address(link) -> Address, stop_listening(listener), user(link) -> u32.
+fn require_inspection<Io>(io: Io&) {
+    if _never() {
+        let link = Link { .. };
+        _is_address_type(io.peer_address(link));
+        io.stop_listening(Listener { .. });
+        _is_u32(io.user(link));
     }
 }
 

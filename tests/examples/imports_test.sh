@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Inspection: the example libraries are written only against the contract.
 #  - a source under examples/lineserver or examples/lineclient imports std and goose_io (and files of its own
-#    library) and nothing else, so it names no provider;
+#    library) and nothing else, so it names no event loop;
 #  - neither library's source names the other.
 # Usage: tests/examples/imports_test.sh
 set -u
@@ -21,7 +21,7 @@ for lib in lineserver lineclient; do
                 *) if [ ! -f "examples/$lib/$name.goose" ]; then echo "BAD   $f imports $name"; bad=$((bad + 1)); fi ;;
             esac
         done < <(grep -E '^import ' "$f" | sed -E 's/^import ([A-Za-z0-9_.]+).*/\1/')
-        if grep -qiE "$other|goose_io_memory|goose_io.memory" "$f"; then echo "BAD   $f names $other or a provider"; bad=$((bad + 1)); fi
+        if grep -qiE "$other|goose_io_memory|goose_io.memory|core_only|wrapper" "$f"; then echo "BAD   $f names $other or an event loop"; bad=$((bad + 1)); fi
     done
 done
 echo "$checked library files inspected, $bad problems"

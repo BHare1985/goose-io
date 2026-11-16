@@ -1,60 +1,72 @@
 # One row per conformance check. Columns (tab separated):
-#   check  part  requirement  scenarios (separated by " | ")  fault
-# A check's fault is a named break of the in-memory provider (memory.goose, set_fault) that makes the check fail.
-# "-" in the fault column means no fault can be injected in a queue-based provider; the reason is in docs/providers.md.
-handles_stale_reuse	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted
-handles_unset	0	Links are generation-checked handles	An unset handle is recognisably invalid	UnsetLinkHasRoom
-handles_valid_in_closed	0	Links are generation-checked handles	The handle is still valid while Closed is handled	ClosedHandleStaleEarly
-events_not_reentrant	0	Events are delivered to one handler, one at a time	A close does not re-enter the handler | A send that closes the link does not re-enter the handler	-
-order_accepted_link	0	Link events follow a fixed order	An accepted link	PeerCloseDropsData
-order_failed_dial	0	Link events follow a fixed order	A link that never opens	OpenedBeforeFailure
-owner_tags	0	Every link event names its owner	Two libraries share one loop	WrongTag
-owner_user_value	0	Every link event names its owner	The user value comes back	UserLostInData
-owner_user_after_failed_dial	0	Every link event names its owner	The user value survives an immediate dial failure	UserReadAtDial
-listen_accepts	0	Listening	A connection is accepted	OpenedWithoutListener
-listen_held_address	0	Listening	The address is taken	HeldIgnored
-listen_port_zero	0	Listening	A system-chosen port can be discovered	PortZeroReportsZero
-listen_stop_keeps_links	0	Listening	Stopping a listener keeps its links	StopListeningClosesLinks
-listener_handle_never_reused	0	Listener handles are never reused	A stale listener handle cannot reach a newer listener	ListenerHandleReused
-peer_address_names_peer	0	A link reports its peer's address	An accepted link names its peer | A dialled link names its target | A closed link has no peer address	StalePeerAddress
-dial_succeeds	0	Dialling never blocks and always ends in one event	A successful dial	DialReturnsInvalid
-dial_refused	0	A failed dial says why	A refused dial	RefusedAsUnreachable
-dial_times_out	0	A failed dial says why	A dial that times out | A dial that times out says so	TimeoutEarly
-dial_bad_address	0	A failed dial says why	A host name is rejected, not resolved | A malformed address or a host name | A zone identifier is rejected	BadAddressAsRefused
-ipv6_loopback	0	Scope of the base contract	IPv6 is supported	Ipv6Unsupported
-data_arrives_as_slices	0	Received bytes are lent for the duration of the event	Bytes arrive as a slice	DataCorrupted
-data_slice_stable_in_handler	0	Received bytes are lent for the duration of the event	A slow handler holds one buffer	SendClobbersLentBytes
-send_copies_at_once	0	Sending is all or nothing	The caller reuses its memory at once | A small send is accepted	SendDropsLastByte
-send_before_open	0	Sending is all or nothing	A send before the link opens	SendBeforeOpenSent
-send_after_close	0	Sending is all or nothing	A send after close	SendAfterCloseAccepted
-send2_joins_parts	0	Two parts can be sent as one	A header and a body	Send2SwapsParts
-send2_all_or_nothing	0	Two parts can be sent as one	Neither part is taken when both do not fit	Send2TakesFirstPart
-send_too_large	0	Send backpressure is explicit and bounded	An oversized send never fits	TooLargeGivesWritable
-send_is_bounded	0	Send backpressure is explicit and bounded	A reader that never reads does not grow memory	NeverFull
-send_room_is_zero_when_closed	0	Send backpressure is explicit and bounded	No room on a link that cannot send	RoomAfterShutdown
-writable_after_full	0	Writable follows Full once	A full queue is reported and later reopened	NoWritable
-writable_once_for_many_refusals	0	Writable follows Full once	Several refusals share one Writable	WritablePerRefusal
-writable_means_it_fits	0	Writable follows Full once	Writable means the refused send fits	WritableOnFirstByte
-writable_next_episode	0	Writable follows Full once	A later refusal gets its own Writable	OneWritableOnly
-pause_and_resume_reading	0	Reading can be paused	Pause and resume	PauseIgnored
-full_not_writable_after_shutdown_write	0	A refused send is always resolved	The write side is shut after a refusal	WritableAfterShutdown
-full_resolved_when_peer_closes	0	A refused send is always resolved	The peer closes while a send is refused | The retry after the peer is gone	FullUnresolvedOnPeerClose
-close_after_reply	0	Closing	Close after a reply	PeerCloseDropsData
-close_leaves_only_closed	0	Closing	Nothing but Closed after close	WritableAfterClose
-close_cancels_a_dial	0	Closing	Cancelling a dial	CancelledDialOpens
-reset_aborts_the_peer	0	Closing	Reset | The peer resets the connection	ResetIsGraceful
-close_with_unread_input	0	Close does not lose accepted bytes	Close with unread input	CloseWithUnreadResets
-close_when_peer_never_reads	0	Close does not lose accepted bytes	A peer that never reads	ClosedNeverDelivered
-peer_eof_closes_by_default	0	Peer end of stream and half-close	Default behaviour on peer end of stream	EofIgnoresDefault
-half_close_then_answer	0	Peer end of stream and half-close	Answering after the peer half-closes	PeerEofBeforeData
-ticks_are_regular	0	Time and ticks	Regular ticks	TickEvery250
-tick_by_is_prompt	0	Time and ticks	A deadline shorter than the tick period	TickByIgnored
-tick_by_two_deadlines	0	Time and ticks	Two libraries with different deadlines	TickByKeepsLatest
-pass_end_follows_link_events	0	End-of-pass notification	Batching replies | PassEnd is last	NoPassEnd
-pass_end_not_on_idle_pass	0	End-of-pass notification	An idle pass	IdlePassEnd
-stop_with_nothing_open	0	The host runs and stops the loop	Stop with nothing open	StopWaitsForGrace
-stop_link_stays_open	1	The host runs and stops the loop	Stop with a link that stays open	ShutdownEarly
-stop_libraries_finish	2	The host runs and stops the loop	Libraries finish and the loop ends early	StopWaitsForGrace
-listen_while_draining	3	Draining is the same on every provider	Listening while draining	ListenAfterStop
-dial_while_draining	4	Draining is the same on every provider	Dialling while draining	DialFailsWhileDraining
-stop_called_twice	5	Draining is the same on every provider	Stop called twice	StopLatestWins
+#   check  part  requirement  scenarios (separated by " | ")  fault  group
+# A check's fault is a named break of the in-memory event loop (memory.goose, set_fault) that makes the check fail.
+# The group is the one the check belongs to (core, half-close, sizing, abort, inspection, batching); "pending" is a check
+# not yet assigned (tasks 4.2 to 4.4 of simplify-contract). "-" in the fault column means no fault can be injected in a queue-based event loop; the reason is in docs/event-loops.md.
+handles_stale_reuse	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	core
+handles_stale_reset	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	abort
+handles_stale_send_room	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	sizing
+handles_stale_user	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	inspection
+handles_unset	0	Links are generation-checked handles	An unset handle is recognisably invalid	UnsetHandleAccepted	core
+handles_unset_reset	0	Links are generation-checked handles	An unset handle is recognisably invalid	UnsetHandleAccepted	abort
+handles_unset_shutdown_write	0	Links are generation-checked handles	An unset handle is recognisably invalid	UnsetHandleAccepted	half-close
+handles_unset_sizing	0	Links are generation-checked handles	An unset handle is recognisably invalid	UnsetLinkHasRoom	sizing
+handles_unset_inspection	0	Links are generation-checked handles	An unset handle is recognisably invalid	UnsetHandleAccepted	inspection
+handles_valid_in_closed	0	Links are generation-checked handles	The handle is still valid while Closed is handled	ClosedHandleStaleEarly	inspection
+events_not_reentrant	0	Events are delivered to one handler, one at a time	A close does not re-enter the handler	-	core
+events_not_reentrant_after_reset	0	Events are delivered to one handler, one at a time	A send that closes the link does not re-enter the handler	-	abort
+order_accepted_link	0	Link events follow a fixed order	An accepted link	PeerCloseDropsData	core
+order_failed_dial	0	Link events follow a fixed order	A link that never opens	OpenedBeforeFailure	core
+owner_tags	0	Every link event names its owner	Two libraries share one loop	WrongTag	core
+owner_user_value	0	Every link event names its owner	The user value comes back	UserLostInData	core
+owner_user_after_failed_dial	0	Every link event names its owner	The user value survives an immediate dial failure	UserReadAtDial	core
+listen_accepts	0	Listening	A connection is accepted	OpenedWithoutListener	core
+listen_held_address	0	Listening	The address is taken	HeldIgnored	core
+listen_port_zero	0	Listening	A system-chosen port can be discovered	PortZeroReportsZero	core
+listen_stop_keeps_links	0	Listening	Stopping a listener keeps its links	StopListeningClosesLinks	inspection
+listener_handle_never_reused	0	Listener handles are never reused	A stale listener handle cannot reach a newer listener	ListenerHandleReused	inspection
+peer_address_names_peer	0	A link reports its peer's address	An accepted link names its peer | A dialled link names its target | A closed link has no peer address	StalePeerAddress	inspection
+dial_succeeds	0	Dialling never blocks and always ends in one event	A successful dial	DialReturnsInvalid	core
+dial_refused	0	A failed dial says why	A refused dial	RefusedAsUnreachable	core
+dial_times_out	0	A failed dial says why	A dial that times out | A dial that times out says so	TimeoutEarly	core
+dial_bad_address	0	A failed dial says why	A host name is rejected, not resolved | A malformed address or a host name | A zone identifier is rejected	BadAddressAsRefused	core
+ipv6_loopback	0	Scope of the base contract	IPv6 is supported	Ipv6Unsupported	core
+peer_address_ipv6	0	A link reports its peer's address	A dialled link names its target	Ipv6Unsupported	inspection
+data_arrives_as_slices	0	Received bytes are lent for the duration of the event	Bytes arrive as a slice	DataCorrupted	core
+data_slice_stable_in_handler	0	Received bytes are lent for the duration of the event	A slow handler holds one buffer	SendClobbersLentBytes	core
+send_copies_at_once	0	Sending is all or nothing	The caller reuses its memory at once | A small send is accepted	SendDropsLastByte	core
+send_before_open	0	Sending is all or nothing	A send before the link opens	SendBeforeOpenSent	core
+send_after_close	0	Sending is all or nothing	A send after close	SendAfterCloseAccepted	core
+send2_joins_parts	0	Two parts can be sent as one	A header and a body	Send2SwapsParts	sizing
+send2_all_or_nothing	0	Two parts can be sent as one	Neither part is taken when both do not fit	Send2TakesFirstPart	sizing
+send2_refusals	0	Two parts can be sent as one	A send before the link opens | A send after close | An oversized send never fits	SendBeforeOpenSent	sizing
+send_too_large	0	Send backpressure is explicit and bounded	An oversized send never fits	TooLargeGivesWritable	core
+send_is_bounded	0	Send backpressure is explicit and bounded	A reader that never reads does not grow memory	NeverFull	core
+send_room_is_zero_when_closed	0	Send backpressure is explicit and bounded	No room on a link that cannot send	RoomWhenClosed	sizing
+writable_after_full	0	Writable follows Full once	A full queue is reported and later reopened	NoWritable	core
+writable_once_for_many_refusals	0	Writable follows Full once	Several refusals share one Writable	WritablePerRefusal	core
+writable_means_it_fits	0	Writable follows Full once	Writable means the refused send fits	WritableOnFirstByte	core
+writable_next_episode	0	Writable follows Full once	A later refusal gets its own Writable	OneWritableOnly	core
+pause_and_resume_reading	0	Reading can be paused	Pause and resume	PauseIgnored	core
+full_not_writable_after_shutdown_write	0	A refused send is always resolved	The write side is shut after a refusal	WritableAfterShutdown	half-close
+full_resolved_when_peer_closes	0	A refused send is always resolved	The peer closes while a send is refused | The retry after the peer is gone	FullUnresolvedOnPeerClose	half-close
+close_after_reply	0	Closing	Close after a reply	PeerCloseDropsData	core
+close_leaves_only_closed	0	Closing	Nothing but Closed after close	WritableAfterClose	core
+close_cancels_a_dial	0	Closing	Cancelling a dial	CancelledDialOpens	core
+reset_aborts_the_peer	0	Closing	Reset | The peer resets the connection	ResetIsGraceful	abort
+close_with_unread_input	0	Close does not lose accepted bytes	Close with unread input	CloseWithUnreadResets	core
+close_when_peer_never_reads	0	Close does not lose accepted bytes	A peer that never reads	ClosedNeverDelivered	core
+peer_eof_closes_by_default	0	Peer end of stream and half-close	Default behaviour on peer end of stream	EofIgnoresDefault	half-close
+half_close_then_answer	0	Peer end of stream and half-close	Answering after the peer half-closes	PeerEofBeforeData	half-close
+shutdown_write_ends_sending	0	Peer end of stream and half-close	Answering after the peer half-closes	SendAfterShutdownAccepted	half-close
+ticks_are_regular	0	Time and ticks	Regular ticks	TickEvery250	core
+tick_by_is_prompt	0	Time and ticks	A deadline shorter than the tick period	TickByIgnored	core
+tick_by_two_deadlines	0	Time and ticks	Two libraries with different deadlines	TickByKeepsLatest	core
+pass_end_follows_link_events	0	End-of-pass notification	Batching replies | PassEnd is last	NoPassEnd	batching
+pass_end_not_on_idle_pass	0	End-of-pass notification	An idle pass	IdlePassEnd	batching
+stop_with_nothing_open	0	The application runs and stops the loop	Stop with nothing open	StopWaitsForGrace	core
+stop_link_stays_open	1	The application runs and stops the loop	Stop with a link that stays open	ShutdownEarly	core
+stop_libraries_finish	2	The application runs and stops the loop	Libraries finish and the loop ends early	StopWaitsForGrace	core
+listen_while_draining	3	Draining is the same on every event loop	Listening while draining	ListenAfterStop	core
+dial_while_draining	4	Draining is the same on every event loop	Dialling while draining	DialFailsWhileDraining	core
+stop_called_twice	5	Draining is the same on every event loop	Stop called twice	StopLatestWins	core

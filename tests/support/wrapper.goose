@@ -1,16 +1,16 @@
-// A provider that wraps another provider: the layering that *Providers can be layered* allows.
+// An event loop that wraps another event loop: the layering that *Event loops can be layered* allows.
 //
-// It sits over the in-memory provider and presents the same contract to the libraries above it, while it
+// It sits over the in-memory event loop and presents the same contract to the libraries above it, while it
 //   - changes every byte on the way out (XOR with a key) and restores it on the way in, so two links of the
-//     wrapper see their own bytes while the inner provider carries something else;
+//     wrapper see their own bytes while the inner event loop carries something else;
 //   - delays each link's Opened by one pass (and holds back, in order, whatever the link gets meanwhile);
-//   - gives every other event, and every operation, to the inner provider unchanged.
-// A scripted peer is on the inner provider and sees the changed bytes: the `peer_` functions here change them
-// for the test, so a test written for any provider runs on this one (`peer_send` takes the plain bytes, and
+//   - gives every other event, and every operation, to the inner event loop unchanged.
+// A scripted peer is on the inner event loop and sees the changed bytes: the `peer_` functions here change them
+// for the test, so a test written for any event loop runs on this one (`peer_send` takes the plain bytes, and
 // `peer_received` returns them as the library sent them).
 //
-// The inner provider is a global of this module, so one process holds one wrapper: run a wrapper test in its own
-// process, as tests/examples/over_wrapper.sh does. Setting `cfg` on the wrapper sets it on the inner provider.
+// The inner event loop is a global of this module, so one process holds one wrapper: run a wrapper test in its own
+// process, as tests/examples/over_wrapper.sh does. Setting `cfg` on the wrapper sets it on the inner event loop.
 namespace wrapper;
 import std;
 import goose_io;
@@ -34,7 +34,7 @@ struct Held {
 }
 
 // What a library chose for a link. The wrapper delays Opened, so the library chooses what the peer's end of
-// stream does after the inner provider would have acted on its default: the wrapper keeps every inner link
+// stream does after the inner event loop would have acted on its default: the wrapper keeps every inner link
 // open on end of stream and does what the library chose.
 struct Mode {
     link:       goose_io::Link = goose_io::Link { .. },
@@ -47,13 +47,13 @@ struct Mode {
 root struct Layer {
     cfg:       goose_io_memory::Config = goose_io_memory::Config { .. },
     ready:     bool                    = false,
-    pass:      i64                     = 0,        // the wrapper's pass: raised when the inner provider ends one
-    delivered: bool                    = false,    // a link event was given to the host since the last PassEnd
+    pass:      i64                     = 0,        // the wrapper's pass: raised when the inner event loop ends one
+    delivered: bool                    = false,    // a link event was given to the application since the last PassEnd
     held:      Held[>..]               = [],
     held_off:  i64                     = 0,        // items before this have been released
     bytes:     u8[>..]                 = [],       // the bytes of held Data events
-    scratch:   u8[>..]                 = [],       // what the host is lent, or what goes to the inner provider
-    out:       Out[>..]                = [],       // events to give the host
+    scratch:   u8[>..]                 = [],       // what the application is lent, or what goes to the inner event loop
+    out:       Out[>..]                = [],       // events to give the application
     modes:     Mode[>..]               = [],
 }
 
@@ -78,7 +78,7 @@ fn _plain(bytes: const u8[:]) -> u8[>..] {
     return out;
 }
 
-// --- the contract: operations, given to the inner provider ----------------------------------------------
+// --- the contract: operations, given to the inner event loop ----------------------------------------------
 
 fn listen(w: Layer&, address: const u8[:], tag: u16) -> goose_io::Listener, goose_io::ListenError { w._prepare(); return inner.listen(address, tag); }
 fn listener_port(w: Layer&, l: goose_io::Listener) -> u16 { w._prepare(); return inner.listener_port(l); }
@@ -106,7 +106,7 @@ fn tick_by(w: Layer&, at_ms: i64) { w._prepare(); inner.tick_by(at_ms); }
 fn stop(w: Layer&, grace_ms: i64) { w._prepare(); inner.stop(grace_ms); }
 fn draining(w: Layer&) -> bool { w._prepare(); return inner.draining(); }
 
-// The bytes go out changed; what the host sent is not touched.
+// The bytes go out changed; what the application sent is not touched.
 fn send(w: Layer&, link: goose_io::Link, bytes: const u8[:]) -> goose_io::SendStatus {
     w._prepare();
     if bytes.len > 70000 { return goose_io::SendStatus.TooLarge; }
@@ -144,7 +144,7 @@ fn reset(w: Layer&, link: goose_io::Link) {
     inner.reset(link);
 }
 
-// --- the host side: events pass through, with Opened delayed -----------------------------------------------------
+// --- the application side: events pass through, with Opened delayed -----------------------------------------------------
 
 fn _holds(w: Layer&, link: goose_io::Link) -> bool {
     for i in w.held.len {
@@ -155,13 +155,13 @@ fn _holds(w: Layer&, link: goose_io::Link) -> bool {
 
 fn _hold(w: Layer&, h: Held) { w.held.push(h); }
 
-// The events the host is to be given, in order: the wrapper decides what they are while handling an inner event,
-// and the serve block gives them to the host, which is the only code that can call it.
+// The events the application is to be given, in order: the wrapper decides what they are while handling an inner event,
+// and the serve block gives them to the application, which is the only code that can call it.
 struct Out { kind: u8 = 0, h: Held = Held { .. } }
 
 fn _out(w: Layer&, kind: u8, h: Held) { w.out.push(Out { kind: kind, h: h }); }
 
-// Queues one held event for the host.
+// Queues one held event for the application.
 fn _give(w: Layer&, h: Held) {
     if h.kind == 0 { return; }
     w.delivered = true;
@@ -228,7 +228,7 @@ fn _on_event(w: Layer&, ev: goose_io::Event) {
     }
 }
 
-// Called just before the host is given an event, once the events before it have been handled. An end of stream
+// Called just before the application is given an event, once the events before it have been handled. An end of stream
 // for a link whose library has not chosen to keep it open is not given: the default is to close the link, with
 // PeerClosed. The choice is read now and not earlier, because the library makes it while handling Opened, which
 // may be one of the events given just before.
@@ -244,7 +244,7 @@ fn _wanted(w: Layer&, o: Out) -> bool {
     return true;
 }
 
-// What the host is to be given now, one event at a time (kind 0 when there is none).
+// What the application is to be given now, one event at a time (kind 0 when there is none).
 fn _event_of(w: Layer&, o: Out) -> goose_io::Event {
     let h = o.h;
     if o.kind == 'T' { return goose_io::Event.Tick { now_ms: h.pass }; }
@@ -256,7 +256,7 @@ fn _event_of(w: Layer&, o: Out) -> goose_io::Event {
     return goose_io::Event.Closed { link: h.link, tag: h.tag, user: h.user, why: h.why };
 }
 
-// Runs the inner provider's loop and gives the host its events. A held event is given the pass after the one
+// Runs the inner event loop's loop and gives the application its events. A held event is given the pass after the one
 // that had it; whatever is still held when the inner loop has finished is given before serve returns.
 fn serve<F>(w: Layer&) {
     w._prepare();
@@ -289,7 +289,17 @@ fn serve<F>(w: Layer&) {
     }
 }
 
-// --- for tests: the inner provider's extras, with the bytes changed for the scripted peer ------------------------
+// The wrapper passes through the core and every group but batching, so it supplies each of them. This function
+// is never called: it makes the compiler check the wrapper against the contract's own checks whenever it is built.
+fn _supplied(w: Layer&) {
+    goose_io::require_core(w);
+    goose_io::require_half_close(w);
+    goose_io::require_sizing(w);
+    goose_io::require_abort(w);
+    goose_io::require_inspection(w);
+}
+
+// --- for tests: the inner event loop's extras, with the bytes changed for the scripted peer ------------------------
 
 fn add_peer(w: Layer&) -> goose_io_memory::Peer { w._prepare(); return inner.add_peer(); }
 fn peer_accept(w: Layer&, p: goose_io_memory::Peer, address: const u8[:]) { inner.peer_accept(p, address); }
@@ -309,4 +319,4 @@ fn peer_closed(w: Layer&, p: goose_io_memory::Peer) -> bool { return inner.peer_
 fn hold(w: Layer&, address: const u8[:]) { w._prepare(); inner.hold(address); }
 fn silent(w: Layer&, address: const u8[:]) { w._prepare(); inner.silent(address); }
 fn fail_dials(w: Layer&, address: const u8[:], kind: goose_io::ConnectFailure) { w._prepare(); inner.fail_dials(address, kind); }
-fn provider_close(w: Layer&, link: goose_io::Link, why: goose_io::CloseReason) { w._prepare(); inner.provider_close(link, why); }
+fn close_with_reason(w: Layer&, link: goose_io::Link, why: goose_io::CloseReason) { w._prepare(); inner.close_with_reason(link, why); }

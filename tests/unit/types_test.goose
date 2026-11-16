@@ -58,9 +58,9 @@ fn main() {
     check(goose_io::same(goose_io::link_of(data), l), "link_of a link event");
     check(!goose_io::is_valid(goose_io::link_of(tick)), "link_of Tick is invalid");
 
-    // Close reasons: a provider-specific reason carries a code and is not portable.
-    let why: goose_io::CloseReason = goose_io::CloseReason.Provider { code: 42 };
-    check(!goose_io::is_portable(why), "a provider-specific reason is not portable");
+    // Close reasons: a loop-specific reason carries a code and is not portable.
+    let why: goose_io::CloseReason = goose_io::CloseReason.LoopSpecific { code: 42 };
+    check(!goose_io::is_portable(why), "a loop-specific reason is not portable");
     check(goose_io::is_portable(goose_io::CloseReason.PeerReset), "PeerReset is portable");
 
     // Size: tag byte + the largest payload.

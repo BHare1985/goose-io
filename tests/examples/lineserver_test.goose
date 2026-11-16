@@ -1,5 +1,5 @@
 // examples/lineserver: a newline-delimited request/reply server written only against the contract, run on the
-// in-memory provider with scripted peers: one request, two requests in one Data, a request split across two
+// in-memory event loop with scripted peers: one request, two requests in one Data, a request split across two
 // Data events, a peer that stops reading until sends are refused, a peer that half-closes, and a loop that is
 // stopping.
 import std;
@@ -149,7 +149,10 @@ fn other_tags<Io>(io: Io&) {
     kit::check(s.open_connections() == 0, "and is not counted");
 }
 
+// The server needs the core and half-close (its header says so): a loop without either fails to build here.
 fn run<Io>(n: i64, io: Io&) {
+    goose_io::require_core(io);
+    goose_io::require_half_close(io);
     if n == 0 { one_request(io); }
     if n == 1 { pipelined(io); }
     if n == 2 { split_request(io); }
@@ -161,7 +164,7 @@ fn run<Io>(n: i64, io: Io&) {
 
 let SCENARIOS = 7;
 
-// With no argument every scenario runs, each on a loop of its own, on the in-memory provider. With a scenario
+// With no argument every scenario runs, each on a loop of its own, on the in-memory event loop. With a scenario
 // number that scenario runs on the wrapper (tests/examples/over_wrapper.sh runs them all).
 fn main() {
     let only = kit::scenario();

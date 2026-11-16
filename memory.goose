@@ -1,4 +1,4 @@
-// goose-io: the in-memory provider.
+// goose-io: the in-memory event loop.
 //
 // The whole contract with no sockets and no real clock. A dial to an address that something on
 // the same loop listens on joins two links: bytes one side sends arrive as Data on the other,
@@ -7,7 +7,8 @@
 // and the same test gives the same events at the same times on every run.
 //
 // It exists for two things: testing a library without a network, and giving the contract one
-// working implementation that the conformance suite can run against.
+// working implementation that the conformance suite can run against. It supplies the core of the
+// contract and every group of extras.
 //
 //     var io = goose_io_memory::Loop { .. };
 //     let l, err = io.listen("127.0.0.1:8080", 1);
@@ -331,7 +332,7 @@ struct _Step {
 
 struct _Chunk { peer: i64 = 0, off: i64 = 0, len: i64 = 0 }
 
-// --- the provider --------------------------------------------------------------------------------
+// --- the event loop --------------------------------------------------------------------------------
 
 // One loop. Declare it as a local or global (`var io = goose_io_memory::Loop { .. };`) and pass it
 // by reference; it cannot be copied or returned.
@@ -388,6 +389,10 @@ fn _start(io: Loop&) {
 
 // The slot of a link whose handle is current (any state but free), or -1.
 fn _slot_of(io: Loop&, link: goose_io::Link) -> i64 {
+    if io._fault == 54 && link.gen == 0 {          // fault UnsetHandleAccepted: an unset handle names the first live link
+        for i in io._slots.len { if io._slots[i].state != _FREE { return i; } }
+        return -1;
+    }
     guard link.gen != 0 && link.slot < io._slots.len else { return -1; }
     let s .= io._slots[link.slot];
     guard s.state != _FREE && (s.gen == link.gen || io._fault == 1) else { return -1; }
@@ -578,7 +583,7 @@ fn send_room(io: Loop&, link: goose_io::Link) -> i64 {
     let i = io._slot_of(link);
     guard i >= 0 else { return 0; }
     let s .= io._slots[i];
-    guard s.state == _OPEN && (!s.wr_shut || io._fault == 29) else { return 0; }
+    guard (s.state == _OPEN || (io._fault == 29 && s.state == _CLOSED)) && !s.wr_shut else { return 0; }      // fault RoomWhenClosed
     guard s.peer >= 0 else { return io.cfg.max_send; }
     let room = io.cfg.link_buffer - io._slots[s.peer].in_len;
     return if room < io.cfg.max_send { room } else { io.cfg.max_send };
@@ -601,6 +606,7 @@ fn _send(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:
     let s .= io._slots[i];
     if io._fault == 21 && io._scratch.len > 0 { io._scratch[0] = 'X'; }      // fault SendClobbersLentBytes
     if s.state == _CLOSED && io._fault == 24 { return goose_io::SendStatus.Sent; }      // fault SendAfterCloseAccepted
+    if s.wr_shut && io._fault == 55 { return goose_io::SendStatus.Sent; }      // fault SendAfterShutdownAccepted
     if s.state == _CLOSED || s.wr_shut { return goose_io::SendStatus.Closed; }
     if s.state != _OPEN { return if io._fault == 23 { goose_io::SendStatus.Sent } else { goose_io::SendStatus.NotOpen }; }      // fault SendBeforeOpenSent
     let total = first.len + second.len;
@@ -686,7 +692,7 @@ fn user(io: Loop&, link: goose_io::Link) -> u32 {
     if i >= 0 { io._slots[i].user } else { 0 }
 }
 
-// --- the contract: time and the host side --------------------------------------------------------
+// --- the contract: time and the application side --------------------------------------------------
 
 fn now_ms(io: Loop&) -> i64 { io._clock }
 
@@ -999,7 +1005,7 @@ fn passes(io: Loop&) -> i64 { io._passes }
 // with cfg.exit_on_time_limit off; otherwise the program has exited).
 fn hit_time_limit(io: Loop&) -> bool { io._hit_limit }
 
-// Bytes the provider accepted from this link and still holds because the other end has not read
+// Bytes the event loop accepted from this link and still holds because the other end has not read
 // them. Never more than cfg.link_buffer.
 fn stored_bytes(io: Loop&, link: goose_io::Link) -> i64 {
     let i = io._slot_of(link);
@@ -1212,11 +1218,11 @@ fn _peer_deliver(io: Loop&, kind: u8, i: i64) {
     }
 }
 
-// --- scripting: the provider's own decisions -----------------------------------------------------
+// --- scripting: the event loop's own decisions ----------------------------------------------------
 
-// Closes a link as a provider may on its own policy, with any reason (IdleTimeout, Error,
-// Provider { code }, ...), so a library can be tested against each. The other end sees a clean end.
-fn provider_close(io: Loop&, link: goose_io::Link, why: goose_io::CloseReason) {
+// Closes a link as an event loop may on its own policy, with any reason (IdleTimeout, Error,
+// LoopSpecific { code }, ...), so a library can be tested against each. The other end sees a clean end.
+fn close_with_reason(io: Loop&, link: goose_io::Link, why: goose_io::CloseReason) {
     let i = io._slot_of(link);
     if i >= 0 { io._close(i, why, false); }
 }
@@ -1258,12 +1264,12 @@ fn _fault_named(name: const u8[:]) -> i64 {
         "PortZeroReportsZero", "StopListeningClosesLinks", "ListenerHandleReused", "StalePeerAddress", "DialReturnsInvalid",
         "RefusedAsUnreachable", "TimeoutEarly", "BadAddressAsRefused", "Ipv6Unsupported", "DataCorrupted",
         "SendClobbersLentBytes", "SendDropsLastByte", "SendBeforeOpenSent", "SendAfterCloseAccepted", "Send2SwapsParts",
-        "Send2TakesFirstPart", "TooLargeGivesWritable", "NeverFull", "RoomAfterShutdown", "NoWritable",
+        "Send2TakesFirstPart", "TooLargeGivesWritable", "NeverFull", "RoomWhenClosed", "NoWritable",
         "WritablePerRefusal", "WritableOnFirstByte", "OneWritableOnly", "PauseIgnored", "WritableAfterShutdown",
         "FullUnresolvedOnPeerClose", "WritableAfterClose", "CancelledDialOpens", "ResetIsGraceful", "CloseWithUnreadResets",
         "ClosedNeverDelivered", "EofIgnoresDefault", "PeerEofBeforeData", "TickEvery250", "TickByIgnored",
         "TickByKeepsLatest", "NoPassEnd", "IdlePassEnd", "StopWaitsForGrace", "ShutdownEarly",
-        "ListenAfterStop", "DialFailsWhileDraining", "StopLatestWins",
+        "ListenAfterStop", "DialFailsWhileDraining", "StopLatestWins", "UnsetHandleAccepted", "SendAfterShutdownAccepted",
     ];
     for n, i in names { if n == name { return i + 1; } }
     return 0;
