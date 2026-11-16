@@ -14,7 +14,7 @@ Ground rules for every task: work on the branch `simplify-contract` (made from `
 
 ## 3. The in-memory loop and the wrapper
 
-- [ ] 3.1 Spike, in scratch files outside the repository: a driver generic over a group marker type, with `info` and `step` overloaded on the marker, in which instantiating the core entry point for a stub loop that has only the core compiles and a check that calls `send2` is not instantiated; record the result in `design.md` D5; if it does not work, record the fallback used instead and change task 4.1 to match
+- [x] 3.1 Spike, in scratch files outside the repository: a driver generic over a group marker type, with `info` and `step` overloaded on the marker, in which instantiating the core entry point for a stub loop that has only the core compiles and a check that calls `send2` is not instantiated; record the result in `design.md` D5; if it does not work, record the fallback used instead and change task 4.1 to match
 - [ ] 3.2 In `memory.goose` rename `provider_close` to `close_with_reason` and rewrite the comments and `Config` notes in the new words; update the tests that call it; verify `tests/run_tests.sh` passes
 - [ ] 3.3 Rewrite `tests/support/wrapper.goose` in the new words and make it call the core check and the check of each group it supplies; verify `tests/conformance/run.sh --wrapped` and `tests/examples/over_wrapper.sh` still pass
 
