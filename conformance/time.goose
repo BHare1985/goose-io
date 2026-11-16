@@ -334,8 +334,3 @@ fn time_batching_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -
     if k.id == 504 { c_pass_end_not_on_idle_pass(k, io, ev); return true; }
     return false;
 }
-
-// Runs the checks not yet assigned to a group (tasks 4.2 to 4.4): true if the check is one of them.
-fn time_rest_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
-    return false;
-}

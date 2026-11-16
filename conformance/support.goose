@@ -23,8 +23,9 @@ let TAGS_PER_CHECK = 4;
 
 // What contract calls cannot produce: an address that never answers a connect, and one that is held.
 struct Fixture {
-    silent: const u8[:] = "",    // a dial to it never gets an answer
-    held:   const u8[:] = "",    // a listen on it fails with AddressInUse
+    silent:  const u8[:] = "",   // a dial to it never gets an answer
+    held:    const u8[:] = "",   // a listen on it fails with AddressInUse
+    refused: const u8[:] = "",   // an address that nothing listens on: a dial to it is refused
     // Optional: an address that still answers while the loop is draining (every listener of the loop has
     // stopped by then, so calls cannot make one). Without it the dial-while-draining part proves only that
     // the dial still ends in exactly one event.
@@ -49,6 +50,9 @@ let GROUP_PENDING = 9;
 
 struct CoreGroup { n: i64 = 0 }
 struct BatchingGroup { n: i64 = 0 }
+struct SizingGroup { n: i64 = 0 }
+struct HalfCloseGroup { n: i64 = 0 }
+struct InspectionGroup { n: i64 = 0 }
 struct AllGroups { n: i64 = 0 }
 
 struct Rec {

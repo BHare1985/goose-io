@@ -50,9 +50,10 @@ fn c_close_leaves_only_closed<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         io.send(k.link[0], pattern(io.max_send())[..]);
         io.pause_reading(k.link[1], false);
         k.step = 2;
-    } else if k.step == 2 && k.first(1, 'D') >= 0 && k.first(0, 'C') < 0 && io.send_room(k.link[0]) >= io.max_send() {
-        // in a handler of the server's Data, once the room the refused send needs has opened: the Writable
-        // that is owed for it must not be delivered after close
+    } else if k.step == 2 && k.first(1, 'D') >= 0 && k.first(0, 'C') < 0 && k.received(1).len >= k.n {
+        // in a handler of the server's Data, once the server has read everything the client had been allowed to
+        // send, so that the room the refused send needs has opened: the Writable owed for it must not be
+        // delivered after close
         k.t = k.recs.len;
         io.close(k.link[0]);
         k.step = 3;
@@ -206,17 +207,22 @@ fn c_half_close_then_answer<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 // Runs the checks of the core: true if the check is one of them.
 fn close_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 400 { c_close_after_reply(k, io, ev); return true; }
+    if k.id == 401 { c_close_leaves_only_closed(k, io, ev); return true; }
     if k.id == 402 { c_close_cancels_a_dial(k, io, ev); return true; }
     if k.id == 404 { c_close_with_unread_input(k, io, ev); return true; }
     if k.id == 405 { c_close_when_peer_never_reads(k, io, ev); return true; }
     return false;
 }
 
-// Runs the checks not yet assigned to a group (tasks 4.2 to 4.4): true if the check is one of them.
-fn close_rest_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
-    if k.id == 401 { c_close_leaves_only_closed(k, io, ev); return true; }
-    if k.id == 403 { c_reset_aborts_the_peer(k, io, ev); return true; }
+// Runs the checks of the half-close group: true if the check is one of them.
+fn close_half_close_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 406 { c_peer_eof_closes_by_default(k, io, ev); return true; }
     if k.id == 407 { c_half_close_then_answer(k, io, ev); return true; }
+    return false;
+}
+
+// Runs the checks still to be split between groups (task 4.3): true if the check is one of them.
+fn close_pending_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+    if k.id == 403 { c_reset_aborts_the_peer(k, io, ev); return true; }
     return false;
 }

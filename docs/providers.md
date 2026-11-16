@@ -59,7 +59,7 @@ fn main() {
     io.hold("127.0.0.1:9999");
     let up = io.add_peer();
     io.peer_accept(up, "10.255.0.2:80");
-    let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", answers: "10.255.0.2:80" };
+    let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80" };
     if group == "core" { exit(goose_io_conformance::conformance_core_part(io, fixture, part)); }
     if group == "batching" { exit(goose_io_conformance::conformance_batching_part(io, fixture, part)); }
     exit(goose_io_conformance::conformance_part(io, fixture, part));
@@ -90,6 +90,7 @@ A fixture supplies the two things that contract calls cannot produce:
 |---|---|
 | `silent` | An address to which a connect is never answered, so a dial to it ends only when its connect time passes. In the in-memory provider, `io.silent(address)`; on a socket provider, an address that drops packets. |
 | `held` | An address on which `listen` fails with `AddressInUse`. In the in-memory provider, `io.hold(address)`; on a socket provider, a port another socket already holds exclusively. |
+| `refused` | An address that nothing listens on, so a dial to it is refused. In the in-memory event loop any address no one listens on; on a socket loop, a port that no socket holds. |
 | `answers` (optional) | An address that still accepts connections while the loop is draining. See `dial_while_draining` below. |
 
 ### Reading a failure
@@ -190,7 +191,7 @@ fails when this table, that file, the suite and the specification disagree.
 | Listener handles are never reused | A stale listener handle cannot reach a newer listener | check `listener_handle_never_reused` | 0 | `ListenerHandleReused` |
 | Listener handles are never reused | Handles run out and do not wrap | unit test: `tests/unit/memory_links_test.goose` (`listener_exhaustion`); for a socket provider, its mapping document (group 6) | - | - |
 | A link reports its peer's address | An accepted link names its peer | check `peer_address_names_peer` | 0 | `StalePeerAddress` |
-| A link reports its peer's address | A dialled link names its target | check `peer_address_names_peer` | 0 | `StalePeerAddress` |
+| A link reports its peer's address | A dialled link names its target | check `peer_address_names_peer`, `peer_address_ipv6` | 0 | `StalePeerAddress`, `Ipv6Unsupported` |
 | A link reports its peer's address | A closed link has no peer address | check `peer_address_names_peer` | 0 | `StalePeerAddress` |
 | Dialling never blocks and always ends in one event | A successful dial | check `dial_succeeds` | 0 | `DialReturnsInvalid` |
 | Dialling never blocks and always ends in one event | A refused dial | check `dial_refused` | 0 | `RefusedAsUnreachable` |
@@ -205,11 +206,11 @@ fails when this table, that file, the suite and the specification disagree.
 | Received bytes are lent for the duration of the event | A slow handler holds one buffer | check `data_slice_stable_in_handler` | 0 | `SendClobbersLentBytes` |
 | Sending is all or nothing | The caller reuses its memory at once | check `send_copies_at_once` | 0 | `SendDropsLastByte` |
 | Sending is all or nothing | A small send is accepted | check `send_copies_at_once` | 0 | `SendDropsLastByte` |
-| Sending is all or nothing | A send before the link opens | check `send_before_open` | 0 | `SendBeforeOpenSent` |
-| Sending is all or nothing | A send after close | check `send_after_close` | 0 | `SendAfterCloseAccepted` |
+| Sending is all or nothing | A send before the link opens | check `send_before_open`, `send2_refusals` | 0 | `SendBeforeOpenSent`, `SendBeforeOpenSent` |
+| Sending is all or nothing | A send after close | check `send_after_close`, `send2_refusals` | 0 | `SendAfterCloseAccepted`, `SendBeforeOpenSent` |
 | Two parts can be sent as one | A header and a body | check `send2_joins_parts` | 0 | `Send2SwapsParts` |
 | Two parts can be sent as one | Neither part is taken when both do not fit | check `send2_all_or_nothing` | 0 | `Send2TakesFirstPart` |
-| Send backpressure is explicit and bounded | An oversized send never fits | check `send_too_large` | 0 | `TooLargeGivesWritable` |
+| Send backpressure is explicit and bounded | An oversized send never fits | check `send2_refusals`, `send_too_large` | 0 | `SendBeforeOpenSent`, `TooLargeGivesWritable` |
 | Send backpressure is explicit and bounded | A reader that never reads does not grow memory | check `send_is_bounded` | 0 | `NeverFull` |
 | Send backpressure is explicit and bounded | No room on a link that cannot send | check `send_room_is_zero_when_closed` | 0 | `RoomAfterShutdown` |
 | Writable follows Full once | A full queue is reported and later reopened | check `writable_after_full` | 0 | `NoWritable` |

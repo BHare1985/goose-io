@@ -159,6 +159,7 @@ fn c_order_accepted_link<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         k.expect(only_data(k.kinds(1)), "an accepted link did not see Opened, then Data, then Closed");
         k.expect(k.received(1) == "first message,second message", "the Data events did not carry the bytes in order");
         k.expect(k.count(1, 'O') == 1 && k.count(1, 'C') == 1, "an accepted link did not see exactly one Opened and one Closed");
+        k.expect(k.closed_with(1, goose_io::CloseReason.PeerClosed), "the peer's end of stream did not close the link with PeerClosed");
         k.step = 3;
         k.finish();
     }
@@ -166,14 +167,12 @@ fn c_order_accepted_link<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 
 // --- 105: a dial that fails gives Closed and never Opened ------------------------------------------
 
-fn c_order_failed_dial<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+fn c_order_failed_dial<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
-        // a malformed address, and an address that has a listener no longer
+        // a malformed address, and an address that nothing listens on
+        k.expect(fx.refused.len > 0, "the fixture supplied no address that nothing listens on");
         k.dial_to(io, "not an address", 0, 0);
-        if k.listen_local(io, 1) {
-            io.stop_listening(k.l2);
-            k.dial_local(io, 1, 0);
-        }
+        k.dial_to(io, fx.refused, 1, 0);
         k.step = 1;
     } else if k.step == 1 && k.first(0, 'C') >= 0 && k.first(2, 'C') >= 0 {
         k.expect(k.kinds(0) == "C", "a dial to a malformed address did not give exactly one Closed and no Opened");
@@ -244,18 +243,18 @@ fn c_owner_user_after_failed_dial<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 // Runs the checks of the core: true if the check is one of them.
 fn handles_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 104 { c_order_accepted_link(k, io, ev); return true; }
+    if k.id == 105 { c_order_failed_dial(k, fx, io, ev); return true; }
     if k.id == 106 { c_owner_tags(k, io, ev); return true; }
     if k.id == 107 { c_owner_user_value(k, io, ev); return true; }
     if k.id == 108 { c_owner_user_after_failed_dial(k, io, ev); return true; }
     return false;
 }
 
-// Runs the checks not yet assigned to a group (tasks 4.2 to 4.4): true if the check is one of them.
-fn handles_rest_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+// Runs the checks still to be split between groups (task 4.3): true if the check is one of them.
+fn handles_pending_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 100 { c_handles_stale_reuse(k, io, ev); return true; }
     if k.id == 101 { c_handles_unset(k, io, ev); return true; }
     if k.id == 102 { c_handles_valid_in_closed(k, io, ev); return true; }
     if k.id == 103 { c_events_not_reentrant(k, io, ev); return true; }
-    if k.id == 105 { c_order_failed_dial(k, io, ev); return true; }
     return false;
 }

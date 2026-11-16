@@ -8,46 +8,48 @@ handles_unset	0	Links are generation-checked handles	An unset handle is recognis
 handles_valid_in_closed	0	Links are generation-checked handles	The handle is still valid while Closed is handled	ClosedHandleStaleEarly	pending
 events_not_reentrant	0	Events are delivered to one handler, one at a time	A close does not re-enter the handler | A send that closes the link does not re-enter the handler	-	pending
 order_accepted_link	0	Link events follow a fixed order	An accepted link	PeerCloseDropsData	core
-order_failed_dial	0	Link events follow a fixed order	A link that never opens	OpenedBeforeFailure	pending
+order_failed_dial	0	Link events follow a fixed order	A link that never opens	OpenedBeforeFailure	core
 owner_tags	0	Every link event names its owner	Two libraries share one loop	WrongTag	core
 owner_user_value	0	Every link event names its owner	The user value comes back	UserLostInData	core
 owner_user_after_failed_dial	0	Every link event names its owner	The user value survives an immediate dial failure	UserReadAtDial	core
 listen_accepts	0	Listening	A connection is accepted	OpenedWithoutListener	core
 listen_held_address	0	Listening	The address is taken	HeldIgnored	core
-listen_port_zero	0	Listening	A system-chosen port can be discovered	PortZeroReportsZero	pending
-listen_stop_keeps_links	0	Listening	Stopping a listener keeps its links	StopListeningClosesLinks	pending
-listener_handle_never_reused	0	Listener handles are never reused	A stale listener handle cannot reach a newer listener	ListenerHandleReused	pending
-peer_address_names_peer	0	A link reports its peer's address	An accepted link names its peer | A dialled link names its target | A closed link has no peer address	StalePeerAddress	pending
+listen_port_zero	0	Listening	A system-chosen port can be discovered	PortZeroReportsZero	core
+listen_stop_keeps_links	0	Listening	Stopping a listener keeps its links	StopListeningClosesLinks	inspection
+listener_handle_never_reused	0	Listener handles are never reused	A stale listener handle cannot reach a newer listener	ListenerHandleReused	inspection
+peer_address_names_peer	0	A link reports its peer's address	An accepted link names its peer | A dialled link names its target | A closed link has no peer address	StalePeerAddress	inspection
 dial_succeeds	0	Dialling never blocks and always ends in one event	A successful dial	DialReturnsInvalid	core
-dial_refused	0	A failed dial says why	A refused dial	RefusedAsUnreachable	pending
+dial_refused	0	A failed dial says why	A refused dial	RefusedAsUnreachable	core
 dial_times_out	0	A failed dial says why	A dial that times out | A dial that times out says so	TimeoutEarly	core
 dial_bad_address	0	A failed dial says why	A host name is rejected, not resolved | A malformed address or a host name | A zone identifier is rejected	BadAddressAsRefused	core
-ipv6_loopback	0	Scope of the base contract	IPv6 is supported	Ipv6Unsupported	pending
+ipv6_loopback	0	Scope of the base contract	IPv6 is supported	Ipv6Unsupported	core
+peer_address_ipv6	0	A link reports its peer's address	A dialled link names its target	Ipv6Unsupported	inspection
 data_arrives_as_slices	0	Received bytes are lent for the duration of the event	Bytes arrive as a slice	DataCorrupted	core
-data_slice_stable_in_handler	0	Received bytes are lent for the duration of the event	A slow handler holds one buffer	SendClobbersLentBytes	pending
+data_slice_stable_in_handler	0	Received bytes are lent for the duration of the event	A slow handler holds one buffer	SendClobbersLentBytes	core
 send_copies_at_once	0	Sending is all or nothing	The caller reuses its memory at once | A small send is accepted	SendDropsLastByte	core
-send_before_open	0	Sending is all or nothing	A send before the link opens	SendBeforeOpenSent	pending
-send_after_close	0	Sending is all or nothing	A send after close	SendAfterCloseAccepted	pending
-send2_joins_parts	0	Two parts can be sent as one	A header and a body	Send2SwapsParts	pending
-send2_all_or_nothing	0	Two parts can be sent as one	Neither part is taken when both do not fit	Send2TakesFirstPart	pending
-send_too_large	0	Send backpressure is explicit and bounded	An oversized send never fits	TooLargeGivesWritable	pending
+send_before_open	0	Sending is all or nothing	A send before the link opens	SendBeforeOpenSent	core
+send_after_close	0	Sending is all or nothing	A send after close	SendAfterCloseAccepted	core
+send2_joins_parts	0	Two parts can be sent as one	A header and a body	Send2SwapsParts	sizing
+send2_all_or_nothing	0	Two parts can be sent as one	Neither part is taken when both do not fit	Send2TakesFirstPart	sizing
+send2_refusals	0	Two parts can be sent as one	A send before the link opens | A send after close | An oversized send never fits	SendBeforeOpenSent	sizing
+send_too_large	0	Send backpressure is explicit and bounded	An oversized send never fits	TooLargeGivesWritable	core
 send_is_bounded	0	Send backpressure is explicit and bounded	A reader that never reads does not grow memory	NeverFull	core
 send_room_is_zero_when_closed	0	Send backpressure is explicit and bounded	No room on a link that cannot send	RoomAfterShutdown	pending
-writable_after_full	0	Writable follows Full once	A full queue is reported and later reopened	NoWritable	pending
+writable_after_full	0	Writable follows Full once	A full queue is reported and later reopened	NoWritable	core
 writable_once_for_many_refusals	0	Writable follows Full once	Several refusals share one Writable	WritablePerRefusal	core
-writable_means_it_fits	0	Writable follows Full once	Writable means the refused send fits	WritableOnFirstByte	pending
+writable_means_it_fits	0	Writable follows Full once	Writable means the refused send fits	WritableOnFirstByte	core
 writable_next_episode	0	Writable follows Full once	A later refusal gets its own Writable	OneWritableOnly	core
 pause_and_resume_reading	0	Reading can be paused	Pause and resume	PauseIgnored	core
-full_not_writable_after_shutdown_write	0	A refused send is always resolved	The write side is shut after a refusal	WritableAfterShutdown	pending
-full_resolved_when_peer_closes	0	A refused send is always resolved	The peer closes while a send is refused | The retry after the peer is gone	FullUnresolvedOnPeerClose	pending
+full_not_writable_after_shutdown_write	0	A refused send is always resolved	The write side is shut after a refusal	WritableAfterShutdown	half-close
+full_resolved_when_peer_closes	0	A refused send is always resolved	The peer closes while a send is refused | The retry after the peer is gone	FullUnresolvedOnPeerClose	half-close
 close_after_reply	0	Closing	Close after a reply	PeerCloseDropsData	core
-close_leaves_only_closed	0	Closing	Nothing but Closed after close	WritableAfterClose	pending
+close_leaves_only_closed	0	Closing	Nothing but Closed after close	WritableAfterClose	core
 close_cancels_a_dial	0	Closing	Cancelling a dial	CancelledDialOpens	core
 reset_aborts_the_peer	0	Closing	Reset | The peer resets the connection	ResetIsGraceful	pending
 close_with_unread_input	0	Close does not lose accepted bytes	Close with unread input	CloseWithUnreadResets	core
 close_when_peer_never_reads	0	Close does not lose accepted bytes	A peer that never reads	ClosedNeverDelivered	core
-peer_eof_closes_by_default	0	Peer end of stream and half-close	Default behaviour on peer end of stream	EofIgnoresDefault	pending
-half_close_then_answer	0	Peer end of stream and half-close	Answering after the peer half-closes	PeerEofBeforeData	pending
+peer_eof_closes_by_default	0	Peer end of stream and half-close	Default behaviour on peer end of stream	EofIgnoresDefault	half-close
+half_close_then_answer	0	Peer end of stream and half-close	Answering after the peer half-closes	PeerEofBeforeData	half-close
 ticks_are_regular	0	Time and ticks	Regular ticks	TickEvery250	core
 tick_by_is_prompt	0	Time and ticks	A deadline shorter than the tick period	TickByIgnored	core
 tick_by_two_deadlines	0	Time and ticks	Two libraries with different deadlines	TickByKeepsLatest	core

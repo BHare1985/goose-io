@@ -26,7 +26,7 @@ fn main() {
     io.hold("127.0.0.1:9999");
     let up = io.add_peer();
     io.peer_accept(up, "10.255.0.2:80");
-    let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", answers: "10.255.0.2:80" };
+    let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80" };
     if group == "core" { exit(goose_io_conformance::conformance_core_part(io, fixture, part)); }
     if group == "batching" { exit(goose_io_conformance::conformance_batching_part(io, fixture, part)); }
     exit(goose_io_conformance::conformance_part(io, fixture, part));
