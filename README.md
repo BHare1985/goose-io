@@ -1,9 +1,9 @@
 # goose-io
 
-[![linux-x64](https://github.com/BHare1985/goose-io/actions/workflows/ci-linux-x64.yml/badge.svg?branch=main)](https://github.com/BHare1985/goose-io/actions/workflows/ci-linux-x64.yml)
-[![macos-x64](https://github.com/BHare1985/goose-io/actions/workflows/ci-macos-x64.yml/badge.svg?branch=main)](https://github.com/BHare1985/goose-io/actions/workflows/ci-macos-x64.yml)
-[![macos-arm64](https://github.com/BHare1985/goose-io/actions/workflows/ci-macos-arm64.yml/badge.svg?branch=main)](https://github.com/BHare1985/goose-io/actions/workflows/ci-macos-arm64.yml)
-[![windows-x64](https://github.com/BHare1985/goose-io/actions/workflows/ci-windows-x64.yml/badge.svg?branch=main)](https://github.com/BHare1985/goose-io/actions/workflows/ci-windows-x64.yml)
+[![linux-x64](https://img.shields.io/github/actions/workflow/status/BHare1985/goose-io/ci.yml?branch=main&job=linux-x64&label=linux-x64)](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml)
+[![macos-x64](https://img.shields.io/github/actions/workflow/status/BHare1985/goose-io/ci.yml?branch=main&job=macos-x64&label=macos-x64)](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml)
+[![macos-arm64](https://img.shields.io/github/actions/workflow/status/BHare1985/goose-io/ci.yml?branch=main&job=macos-arm64&label=macos-arm64)](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml)
+[![windows-x64](https://img.shields.io/github/actions/workflow/status/BHare1985/goose-io/ci.yml?branch=main&job=windows-x64&label=windows-x64)](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml)
 
 **One I/O contract between an event loop and the libraries that run on it, in pure Goose.**
 

@@ -1,35 +1,52 @@
-# The build of goose-io on one platform, called by one workflow for each platform (ci-linux-x64.yml and the others), so
-# that each platform has its own status and its own badge in the README. goose-io is pure Goose, so every build runs
-# the same checks with the Goose release for its platform: the contract compiles, the tests and the conformance suite
-# (the core and each group) pass on the in-memory event loop and on the wrapper over it, the core passes on a loop that
-# supplies nothing else, every check is shown to fail against its fault, the example libraries name what they need, the
-# documents agree with the code, and the old words stay out. The commands are the ones CONTRIBUTING.md lists.
-name: build
+# goose-io is pure Goose, so every build runs the same checks with the Goose release for its platform: the contract
+# compiles, the tests and the conformance suite (the core and each group) pass on the in-memory event loop and on the
+# wrapper over it, the core passes on a loop that supplies nothing else, every check is shown to fail against its fault,
+# the example libraries name what they need, the documents agree with the code, and the old words stay out. The commands are the ones CONTRIBUTING.md lists.
+name: ci
 
+# One run for each commit: a branch is built when it has a pull request, and main is built when it changes. A push
+# and a pull_request run of the same commit would be two sets of jobs, and the macOS arm64 runners are scarce enough
+# (GitHub: "jobs targeting macOS arm64 runners may experience longer queue times") that the second set can be
+# cancelled while it waits for one. A newer push to the same branch cancels the run it supersedes. A change to
+# Markdown files only is not built.
 on:
-  workflow_call:
-    inputs:
-      name:
-        description: The platform, as it is named in the README
-        required: true
-        type: string
-      os:
-        description: The runner label
-        required: true
-        type: string
-      goose:
-        description: The Goose release asset for the platform
-        required: true
-        type: string
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+  pull_request:
+    paths-ignore: ['**.md']
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: ${{ inputs.name }}
-    runs-on: ${{ inputs.os }}
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-24.04
+            goose: goose-v2026.4-linux-x64.tar.gz
+          - name: macos-x64
+            os: macos-15-intel
+            goose: goose-v2026.4-macos-x64.tar.gz
+          # not `macos-15`: this repository is private, and a job on that label is never picked up (it stays queued);
+          # `macos-26` is an arm64 image and starts at once (checked with a probe, 2026-11-16)
+          - name: macos-arm64
+            os: macos-26
+            goose: goose-v2026.4-macos-arm64.tar.gz
+          - name: windows-x64
+            os: windows-latest
+            goose: goose-v2026.4-windows-x64.zip
     steps:
       # Avoid checkout converting LF sources to CRLF: Goose's formatter checks repository bytes, and the quoted
       # code of the documents is compared byte for byte with the files.
@@ -43,7 +60,7 @@ jobs:
       - name: Install Goose
         shell: bash
         env:
-          ASSET: ${{ inputs.goose }}
+          ASSET: ${{ matrix.goose }}
         run: |
           set -euo pipefail
           tag=$(sed -n 's/.*goose-\(v[0-9.]*\)-.*/\1/p' <<< "$ASSET")
