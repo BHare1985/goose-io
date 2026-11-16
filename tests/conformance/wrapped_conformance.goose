@@ -1,0 +1,25 @@
+// Runs one part of the conformance suite against the wrapper of tests/support/wrapper.goose, which sits over the
+// in-memory provider, changes every byte and delays Opened by one pass: `goose run tests/conformance/wrapped_conformance.goose -- 3`.
+import std;
+import os;
+import goose_io from "../..";
+import goose_io.conformance.suite;
+import goose_io.tests.support.wrapper;
+
+fn main() {
+    var part = 0;
+    if arg_count() > 1 {
+        var text: u8[>..] = [];
+        arg(1, text);
+        part = 0;
+        for c in text { if c >= '0' && c <= '9' { part = part * 10 + (c - '0'); } }
+    }
+    var io = wrapper::Layer { .. };
+    goose_io::require_provider(io);
+    io.silent("10.255.0.1:81");
+    io.hold("127.0.0.1:9999");
+    let up = io.add_peer();
+    io.peer_accept(up, "10.255.0.2:80");
+    let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", answers: "10.255.0.2:80" };
+    exit(goose_io_conformance::conformance_part(io, fixture, part));
+}
