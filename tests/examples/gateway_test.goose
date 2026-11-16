@@ -10,6 +10,8 @@ import goose_io.examples.lineserver.server;
 import goose_io.examples.lineclient.client;
 
 fn answered<Io>(io: Io&) {
+    goose_io::require_core(io);
+    goose_io::require_half_close(io);
     var front = lineserver::LineServer { .. };
     var back = lineserver::LineServer { .. };
     var client = lineclient::LineClient { .. };

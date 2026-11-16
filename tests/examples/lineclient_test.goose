@@ -8,6 +8,7 @@ import goose_io from "../..";
 import goose_io.memory;
 import goose_io.tests.support.kit;
 import goose_io.tests.support.wrapper;
+import goose_io.tests.support.core_only;
 import goose_io.examples.lineclient.client;
 
 // What the application saw: results in the order they were reported, with the reply text of each.
@@ -287,7 +288,9 @@ fn provider_reason<Io>(io: Io&) {
     kit::check(c.dial_count() == 2, "and is replaced");
 }
 
+// The client needs the core only (its header says so).
 fn run<Io>(n: i64, io: Io&) {
+    goose_io::require_core(io);
     if n == 0 { pool_fills(io); }
     if n == 1 { pipelined_replies(io); }
     if n == 2 { deadline_expires(io); }
@@ -309,7 +312,10 @@ let SCENARIOS = 13;
 // number that scenario runs on the wrapper (tests/examples/over_wrapper.sh runs them all).
 fn main() {
     let only = kit::scenario();
-    if only >= 0 {
+    if only >= 0 && kit::core_only() {
+        var c = core_only::Core { .. };
+        run(only, c);
+    } else if only >= 0 {
         var w = wrapper::Layer { .. };
         run(only, w);
     } else {

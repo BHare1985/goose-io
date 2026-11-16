@@ -1,5 +1,7 @@
 // A line client: a library on the goose-io contract that sends newline-delimited requests over a pool of links.
 //
+// Needs: core only. It runs on every loop that supplies the core.
+//
 // Like the line server it imports the contract and nothing else. It shows what a client needs on top of the
 // contract (docs/libraries.md): a pool of links it dials itself, requests pipelined on a link and matched to
 // replies in order, a deadline for each request kept with `Deadlines` and `tick_by`, a reconnect after a backoff

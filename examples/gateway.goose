@@ -1,5 +1,7 @@
 // A gateway: the line server and the line client on one loop, neither naming the other.
 //
+// Needs: core and half-close (the line server's need; the line client needs only the core).
+//
 // A front server answers each request with the reply the client fetches for it from a backend, which is a
 // second line server on the same loop. Only this file names both libraries; each of them imports the contract
 // and nothing else. The host's dispatch is the whole of the glue:

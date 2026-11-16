@@ -1,5 +1,8 @@
 // A line server: a library on the goose-io contract that answers newline-delimited requests.
 //
+// Needs: core and half-close (the line server keeps a link open after the peer finishes sending, to answer what it
+// has read, so it calls set_keep_open_on_eof). It fails to build on a loop that lacks half-close.
+//
 // It imports the contract and nothing else, so it runs on every provider that passes the conformance suite.
 // It shows the shape of a library (docs/libraries.md): a state struct, one event entry point that says whether
 // it handled the event, the tag and the user value to tell links apart, `Full` and `Writable` for

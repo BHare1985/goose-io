@@ -29,8 +29,8 @@ Ground rules for every task: work on the branch `simplify-contract` (made from `
 ## 5. A loop with only the core
 
 - [x] 5.1 Write `tests/support/core_only.goose`, a loop over the in-memory loop that supplies the 13 operations and 5 events of the core and nothing else, and a test that runs the core suite on it in its own process and a `*_mustfail.goose` that builds the sizing entry point on it and fails naming an operation; verify both
-- [ ] 5.2 Make each example library say what it needs in its header (client: core; server: core and half-close; gateway: both), have each library's test call the matching `require_` check, and run the client's tests on the core-only loop; verify the client's tests pass on it and the server's fail to build on it naming `set_keep_open_on_eof`
-- [ ] 5.3 Extend `tests/examples/over_wrapper.sh` and `imports_test.sh` for the above and add a script, `tests/examples/needs_check.sh`, that fails when a library's header names fewer groups than the operations it calls; verify it passes, and fails when a call is added in a scratch copy
+- [x] 5.2 Make each example library say what it needs in its header (client: core; server: core and half-close; gateway: both), have each library's test call the matching `require_` check, and run the client's tests on the core-only loop; verify the client's tests pass on it and the server's fail to build on it naming `set_keep_open_on_eof`
+- [x] 5.3 Extend `tests/examples/over_wrapper.sh` and `imports_test.sh` for the above and add a script, `tests/examples/needs_check.sh`, that fails when a library's header names fewer groups than the operations it calls; verify it passes, and fails when a call is added in a scratch copy
 
 ## 6. Words and documents
 

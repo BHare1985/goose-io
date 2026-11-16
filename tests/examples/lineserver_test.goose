@@ -149,7 +149,10 @@ fn other_tags<Io>(io: Io&) {
     kit::check(s.open_connections() == 0, "and is not counted");
 }
 
+// The server needs the core and half-close (its header says so): a loop without either fails to build here.
 fn run<Io>(n: i64, io: Io&) {
+    goose_io::require_core(io);
+    goose_io::require_half_close(io);
     if n == 0 { one_request(io); }
     if n == 1 { pipelined(io); }
     if n == 2 { split_request(io); }
