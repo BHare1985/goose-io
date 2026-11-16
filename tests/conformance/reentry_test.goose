@@ -10,15 +10,16 @@ import goose_io.tests.support.kit;
 
 fn main() {
     var io = goose_io_memory::Loop { .. };
+    var g = goose_io_conformance::AllGroups { .. };
     var d = goose_io_conformance::Driver { part: 0, .. };
     var k = goose_io_conformance::Case { .. };
     d.ids.push(104);                                   // order_accepted_link: a check that needs several events
     let fx = goose_io_conformance::Fixture { .. };
     let tick: goose_io::Event = goose_io::Event.Tick { now_ms: 0 };
-    goose_io_conformance::_drive(d, k, fx, io, tick);          // begins the check
+    goose_io_conformance::_drive(g, d, k, fx, io, tick);          // begins the check
     kit::check(d.running && k.verdict == goose_io_conformance::RUNNING, "fixture: the check is running");
     d.depth = 1;                                       // as if the provider delivered this event from inside another handler
-    goose_io_conformance::_drive(d, k, fx, io, tick);
+    goose_io_conformance::_drive(g, d, k, fx, io, tick);
     kit::check(k.verdict == goose_io_conformance::FAILED, "an event delivered inside another handler fails the running check");
     kit::finish();
 }

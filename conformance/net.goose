@@ -248,17 +248,23 @@ fn c_ipv6_loopback<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-fn net_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+// Runs the checks of the core: true if the check is one of them.
+fn net_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 200 { c_listen_accepts(k, io, ev); return true; }
     if k.id == 201 { c_listen_held_address(k, fx, io, ev); return true; }
+    if k.id == 206 { c_dial_succeeds(k, io, ev); return true; }
+    if k.id == 208 { c_dial_times_out(k, fx, io, ev); return true; }
+    if k.id == 209 { c_dial_bad_address(k, io, ev); return true; }
+    return false;
+}
+
+// Runs the checks not yet assigned to a group (tasks 4.2 to 4.4): true if the check is one of them.
+fn net_rest_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 202 { c_listen_port_zero(k, io, ev); return true; }
     if k.id == 203 { c_listen_stop_keeps_links(k, io, ev); return true; }
     if k.id == 204 { c_listener_handle_never_reused(k, io, ev); return true; }
     if k.id == 205 { c_peer_address_names_peer(k, io, ev); return true; }
-    if k.id == 206 { c_dial_succeeds(k, io, ev); return true; }
     if k.id == 207 { c_dial_refused(k, io, ev); return true; }
-    if k.id == 208 { c_dial_times_out(k, fx, io, ev); return true; }
-    if k.id == 209 { c_dial_bad_address(k, io, ev); return true; }
     if k.id == 210 { c_ipv6_loopback(k, io, ev); return true; }
     return false;
 }

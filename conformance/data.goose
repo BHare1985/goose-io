@@ -472,22 +472,28 @@ fn c_full_resolved_when_peer_closes<Io>(k: Case&, io: Io&, ev: goose_io::Event) 
     }
 }
 
-fn data_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+// Runs the checks of the core: true if the check is one of them.
+fn data_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 300 { c_data_arrives_as_slices(k, io, ev); return true; }
-    if k.id == 301 { c_data_slice_stable_in_handler(k, io, ev); return true; }
     if k.id == 302 { c_send_copies_at_once(k, io, ev); return true; }
+    if k.id == 308 { c_send_is_bounded(k, io, ev); return true; }
+    if k.id == 311 { c_writable_once_for_many_refusals(k, io, ev); return true; }
+    if k.id == 313 { c_writable_next_episode(k, io, ev); return true; }
+    if k.id == 314 { c_pause_and_resume_reading(k, io, ev); return true; }
+    return false;
+}
+
+// Runs the checks not yet assigned to a group (tasks 4.2 to 4.4): true if the check is one of them.
+fn data_rest_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+    if k.id == 301 { c_data_slice_stable_in_handler(k, io, ev); return true; }
     if k.id == 303 { c_send_before_open(k, io, ev); return true; }
     if k.id == 304 { c_send_after_close(k, io, ev); return true; }
     if k.id == 305 { c_send2_joins_parts(k, io, ev); return true; }
     if k.id == 306 { c_send2_all_or_nothing(k, io, ev); return true; }
     if k.id == 307 { c_send_too_large(k, io, ev); return true; }
-    if k.id == 308 { c_send_is_bounded(k, io, ev); return true; }
     if k.id == 309 { c_send_room_is_zero_when_closed(k, io, ev); return true; }
     if k.id == 310 { c_writable_after_full(k, io, ev); return true; }
-    if k.id == 311 { c_writable_once_for_many_refusals(k, io, ev); return true; }
     if k.id == 312 { c_writable_means_it_fits(k, io, ev); return true; }
-    if k.id == 313 { c_writable_next_episode(k, io, ev); return true; }
-    if k.id == 314 { c_pause_and_resume_reading(k, io, ev); return true; }
     if k.id == 315 { c_full_not_writable_after_shutdown_write(k, io, ev); return true; }
     if k.id == 316 { c_full_resolved_when_peer_closes(k, io, ev); return true; }
     return false;

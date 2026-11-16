@@ -203,13 +203,19 @@ fn c_half_close_then_answer<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-fn close_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+// Runs the checks of the core: true if the check is one of them.
+fn close_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 400 { c_close_after_reply(k, io, ev); return true; }
-    if k.id == 401 { c_close_leaves_only_closed(k, io, ev); return true; }
     if k.id == 402 { c_close_cancels_a_dial(k, io, ev); return true; }
-    if k.id == 403 { c_reset_aborts_the_peer(k, io, ev); return true; }
     if k.id == 404 { c_close_with_unread_input(k, io, ev); return true; }
     if k.id == 405 { c_close_when_peer_never_reads(k, io, ev); return true; }
+    return false;
+}
+
+// Runs the checks not yet assigned to a group (tasks 4.2 to 4.4): true if the check is one of them.
+fn close_rest_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+    if k.id == 401 { c_close_leaves_only_closed(k, io, ev); return true; }
+    if k.id == 403 { c_reset_aborts_the_peer(k, io, ev); return true; }
     if k.id == 406 { c_peer_eof_closes_by_default(k, io, ev); return true; }
     if k.id == 407 { c_half_close_then_answer(k, io, ev); return true; }
     return false;

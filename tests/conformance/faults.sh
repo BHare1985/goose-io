@@ -25,7 +25,7 @@ limited() {
 bad=0
 tested=0
 unfaulted=()
-while IFS=$'\t' read -r check part req scenarios fault; do
+while IFS=$'\t' read -r check part req scenarios fault group; do
     case "$check" in ''|'#'*) continue ;; esac
     want "$check" || continue
     if [ "$fault" = "-" ]; then unfaulted+=("$check"); continue; fi

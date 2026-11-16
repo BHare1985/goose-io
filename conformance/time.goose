@@ -314,17 +314,28 @@ fn c_stop_called_twice<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-fn time_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+// Runs the checks of the core: true if the check is one of them.
+fn time_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 500 { c_ticks_are_regular(k, io, ev); return true; }
     if k.id == 501 { c_tick_by_is_prompt(k, io, ev); return true; }
     if k.id == 502 { c_tick_by_two_deadlines(k, io, ev); return true; }
-    if k.id == 503 { c_pass_end_follows_link_events(k, io, ev); return true; }
-    if k.id == 504 { c_pass_end_not_on_idle_pass(k, io, ev); return true; }
     if k.id == 505 { c_stop_with_nothing_open(k, io, ev); return true; }
     if k.id == 510 { c_stop_link_stays_open(k, io, ev); return true; }
     if k.id == 520 { c_stop_libraries_finish(k, io, ev); return true; }
     if k.id == 530 { c_listen_while_draining(k, io, ev); return true; }
     if k.id == 540 { c_dial_while_draining(k, fx, io, ev); return true; }
     if k.id == 550 { c_stop_called_twice(k, io, ev); return true; }
+    return false;
+}
+
+// Runs the checks of the batching group: true if the check is one of them.
+fn time_batching_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+    if k.id == 503 { c_pass_end_follows_link_events(k, io, ev); return true; }
+    if k.id == 504 { c_pass_end_not_on_idle_pass(k, io, ev); return true; }
+    return false;
+}
+
+// Runs the checks not yet assigned to a group (tasks 4.2 to 4.4): true if the check is one of them.
+fn time_rest_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     return false;
 }
