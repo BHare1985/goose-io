@@ -1,6 +1,9 @@
 # goose-io
 
-[![ci](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml)
+[![linux-x64](https://github.com/BHare1985/goose-io/actions/workflows/ci-linux-x64.yml/badge.svg?branch=main)](https://github.com/BHare1985/goose-io/actions/workflows/ci-linux-x64.yml)
+[![macos-x64](https://github.com/BHare1985/goose-io/actions/workflows/ci-macos-x64.yml/badge.svg?branch=main)](https://github.com/BHare1985/goose-io/actions/workflows/ci-macos-x64.yml)
+[![macos-arm64](https://github.com/BHare1985/goose-io/actions/workflows/ci-macos-arm64.yml/badge.svg?branch=main)](https://github.com/BHare1985/goose-io/actions/workflows/ci-macos-arm64.yml)
+[![windows-x64](https://github.com/BHare1985/goose-io/actions/workflows/ci-windows-x64.yml/badge.svg?branch=main)](https://github.com/BHare1985/goose-io/actions/workflows/ci-windows-x64.yml)
 
 **One I/O contract between an event loop and the libraries that run on it, in pure Goose.**
 

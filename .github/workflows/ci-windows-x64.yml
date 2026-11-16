@@ -1,0 +1,29 @@
+# The build of goose-io on windows-x64 (build.yml has the steps). One run for each commit: a branch is built when it has a pull
+# request, and main is built when it changes. A push and a pull_request run of the same commit would be two sets of
+# jobs, and the macOS arm64 runners are scarce enough (GitHub: "jobs targeting macOS arm64 runners may experience
+# longer queue times") that the second set can be cancelled while it waits for one. A newer push to the same branch
+# cancels the run it supersedes. A change to Markdown files only is not built.
+name: windows-x64
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+  pull_request:
+    paths-ignore: ['**.md']
+  workflow_dispatch:
+
+concurrency:
+  group: windows-x64-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    with:
+      name: windows-x64
+      os: windows-latest
+      goose: goose-v2026.4-windows-x64.zip
