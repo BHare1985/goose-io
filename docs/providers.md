@@ -101,7 +101,9 @@ A fixture supplies the two things that contract calls cannot produce:
 
 Each check prints `ok   <name>` or `FAIL <name> [<requirement>]: <what was wrong>`. The requirement is the name of
 the requirement in `specs/io-contract/spec.md` and in `docs/contract.md` (each requirement is named there, in
-italics). The last line gives the number of checks run and failed. A failed check stops that check only, so one
+italics). The suite is run one group at a time, so the process that failed says which group the requirement belongs
+to: a failure in the `sizing` run is a requirement of the sizing group, and a loop that does not supply that group
+need not pass it. The last line gives the number of checks run and failed. A failed check stops that check only, so one
 output shows every failing requirement of the part. A check that did not finish by its deadline on the loop's
 clock fails with *not finished in time*; one whose events arrive from inside another handler fails with *an event
 was delivered from inside the handler of another event*.
@@ -118,9 +120,11 @@ table below to name every scenario of the specification and every check of the s
 
 ## Being listed as conforming
 
-A provider is described as conforming only after the whole suite (every part) has passed against it on the
+A provider is described as conforming to the core only after every part of the core has passed against it, and to
+a group of extras only after that group's entry point has passed; its documentation lists the core and each
+group it conforms to. Passing a group while failing the core is not conforming to anything. The runs are on the
 operating system it targets, and its documentation says which contract version (`goose_io::VERSION_MAJOR` and
-`VERSION_MINOR`) and which commit of the provider that was. A provider that fails any check is not listed.
+`VERSION_MINOR`) and which commit of the provider that was. A provider that fails any check of a part it claims is not listed for that part.
 While the contract is at major version 0 a provider may find that a requirement cannot be met on its backend; it
 then records what it tried, and the contract is changed only if no other way works (design D13 of the change that
 introduced it).
