@@ -309,4 +309,4 @@ fn peer_closed(w: Layer&, p: goose_io_memory::Peer) -> bool { return inner.peer_
 fn hold(w: Layer&, address: const u8[:]) { w._prepare(); inner.hold(address); }
 fn silent(w: Layer&, address: const u8[:]) { w._prepare(); inner.silent(address); }
 fn fail_dials(w: Layer&, address: const u8[:], kind: goose_io::ConnectFailure) { w._prepare(); inner.fail_dials(address, kind); }
-fn provider_close(w: Layer&, link: goose_io::Link, why: goose_io::CloseReason) { w._prepare(); inner.provider_close(link, why); }
+fn close_with_reason(w: Layer&, link: goose_io::Link, why: goose_io::CloseReason) { w._prepare(); inner.close_with_reason(link, why); }

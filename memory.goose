@@ -1,4 +1,4 @@
-// goose-io: the in-memory provider.
+// goose-io: the in-memory event loop.
 //
 // The whole contract with no sockets and no real clock. A dial to an address that something on
 // the same loop listens on joins two links: bytes one side sends arrive as Data on the other,
@@ -7,7 +7,8 @@
 // and the same test gives the same events at the same times on every run.
 //
 // It exists for two things: testing a library without a network, and giving the contract one
-// working implementation that the conformance suite can run against.
+// working implementation that the conformance suite can run against. It supplies the core of the
+// contract and every group of extras.
 //
 //     var io = goose_io_memory::Loop { .. };
 //     let l, err = io.listen("127.0.0.1:8080", 1);
@@ -331,7 +332,7 @@ struct _Step {
 
 struct _Chunk { peer: i64 = 0, off: i64 = 0, len: i64 = 0 }
 
-// --- the provider --------------------------------------------------------------------------------
+// --- the event loop --------------------------------------------------------------------------------
 
 // One loop. Declare it as a local or global (`var io = goose_io_memory::Loop { .. };`) and pass it
 // by reference; it cannot be copied or returned.
@@ -686,7 +687,7 @@ fn user(io: Loop&, link: goose_io::Link) -> u32 {
     if i >= 0 { io._slots[i].user } else { 0 }
 }
 
-// --- the contract: time and the host side --------------------------------------------------------
+// --- the contract: time and the application side --------------------------------------------------
 
 fn now_ms(io: Loop&) -> i64 { io._clock }
 
@@ -999,7 +1000,7 @@ fn passes(io: Loop&) -> i64 { io._passes }
 // with cfg.exit_on_time_limit off; otherwise the program has exited).
 fn hit_time_limit(io: Loop&) -> bool { io._hit_limit }
 
-// Bytes the provider accepted from this link and still holds because the other end has not read
+// Bytes the event loop accepted from this link and still holds because the other end has not read
 // them. Never more than cfg.link_buffer.
 fn stored_bytes(io: Loop&, link: goose_io::Link) -> i64 {
     let i = io._slot_of(link);
@@ -1212,11 +1213,11 @@ fn _peer_deliver(io: Loop&, kind: u8, i: i64) {
     }
 }
 
-// --- scripting: the provider's own decisions -----------------------------------------------------
+// --- scripting: the event loop's own decisions ----------------------------------------------------
 
-// Closes a link as a provider may on its own policy, with any reason (IdleTimeout, Error,
+// Closes a link as an event loop may on its own policy, with any reason (IdleTimeout, Error,
 // LoopSpecific { code }, ...), so a library can be tested against each. The other end sees a clean end.
-fn provider_close(io: Loop&, link: goose_io::Link, why: goose_io::CloseReason) {
+fn close_with_reason(io: Loop&, link: goose_io::Link, why: goose_io::CloseReason) {
     let i = io._slot_of(link);
     if i >= 0 { io._close(i, why, false); }
 }

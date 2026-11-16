@@ -277,7 +277,7 @@ fn provider_reason<Io>(io: Io&) {
                     closed = true;
                     let l = c.link_of(0);
                     kit::check(goose_io::is_valid(l), "fixture: the pool has a link");
-                    io.provider_close(l, goose_io::CloseReason.LoopSpecific { code: 77 });
+                    io.close_with_reason(l, goose_io::CloseReason.LoopSpecific { code: 77 });
                 }
             },
             _ => {},

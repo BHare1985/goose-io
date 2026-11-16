@@ -295,7 +295,7 @@ fn peer_gone() {
 
 fn policy_event(p: kit::Pair&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
     if kit::track(p, log, io, ev) {
-        io.provider_close(p.server, goose_io::CloseReason.LoopSpecific { code: 77 });
+        io.close_with_reason(p.server, goose_io::CloseReason.LoopSpecific { code: 77 });
     }
     kit::stop_after(io, ev, 200);
 }

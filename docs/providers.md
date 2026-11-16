@@ -221,7 +221,7 @@ fails when this table, that file, the suite and the specification disagree.
 | Peer end of stream and half-close | Default behaviour on peer end of stream | check `peer_eof_closes_by_default` | 0 | `EofIgnoresDefault` |
 | Peer end of stream and half-close | Answering after the peer half-closes | check `half_close_then_answer` | 0 | `PeerEofBeforeData` |
 | Close reasons are portable | The peer resets the connection | check `reset_aborts_the_peer` | 0 | `ResetIsGraceful` |
-| Close reasons are portable | A provider-specific reason reaches a portable library | unit test: `tests/unit/memory_close_test.goose` (`provider_close`) and `tests/examples/lineclient_test.goose` (task 5.3) | - | - |
+| Close reasons are portable | A provider-specific reason reaches a portable library | unit test: `tests/unit/memory_close_test.goose` (`close_with_reason`) and `tests/examples/lineclient_test.goose` (task 5.3) | - | - |
 | Time and ticks | Regular ticks | check `ticks_are_regular` | 0 | `TickEvery250` |
 | Time and ticks | A deadline shorter than the tick period | check `tick_by_is_prompt` | 0 | `TickByIgnored` |
 | Time and ticks | Two libraries with different deadlines | check `tick_by_two_deadlines` | 0 | `TickByKeepsLatest` |

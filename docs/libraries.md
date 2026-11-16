@@ -436,7 +436,7 @@ things fail sooner, so none can make `serve` run for ever.
 | `hold(address)` | `listen` on the address fails with `AddressInUse`, as if another process held it. |
 | `silent(address)` | A dial to the address never answers and ends only when its connect time passes, with kind `TimedOut`. |
 | `fail_dials(address, kind)` | A dial to the address fails at once with `ConnectFailed` of that kind, whatever listens there: `Unreachable`, `Denied`, `NoResources`, `Other`. |
-| `provider_close(link, why)` | Closes a library's link as a provider may on its own policy, with any reason: `IdleTimeout`, `Error`, `Provider { code }`. The other end sees a clean end. |
+| `close_with_reason(link, why)` | Closes a library's link as a provider may on its own policy, with any reason: `IdleTimeout`, `Error`, `Provider { code }`. The other end sees a clean end. |
 | `peer_refuse`, `peer_abort`, `peer_stop_reading` | See "Scripted peers". |
 
 And for checking afterwards:
