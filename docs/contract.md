@@ -1,6 +1,6 @@
 # The goose-io contract
 
-Version 0.2. The declarations are in [`goose_io.goose`](../goose_io.goose); this document is the meaning. The normative requirements, each with test scenarios, are in the OpenSpec capability `io-contract`. Requirement names from it are quoted in *italics* below so that every rule here can be traced to its tests.
+Version 0.1. The declarations are in [`goose_io.goose`](../goose_io.goose); this document is the meaning. The normative requirements, each with test scenarios, are in the OpenSpec capability `io-contract`. Requirement names from it are quoted in *italics* below so that every rule here can be traced to its tests.
 
 ## 1. Purpose and roles
 
@@ -308,7 +308,7 @@ The contract covers TCP byte streams over IPv4 and IPv6, ticks and deadlines, an
 
 `goose_io::VERSION_MAJOR` and `goose_io::VERSION_MINOR`. While the major number is 0, a minor increase may change or remove behaviour. From major version 1, a minor increase only adds. An event loop states the contract version it conforms to, the core and the groups it supplies.
 
-The version of this document is **0.2** (`VERSION_MAJOR` 0, `VERSION_MINOR` 2 in `goose_io.goose`). Version 0.2 splits the contract of 0.1 into a core and five groups and renames the roles; no event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
+The version of this document is **0.1** (`VERSION_MAJOR` 0, `VERSION_MINOR` 1 in `goose_io.goose`), the first release. No event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
 
 ## 10. Known gaps
 

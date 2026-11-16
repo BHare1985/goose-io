@@ -13,7 +13,7 @@ that answers requests) and five **groups of extras** that it may add or leave ou
 inspection and batching. A library says in its header what it needs; on a loop that lacks it, it fails to compile and
 the error names the missing operation. The cheapest event loop to write is one that supplies only the core.
 
-Version 0.2 of the contract, an in-memory event loop for testing, a conformance suite that is run by group, and two
+Version 0.1 of the contract, an in-memory event loop for testing, a conformance suite that is run by group, and two
 example libraries. Nothing here opens a socket or builds C: the package is Goose source and links nothing.
 
 ## What it is not
@@ -104,9 +104,9 @@ and the commit.
 
 | Event loop | Contract | Core | Groups | Suite last passed at | Where |
 |---|---|---|---|---|---|
-| in-memory (`memory.goose`) | 0.2 | yes | half-close, sizing, abort, inspection, batching | `650c8c5` | this repository |
-| wrapper over it (`tests/support/wrapper.goose`) | 0.2 | yes | half-close, sizing, abort, inspection | `650c8c5` | this repository |
-| core only (`tests/support/core_only.goose`) | 0.2 | yes | none | `650c8c5` | this repository |
+| in-memory (`memory.goose`) | 0.1 | yes | half-close, sizing, abort, inspection, batching | `650c8c5` | this repository |
+| wrapper over it (`tests/support/wrapper.goose`) | 0.1 | yes | half-close, sizing, abort, inspection | `650c8c5` | this repository |
+| core only (`tests/support/core_only.goose`) | 0.1 | yes | none | `650c8c5` | this repository |
 
 Planned example event loops, each its own change: tcprouter's engine (with performance-parity gates), uSockets, io_uring.
 How every operation and event maps onto each, what the core alone costs each, and what is still unverified, is in

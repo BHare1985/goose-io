@@ -1,6 +1,6 @@
 ## Why
 
-goose-io has a contract (0.2), a conformance suite and one working event loop, the in-memory one, which opens no socket. No library has run on a real network through it. tcprouter's epoll engine is the loop the contract was drawn from, benchmarked and in use by skein, so it is the fastest way to a loop on real sockets and to proof that the contract costs nothing.
+goose-io has a contract (0.1), a conformance suite and one working event loop, the in-memory one, which opens no socket. No library has run on a real network through it. tcprouter's epoll engine is the loop the contract was drawn from, benchmarked and in use by skein, so it is the fastest way to a loop on real sockets and to proof that the contract costs nothing.
 
 ## What Changes
 

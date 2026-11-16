@@ -48,7 +48,7 @@ Contract types and operations SHALL NOT expose file descriptors, socket address 
 - **THEN** every operation and event of the contract is expressible and the conformance suite runs against it
 
 ### Requirement: The contract states its version
-The contract SHALL publish its version as a major and minor number, 0.2 for this specification. While the major number is zero, a minor increase MAY change or remove behaviour. From major version one, a minor increase SHALL only add. An event loop SHALL state the contract version it conforms to and the groups it supplies.
+The contract SHALL publish its version as a major and minor number, 0.1 for this specification. While the major number is zero, a minor increase MAY change or remove behaviour. From major version one, a minor increase SHALL only add. An event loop SHALL state the contract version it conforms to and the groups it supplies.
 
 #### Scenario: A library reads the version
 - **WHEN** a program reads the contract's version
