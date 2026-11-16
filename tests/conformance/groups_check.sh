@@ -18,9 +18,9 @@ while IFS=$'\t' read -r check part req scenarios fault group; do
     if [ -z "$body" ]; then echo "BAD   $check: no function c_$check in conformance/"; bad=$((bad + 1)); continue; fi
     used=$(
         {
-            echo "$body" | grep -o 'io\.\(shutdown_write\|set_keep_open_on_eof\|send_room\|send2\|reset\|peer_address\|stop_listening\|user\)(' | sed 's/^io\.//; s/($//'
+            echo "$body" | grep -oE 'io\.(shutdown_write|set_keep_open_on_eof|send_room|send2|reset|peer_address|stop_listening|user)\(' | sed 's/^io\.//; s/($//'
             echo "$body" | grep -q 'fill_to_room(' && echo send_room
-            echo "$body" | grep -q "'E'\|PeerEof" && echo PeerEof
+            echo "$body" | grep -qE "'E'|PeerEof" && echo PeerEof
         } | sort -u
     )
     for op in $used; do

@@ -21,7 +21,7 @@ bad=0
 
 # the scenarios of define-contract-v1 are quoted in the table with the old words replaced by the new ones
 # (simplify-contract, design D10): "a provider" is "an event loop", "provider-specific" is "loop-specific"
-words() { sed -E 's/provider-specific/loop-specific/; s/\ba provider/an event loop/; s/\bA provider/An event loop/; s/providers/event loops/g; s/provider/event loop/g; s/Provider/Event loop/g'; }
+words() { sed -E 's/provider-specific/loop-specific/; s/^A provider/An event loop/; s/ a provider/ an event loop/g; s/providers/event loops/g; s/provider/event loop/g; s/Provider/Event loop/g'; }
 
 want=$(grep -c "^#### Scenario" "$spec")
 have=$(awk '/<!-- scenarios:begin -->/{on=1; next} /<!-- scenarios:end -->/{on=0} on && /^\| / && !/^\| Requirement/ && !/^\|---/' "$doc" | wc -l)

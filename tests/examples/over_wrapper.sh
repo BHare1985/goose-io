@@ -24,7 +24,7 @@ for entry in "${tests[@]}"; do
         ran=$((ran + 1))
         if [ $code -ne 0 ]; then
             echo "FAIL  $file scenario $i (exit $code)"
-            echo "$out" | grep -v "warning\|\^~\|as i64" | sed 's/^/      /' | head -n 8
+            echo "$out" | grep -vE "warning|\^~|as i64" | sed 's/^/      /' | head -n 8
             failed=$((failed + 1))
         fi
     done
@@ -40,7 +40,7 @@ for file in tests/examples/lineclient_test.goose; do
         core_ran=$((core_ran + 1))
         if [ $code -ne 0 ]; then
             echo "FAIL  $file scenario $i on the core-only loop (exit $code)"
-            echo "$out" | grep -v "warning\|\^~\|as i64" | sed 's/^/      /' | head -n 8
+            echo "$out" | grep -vE "warning|\^~|as i64" | sed 's/^/      /' | head -n 8
             failed=$((failed + 1))
         fi
     done
