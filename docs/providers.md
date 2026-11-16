@@ -27,13 +27,13 @@ a check listens on the loopback with port 0 and dials the port it was given, and
 contract calls (`reset`, `shutdown_write`, `pause_reading`, not sending). It therefore runs unchanged on any
 provider, over IPv4 and IPv6 loopback.
 
-A provider's root program constructs its loop, builds a fixture and calls `conformance_part` with a part number.
+A provider's root program constructs its loop, builds a fixture and calls the entry point of the core and of each group it supplies (`conformance_core_part`, `conformance_half_close_part`, `conformance_sizing_part`, `conformance_abort_part`, `conformance_inspection_part`, `conformance_batching_part`) with a part number.
 This is the program that runs the in-memory provider, whose suite results the tests of this repository rely on:
 
 <!-- source: tests/conformance/memory_conformance.goose -->
 ```goose
 // Runs one part of the conformance suite against the in-memory provider: `goose run tests/conformance/memory_conformance.goose -- 3 core`.
-// The part is the first argument (default 0) and the group the second (core or batching; default all of them).
+// The part is the first argument (default 0) and the group the second (core, half-close, sizing, abort, inspection or batching; default core).
 // The environment variable GOOSE_IO_FAULT, when set, switches the in-memory provider to one of its named faults
 // (see tests/conformance/faults.sh).
 import std;
@@ -60,24 +60,28 @@ fn main() {
     let up = io.add_peer();
     io.peer_accept(up, "10.255.0.2:80");
     let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80" };
-    if group == "core" { exit(goose_io_conformance::conformance_core_part(io, fixture, part)); }
+    if group == "half-close" { exit(goose_io_conformance::conformance_half_close_part(io, fixture, part)); }
+    if group == "sizing" { exit(goose_io_conformance::conformance_sizing_part(io, fixture, part)); }
+    if group == "abort" { exit(goose_io_conformance::conformance_abort_part(io, fixture, part)); }
+    if group == "inspection" { exit(goose_io_conformance::conformance_inspection_part(io, fixture, part)); }
     if group == "batching" { exit(goose_io_conformance::conformance_batching_part(io, fixture, part)); }
-    exit(goose_io_conformance::conformance_part(io, fixture, part));
+    exit(goose_io_conformance::conformance_core_part(io, fixture, part));
 }
 ```
 
 Only one `stop` can be observed in one `serve`, so the suite is divided into **parts** and each part is run in
 its own process. Part 0 is every check that does not need `stop`, ending with *stop with nothing open*. Parts 1
 to 5 are one scenario of `stop` each: a link that stays open, libraries that finish, listening while draining,
-dialling while draining, and `stop` called twice. `conformance_parts()` is the number of parts. The root program
-above takes the part as its first argument; `tests/conformance/run.sh` runs all of them:
+dialling while draining, and `stop` called twice. The core has parts 0 to 5; every group has part 0 only. The root program
+above takes the part as its first argument and the group as its second; `tests/conformance/run.sh` runs all of them:
 
 ```
-tests/conformance/run.sh                 # every part once
+tests/conformance/run.sh                 # every part of every group once
+tests/conformance/run.sh --group sizing  # one group only
 tests/conformance/run.sh --repeat 50     # fifty times: any failure in any repetition fails the run
 ```
 
-`conformance_part` returns the number of checks that failed, so `exit(...)` of it is the program's status. Time
+Each entry point returns the number of checks that failed, so `exit(...)` of it is the program's status. Time
 bounds in the checks use the loop's clock (`now_ms`), so the same bounds hold on a virtual clock and on a real one.
 A check that has to wait for a provider limit it cannot know (*A peer that never reads*) allows two minutes of that
 clock.

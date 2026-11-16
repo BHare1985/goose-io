@@ -73,7 +73,7 @@ tests/examples/over_wrapper.sh                  # the same tests over a provider
 
 The suite is written only against the contract and is generic over the provider. A provider's root program builds its
 loop, a small fixture (an address that never answers, an address that is already held) and calls
-`conformance_part`. `docs/providers.md` shows the program and says how to read a failure. For the in-memory provider:
+the entry point of the core and of each group it supplies. `docs/providers.md` shows the program and says how to read a failure. For the in-memory provider:
 
 ```bash
 tests/conformance/run.sh                        # every part, one process each

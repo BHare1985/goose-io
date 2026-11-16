@@ -38,15 +38,15 @@ struct Info { name: const u8[:] = "", req: const u8[:] = "", part: i64 = 0, grou
 
 // The groups of the contract (design D2) and the marker type of each. The driver is generic over a marker, and the
 // functions `step` and `takes` of the suite are overloaded on it, so that a suite for one group compiles only the
-// checks of that group (design D5). PENDING and AllGroups are transitional, for the checks not yet assigned to a group
-// (tasks 4.2 to 4.4 of the change simplify-contract), and go when every check has its group.
+// checks of that group (design D5). Every check belongs to exactly one group; GROUP_NONE is the answer for a name that
+// is not a check.
 let GROUP_CORE = 0;
 let GROUP_HALF_CLOSE = 1;
 let GROUP_SIZING = 2;
 let GROUP_ABORT = 3;
 let GROUP_INSPECTION = 4;
 let GROUP_BATCHING = 5;
-let GROUP_PENDING = 9;
+let GROUP_NONE = 9;
 
 struct CoreGroup { n: i64 = 0 }
 struct BatchingGroup { n: i64 = 0 }
@@ -54,7 +54,6 @@ struct SizingGroup { n: i64 = 0 }
 struct HalfCloseGroup { n: i64 = 0 }
 struct InspectionGroup { n: i64 = 0 }
 struct AbortGroup { n: i64 = 0 }
-struct AllGroups { n: i64 = 0 }
 
 struct Rec {
     role:     i64                   = 0,

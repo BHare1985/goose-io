@@ -1,5 +1,5 @@
 // Runs one part of the conformance suite against the in-memory provider: `goose run tests/conformance/memory_conformance.goose -- 3 core`.
-// The part is the first argument (default 0) and the group the second (core or batching; default all of them).
+// The part is the first argument (default 0) and the group the second (core, half-close, sizing, abort, inspection or batching; default core).
 // The environment variable GOOSE_IO_FAULT, when set, switches the in-memory provider to one of its named faults
 // (see tests/conformance/faults.sh).
 import std;
@@ -26,7 +26,10 @@ fn main() {
     let up = io.add_peer();
     io.peer_accept(up, "10.255.0.2:80");
     let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80" };
-    if group == "core" { exit(goose_io_conformance::conformance_core_part(io, fixture, part)); }
+    if group == "half-close" { exit(goose_io_conformance::conformance_half_close_part(io, fixture, part)); }
+    if group == "sizing" { exit(goose_io_conformance::conformance_sizing_part(io, fixture, part)); }
+    if group == "abort" { exit(goose_io_conformance::conformance_abort_part(io, fixture, part)); }
+    if group == "inspection" { exit(goose_io_conformance::conformance_inspection_part(io, fixture, part)); }
     if group == "batching" { exit(goose_io_conformance::conformance_batching_part(io, fixture, part)); }
-    exit(goose_io_conformance::conformance_part(io, fixture, part));
+    exit(goose_io_conformance::conformance_core_part(io, fixture, part));
 }

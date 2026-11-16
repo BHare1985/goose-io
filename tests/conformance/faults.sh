@@ -29,7 +29,7 @@ while IFS=$'\t' read -r check part req scenarios fault group; do
     case "$check" in ''|'#'*) continue ;; esac
     want "$check" || continue
     if [ "$fault" = "-" ]; then unfaulted+=("$check"); continue; fi
-    out=$(GOOSE_IO_FAULT="$fault" limited goose run tests/conformance/memory_conformance.goose -- "$part" 2>&1)
+    out=$(GOOSE_IO_FAULT="$fault" limited goose run tests/conformance/memory_conformance.goose -- "$part" "$group" 2>&1)
     code=$?
     tested=$((tested + 1))
     if grep -q "^FAIL $check " <<<"$out"; then
