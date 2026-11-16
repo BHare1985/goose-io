@@ -30,24 +30,20 @@ Changing behaviour (checked in source or header):
 
 ## Operations and events
 
+### Core
+
+Every event loop supplies these.
+
 | Contract item | libevent | Status | Adapter work |
 |---|---|---|---|
 | `listen` | `evconnlistener_new_bind(base, cb, arg, flags, backlog, sockaddr, len)`; flags `LEV_OPT_REUSEABLE`, `LEV_OPT_CLOSE_ON_FREE` (`listener.h`) | unverified: declaration | Validate the text with the contract's grammar and build the `sockaddr` directly; `AddressInUse` from the `EADDRINUSE` the creation leaves in `errno`. |
 | `listener_port` | `evconnlistener_get_fd` then `getsockname` | unverified: declaration | Read it back after binding port 0. |
-| `stop_listening` | `evconnlistener_disable` or free | unverified | Accepted links stay. |
 | `dial` | `bufferevent_socket_new(base, -1, options)` then `bufferevent_socket_connect(bev, sockaddr, len)`; `BEV_EVENT_CONNECTED` or `BEV_EVENT_ERROR` in the event callback (`bufferevent.h`, `bufferevent_sock.c`) | checked: header; `bufferevent_socket_connect_hostname` exists and must not be used | Pass a `sockaddr` built from the numeric text: nothing is resolved. |
-| `peer_address` | `getpeername` on `bufferevent_getfd` | unverified | Format as the contract's text. |
 | `send` | `bufferevent_write(bev, data, size)` appends to an `evbuffer` that has no bound | checked: header | Test `evbuffer_get_length(bufferevent_get_output(bev)) + size` against a bound first; `Full` otherwise; `Sent` once added. |
-| `send2` | Two `bufferevent_write` calls | checked: header | The bound is tested against the sum of both before either is written. |
-| `send_room` | `evbuffer_get_length(output)` | checked | The bound minus it, capped at `max_send`. |
 | `max_send` | None. | n/a | A configuration value of at least 4096. |
 | `pause_reading` | `bufferevent_disable(bev, EV_READ)` and `bufferevent_enable(bev, EV_READ)` | checked: header | Unread bytes stay in the kernel. |
-| `set_keep_open_on_eof` | `BEV_EVENT_EOF` in the event callback | checked: header | Off: flush and close as `close` does (`PeerClosed`). On: queue `PeerEof` and disable reading. |
-| `shutdown_write` | None in the `bufferevent` interface. | checked: absent in `bufferevent_sock.c` | When the output `evbuffer` is empty (a write callback fires at the low watermark, `bufferevent_setwatermark`), call `shutdown(fd, SHUT_WR)` on `bufferevent_getfd`. |
 | `close` | `bufferevent_free` after the output drains (`BEV_OPT_CLOSE_ON_FREE`) | unverified | See *Closing*. |
-| `reset` | None. | checked: absent | `setsockopt(SO_LINGER, 1, 0)` on `bufferevent_getfd`, then `bufferevent_free`. |
 | `set_user` | The callback argument | unverified | A per-link record. |
-| `user` | As above | unverified | The record outlives the free until `Closed` has been delivered. |
 | `now_ms` | `event_base_gettimeofday_cached` | unverified | Monotonic: use `CLOCK_MONOTONIC`, or `event_base_update_cache_time`. |
 | `tick_by` | An `evtimer` | unverified | One timer, the regular 100 ms `Tick` moved earlier by `tick_by`. |
 | `serve` | `event_base_loop(base, EVLOOP_ONCE)` runs until events are active and returns (`event.h`) | checked: flag declared | The adapter drives the loop one step at a time from Goose and delivers the queued events after each. |
@@ -56,10 +52,78 @@ Changing behaviour (checked in source or header):
 | `Opened` | `BEV_EVENT_CONNECTED` for a dial; the listener callback for an accepted socket | unverified | Queue `Opened`. |
 | `Data` | The read callback with the input `evbuffer`; `evbuffer_pullup` gives a contiguous slice that is valid until the buffer is drained | checked: header | In the read callback queue the event holding the slice; drain the `evbuffer` only after the handler has returned; `bufferevent_disable(EV_READ)` meanwhile so there is one pending `Data`. |
 | `Writable` | The write callback at the low watermark | checked: header | Queue `Writable` once the room that the largest refused send needs is free. |
-| `PeerEof` | `BEV_EVENT_EOF` | checked: header | Only for a link with keep-open. |
 | `Closed` | The adapter's own, after `bufferevent_free` or on `BEV_EVENT_ERROR` | n/a | Reason from the adapter's state; `EVUTIL_SOCKET_ERROR()` after `BEV_EVENT_ERROR` gives `PeerReset` (`ECONNRESET`) or `Error`. |
 | `Tick` | The adapter's timer | unverified | The first event of a pass. |
+
+### Half-close
+
+Only a loop that supplies the half-close group needs these.
+
+| Contract item | libevent | Status | Adapter work |
+|---|---|---|---|
+| `set_keep_open_on_eof` | `BEV_EVENT_EOF` in the event callback | checked: header | Off: flush and close as `close` does (`PeerClosed`). On: queue `PeerEof` and disable reading. |
+| `shutdown_write` | None in the `bufferevent` interface. | checked: absent in `bufferevent_sock.c` | When the output `evbuffer` is empty (a write callback fires at the low watermark, `bufferevent_setwatermark`), call `shutdown(fd, SHUT_WR)` on `bufferevent_getfd`. |
+| `PeerEof` | `BEV_EVENT_EOF` | checked: header | Only for a link with keep-open. |
+
+### Sizing
+
+Only a loop that supplies the sizing group needs these.
+
+| Contract item | libevent | Status | Adapter work |
+|---|---|---|---|
+| `send_room` | `evbuffer_get_length(output)` | checked | The bound minus it, capped at `max_send`. |
+| `send2` | Two `bufferevent_write` calls | checked: header | The bound is tested against the sum of both before either is written. |
+
+### Abort
+
+Only a loop that supplies the abort group needs this.
+
+| Contract item | libevent | Status | Adapter work |
+|---|---|---|---|
+| `reset` | None. | checked: absent | `setsockopt(SO_LINGER, 1, 0)` on `bufferevent_getfd`, then `bufferevent_free`. |
+
+### Inspection
+
+Only a loop that supplies the inspection group needs these.
+
+| Contract item | libevent | Status | Adapter work |
+|---|---|---|---|
+| `peer_address` | `getpeername` on `bufferevent_getfd` | unverified | Format as the contract's text. |
+| `stop_listening` | `evconnlistener_disable` or free | unverified | Accepted links stay. |
+| `user` | As above | unverified | The record outlives the free until `Closed` has been delivered. |
+
+### Batching
+
+Only a loop that supplies the batching group needs this.
+
+| Contract item | libevent | Status | Adapter work |
+|---|---|---|---|
 | `PassEnd` | None examined. | unverified | After each `event_base_loop(EVLOOP_ONCE)` that delivered a link event. |
+
+
+## What a loop with only the core costs
+
+An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address`, `stop_listening` or `user`, and no `PassEnd`. Each group is a separate, later addition.
+
+- `listen`: Validate the text with the contract's grammar and build the `sockaddr` directly; `AddressInUse` from the `EADDRINUSE` the creation leaves in `errno`.
+- `listener_port`: Read it back after binding port 0.
+- `dial`: Pass a `sockaddr` built from the numeric text: nothing is resolved.
+- `send`: Test `evbuffer_get_length(bufferevent_get_output(bev)) + size` against a bound first; `Full` otherwise; `Sent` once added.
+- `max_send`: A configuration value of at least 4096.
+- `pause_reading`: Unread bytes stay in the kernel.
+- `close`: See *Closing*.
+- `set_user`: A per-link record.
+- `now_ms`: Monotonic: use `CLOCK_MONOTONIC`, or `event_base_update_cache_time`.
+- `tick_by`: One timer, the regular 100 ms `Tick` moved earlier by `tick_by`.
+- `serve`: The adapter drives the loop one step at a time from Goose and delivers the queued events after each.
+- `stop`: As for libuv: the adapter closes listeners, sets the deadline, closes each link at it with `Shutdown`.
+- `draining`: A flag.
+- `Opened`: Queue `Opened`.
+- `Data`: In the read callback queue the event holding the slice; drain the `evbuffer` only after the handler has returned; `bufferevent_disable(EV_READ)` meanwhile so there is one pending `Data`.
+- `Writable`: Queue `Writable` once the room that the largest refused send needs is free.
+- `Closed`: Reason from the adapter's state; `EVUTIL_SOCKET_ERROR()` after `BEV_EVENT_ERROR` gives `PeerReset` (`ECONNRESET`) or `Error`.
+- `Tick`: The first event of a pass.
+- The peer's end of stream: the core still closes the link with `PeerClosed` once what was accepted is out, which is the default of the `set_keep_open_on_eof` row, without the switch to turn it off.
 
 ## Closing
 

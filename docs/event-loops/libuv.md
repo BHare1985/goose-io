@@ -31,24 +31,20 @@ Changing behaviour (checked in source):
 
 ## Operations and events
 
+### Core
+
+Every event loop supplies these.
+
 | Contract item | libuv | Status | Adapter work |
 |---|---|---|---|
 | `listen` | `uv_tcp_init`, `uv_tcp_bind`, `uv_listen(stream, backlog, cb)`; `uv_accept` in the callback | unverified: declarations | Parse the address with the contract's grammar first, then fill a `sockaddr` (do not call `uv_ip6_addr` on unchecked text, see above). `UV_EADDRINUSE` from bind maps to `AddressInUse`. |
 | `listener_port` | `uv_tcp_getsockname` | unverified: declaration | Bind to port 0 and read the port back. |
-| `stop_listening` | `uv_close` on the listening handle | unverified | Links accepted from it are other handles. |
 | `dial` | `uv_tcp_connect(req, handle, sockaddr, cb)`; the callback gets a status (`stream.c`, `uv__stream_connect`) | checked: `uv__stream_connect` exists and is the completion path | The adapter parses the numeric address; a failed parse is `BadAddress` delivered as the one `Closed`. The callback status gives the kind. |
-| `peer_address` | `uv_tcp_getpeername` | unverified: declaration | Format as the contract's text. |
 | `send` | `uv_write(req, stream, bufs, nbufs, cb)` copies nothing and queues without limit (`stream.c`, `uv_write2`); `uv_stream_get_write_queue_size` reports queued bytes | checked | Copy into an adapter buffer and bound it (`Full` above the bound); `Sent` once copied. The request is freed in the write callback. |
-| `send2` | `uv_write` with two `uv_buf_t` | checked: `uv_write2` takes `nbufs` | Both or neither: the bound is tested against the sum before either is queued. |
-| `send_room` | `uv_stream_get_write_queue_size` | checked | The bound minus the queued bytes, capped at `max_send`. |
 | `max_send` | None. | n/a | A configuration value of at least 4096. |
 | `pause_reading` | `uv_read_stop(stream)` and `uv_read_start` | checked: `uv_read_stop` in `uv.h`, `uv__read` in `stream.c` | A pending `Data` is delivered before the stop takes effect; the contract allows exactly one already received. |
-| `set_keep_open_on_eof` | `read_cb` is called with `UV_EOF` (`stream.c`, around `uv__read`) | checked | Keep the flag in the per-link record. Off: flush, then close as `close` does (reason `PeerClosed`). On: queue `PeerEof` and `uv_read_stop`. |
-| `shutdown_write` | `uv_shutdown(req, stream, cb)`: the `shutdown(2)` is deferred until the write queue drains (`stream.c`, comment in `uv_shutdown`, `uv__drain`) | checked | Exactly the contract's "once accepted bytes are out". Returns `UV_ENOTCONN` if already shut: ignore. When the peer has also ended, close with `PeerClosed`. |
 | `close` | `uv_shutdown` then `uv_close(handle, close_cb)`; the close callback runs from the loop (`core.c`, `uv__run_closing_handles`) | checked | See *Closing*. The `Closed` is queued from the close callback and delivered after the handler that called `close` has returned. |
-| `reset` | `uv_tcp_close_reset(handle, close_cb)`: `SO_LINGER` 1, 0 then `uv_close` (`tcp.c`); fails with `UV_EINVAL` if a shutdown is in progress | checked | If `UV_EINVAL`, close with `uv_close` after setting the option directly. |
 | `set_user` | The handle's `data` pointer | unverified | A per-link record indexed by the `Link` slot; `uv_handle_set_data`. |
-| `user` | As above | unverified | The record outlives the close callback until `Closed` has been delivered. |
 | `now_ms` | `uv_now(loop)`, milliseconds, updated at the start of each iteration | unverified | `uv_update_time` before reading it when called mid-iteration. |
 | `tick_by` | `uv_timer_start(timer, cb, timeout_ms, repeat_ms)` | unverified: declaration | One timer: the regular 100 ms `Tick`, moved earlier by `tick_by`. |
 | `serve` | `uv_run(loop, UV_RUN_ONCE)` returns after each iteration (`uv.h`, `UV_RUN_ONCE`) | checked: enum | The adapter drives the loop one iteration at a time from Goose and delivers the queued events after each. This is what the research found libuv can do and uSockets cannot. |
@@ -57,10 +53,78 @@ Changing behaviour (checked in source):
 | `Opened` | The connect callback with status 0; for accepted links, the connection callback after `uv_accept` | unverified for accept | Queue `Opened`. |
 | `Data` | `alloc_cb(handle, suggested, buf)` lets the adapter supply the buffer; `read_cb(stream, nread, buf)` is called with the bytes (`stream.c`, `uv__read`) | checked: `uv__read` and its `read_cb` calls; `alloc_cb` read as a declaration | Give libuv a buffer the adapter owns; in `read_cb` stop reading (`uv_read_stop`) and queue the event; the slice is lent until the handler returns, then the buffer is reused and reading resumes. No copy is forced. |
 | `Writable` | The write callback (`uv__write_callbacks`, `stream.c`) | checked | The adapter's queue drained: queue `Writable` once the room that the largest refused send needs is free. |
-| `PeerEof` | `read_cb` with `UV_EOF` (`stream.c`) | checked | Only for a link with keep-open. |
 | `Closed` | The close callback | checked | Reason from the adapter's state: `Local`, `PeerClosed`, `PeerReset` (`UV_ECONNRESET`), `Shutdown`, `ConnectFailed`, `Error`. |
 | `Tick` | The adapter's timer | unverified | Delivered as the first event of a pass. |
+
+### Half-close
+
+Only a loop that supplies the half-close group needs these.
+
+| Contract item | libuv | Status | Adapter work |
+|---|---|---|---|
+| `set_keep_open_on_eof` | `read_cb` is called with `UV_EOF` (`stream.c`, around `uv__read`) | checked | Keep the flag in the per-link record. Off: flush, then close as `close` does (reason `PeerClosed`). On: queue `PeerEof` and `uv_read_stop`. |
+| `shutdown_write` | `uv_shutdown(req, stream, cb)`: the `shutdown(2)` is deferred until the write queue drains (`stream.c`, comment in `uv_shutdown`, `uv__drain`) | checked | Exactly the contract's "once accepted bytes are out". Returns `UV_ENOTCONN` if already shut: ignore. When the peer has also ended, close with `PeerClosed`. |
+| `PeerEof` | `read_cb` with `UV_EOF` (`stream.c`) | checked | Only for a link with keep-open. |
+
+### Sizing
+
+Only a loop that supplies the sizing group needs these.
+
+| Contract item | libuv | Status | Adapter work |
+|---|---|---|---|
+| `send_room` | `uv_stream_get_write_queue_size` | checked | The bound minus the queued bytes, capped at `max_send`. |
+| `send2` | `uv_write` with two `uv_buf_t` | checked: `uv_write2` takes `nbufs` | Both or neither: the bound is tested against the sum before either is queued. |
+
+### Abort
+
+Only a loop that supplies the abort group needs this.
+
+| Contract item | libuv | Status | Adapter work |
+|---|---|---|---|
+| `reset` | `uv_tcp_close_reset(handle, close_cb)`: `SO_LINGER` 1, 0 then `uv_close` (`tcp.c`); fails with `UV_EINVAL` if a shutdown is in progress | checked | If `UV_EINVAL`, close with `uv_close` after setting the option directly. |
+
+### Inspection
+
+Only a loop that supplies the inspection group needs these.
+
+| Contract item | libuv | Status | Adapter work |
+|---|---|---|---|
+| `peer_address` | `uv_tcp_getpeername` | unverified: declaration | Format as the contract's text. |
+| `stop_listening` | `uv_close` on the listening handle | unverified | Links accepted from it are other handles. |
+| `user` | As above | unverified | The record outlives the close callback until `Closed` has been delivered. |
+
+### Batching
+
+Only a loop that supplies the batching group needs this.
+
+| Contract item | libuv | Status | Adapter work |
+|---|---|---|---|
 | `PassEnd` | None examined. | unverified | After the events of one `uv_run` iteration have been delivered, if any was a link event. |
+
+
+## What a loop with only the core costs
+
+An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address`, `stop_listening` or `user`, and no `PassEnd`. Each group is a separate, later addition.
+
+- `listen`: Parse the address with the contract's grammar first, then fill a `sockaddr` (do not call `uv_ip6_addr` on unchecked text, see above). `UV_EADDRINUSE` from bind maps to `AddressInUse`.
+- `listener_port`: Bind to port 0 and read the port back.
+- `dial`: The adapter parses the numeric address; a failed parse is `BadAddress` delivered as the one `Closed`. The callback status gives the kind.
+- `send`: Copy into an adapter buffer and bound it (`Full` above the bound); `Sent` once copied. The request is freed in the write callback.
+- `max_send`: A configuration value of at least 4096.
+- `pause_reading`: A pending `Data` is delivered before the stop takes effect; the contract allows exactly one already received.
+- `close`: See *Closing*. The `Closed` is queued from the close callback and delivered after the handler that called `close` has returned.
+- `set_user`: A per-link record indexed by the `Link` slot; `uv_handle_set_data`.
+- `now_ms`: `uv_update_time` before reading it when called mid-iteration.
+- `tick_by`: One timer: the regular 100 ms `Tick`, moved earlier by `tick_by`.
+- `serve`: The adapter drives the loop one iteration at a time from Goose and delivers the queued events after each. This is what the research found libuv can do and uSockets cannot.
+- `stop`: On `stop`: close listeners, set the deadline, close each link at it with `Shutdown`; `serve` returns when no link remains (the adapter's own count).
+- `draining`: A flag.
+- `Opened`: Queue `Opened`.
+- `Data`: Give libuv a buffer the adapter owns; in `read_cb` stop reading (`uv_read_stop`) and queue the event; the slice is lent until the handler returns, then the buffer is reused and reading resumes. No copy is forced.
+- `Writable`: The adapter's queue drained: queue `Writable` once the room that the largest refused send needs is free.
+- `Closed`: Reason from the adapter's state: `Local`, `PeerClosed`, `PeerReset` (`UV_ECONNRESET`), `Shutdown`, `ConnectFailed`, `Error`.
+- `Tick`: Delivered as the first event of a pass.
+- The peer's end of stream: the core still closes the link with `PeerClosed` once what was accepted is out, which is the default of the `set_keep_open_on_eof` row, without the switch to turn it off.
 
 ## Closing
 

@@ -28,24 +28,20 @@ Changing behaviour (checked):
 
 ## Operations and events
 
+### Core
+
+Every event loop supplies these.
+
 | Contract item | io_uring (c_proxy) | Status | Adapter work |
 |---|---|---|---|
 | `listen` | `socket`, `bind`, `listen` by system call at start; accept by `io_uring_prep_multishot_accept` (`proxy.c`) | checked: accept | A runtime listener: the same calls, then the multishot accept. `bind` failure by errno gives `AddressInUse`. |
 | `listener_port` | `getsockname` | unverified | Plain call after binding port 0. |
-| `stop_listening` | `io_uring_prep_cancel64` of the accept (`proxy.c`) then `close` | checked: cancel, `fd_close` | Links accepted stay. |
 | `dial` | `io_uring_prep_socket`, `IORING_OP_CONNECT` via `io_uring_prep_connect` with a linked timeout (`submit_connect`); `TCP_NODELAY` by a ring socket command (`SOCKET_URING_OP_SETSOCKOPT`) | checked | The connect result is the completion's `res`. The link slot is allocated at `dial` and its generation bumped on reuse (`conn_alloc`, `& 0xffffff`). |
-| `peer_address` | `getpeername` | unverified | Plain call; the accept completion can also carry the address if requested. |
 | `send` | `io_uring_prep_send(sqe, fd, buf, len, MSG_NOSIGNAL \| MSG_DONTWAIT)` from a buffer the engine holds (`copy_send`) | checked | A per-link bounded output queue in adapter buffers; `Sent` once copied; `Full` at the bound; one `SEND` in flight per link, the next after its completion. A short send completes with fewer bytes: send the rest. |
-| `send2` | `IORING_OP_SENDMSG` with two `iovec`, or two copies into one entry | unverified | Whole-or-nothing decision on the sum, then one entry. |
-| `send_room` | None. | n/a | The queue's free room, capped at `max_send`. |
 | `max_send` | None. | n/a | A configuration value of at least 4096. |
 | `pause_reading` | Do not re-arm the receive: a receive in flight completes once, and the engine re-submits (`copy_recv`) only when it wants more | checked | Do not call `copy_recv`-style submission while paused; a receive already in flight delivers one `Data` (the contract allows one already received). |
-| `set_keep_open_on_eof` | A receive completing with `res == 0` is the peer's end of stream (`on_recv` handling; `dir_finish`) | checked: the `res == 0` path ends the direction | Keep the flag; off: flush and close as `close` does; on: queue `PeerEof` and do not re-arm the receive. |
-| `shutdown_write` | `shutdown(fd, SHUT_WR)` by system call (`dir_finish`), never the ring opcode | checked: comment in `conn_kill` | Call it once the output queue is empty. When the peer has also ended, close with `PeerClosed`. |
 | `close` | `io_uring_prep_close` batched, no completion on success (`fd_close`); `close(2)` direct on the epoll path | checked | See *Closing*. |
-| `reset` | None used. | unverified | `setsockopt(SO_LINGER, 1, 0)` (or the ring socket command) then close. |
 | `set_user` | The user data of a submission carries `slot`, `gen`, kind and direction (`mkud`, `UD`) | checked: for the slot and generation | The `u32` user value lives in the per-link record. |
-| `user` | As above | unverified | The record outlives the close completion until `Closed` has been delivered. |
 | `now_ms` | A clock read when the loop wakes (`w->now`) | checked | `CLOCK_MONOTONIC`. |
 | `tick_by` | `io_uring_prep_timeout` (the engine's sweep timer, `proxy.c`) | checked: one periodic timeout | One timeout request: the regular 100 ms `Tick`, replaced by an earlier one when `tick_by` asks (`IORING_TIMEOUT_UPDATE` or cancel and resubmit; unverified). |
 | `serve` | `io_uring_submit_and_wait` / `io_uring_submit_and_wait_timeout` then a pass over the completions (`proxy.c`) | checked | One loop = one ring on one thread (`IORING_SETUP_SINGLE_ISSUER \| DEFER_TASKRUN`); the pass delivers events through the contract's queue. |
@@ -54,10 +50,78 @@ Changing behaviour (checked):
 | `Opened` | The accept completion (multishot, `IORING_CQE_F_MORE`) or the connect completion | checked | Queue `Opened`. |
 | `Data` | A receive completion with `IORING_CQE_F_BUFFER`; the buffer id is `flags >> IORING_CQE_BUFFER_SHIFT` (`on_recv`) | checked | Lend the buffer; return it to the ring (`buf_put`) after the handler returns. One `Data` pending per link: re-arm the receive only then. When the buffer ring is empty the receive completes with `-ENOBUFS` (`on_recv`): park the link until a buffer comes back, as c_proxy does (`wq_push`). |
 | `Writable` | The send completion | checked | Queue `Writable` when room for the largest refused send has opened. |
-| `PeerEof` | A receive completing with `res == 0` | checked | Only with keep-open. |
 | `Closed` | The connection ends when its in-flight operations are all complete (`c->inflight` reaches 0) and the slot is released | checked: `inflight` counter | Queue the `Closed` then; reason from the adapter's state or the completion's `-errno` (`-ECONNRESET` is `PeerReset`). |
 | `Tick` | The timeout completion | checked | The first event of a pass. |
+
+### Half-close
+
+Only a loop that supplies the half-close group needs these.
+
+| Contract item | io_uring (c_proxy) | Status | Adapter work |
+|---|---|---|---|
+| `set_keep_open_on_eof` | A receive completing with `res == 0` is the peer's end of stream (`on_recv` handling; `dir_finish`) | checked: the `res == 0` path ends the direction | Keep the flag; off: flush and close as `close` does; on: queue `PeerEof` and do not re-arm the receive. |
+| `shutdown_write` | `shutdown(fd, SHUT_WR)` by system call (`dir_finish`), never the ring opcode | checked: comment in `conn_kill` | Call it once the output queue is empty. When the peer has also ended, close with `PeerClosed`. |
+| `PeerEof` | A receive completing with `res == 0` | checked | Only with keep-open. |
+
+### Sizing
+
+Only a loop that supplies the sizing group needs these.
+
+| Contract item | io_uring (c_proxy) | Status | Adapter work |
+|---|---|---|---|
+| `send_room` | None. | n/a | The queue's free room, capped at `max_send`. |
+| `send2` | `IORING_OP_SENDMSG` with two `iovec`, or two copies into one entry | unverified | Whole-or-nothing decision on the sum, then one entry. |
+
+### Abort
+
+Only a loop that supplies the abort group needs this.
+
+| Contract item | io_uring (c_proxy) | Status | Adapter work |
+|---|---|---|---|
+| `reset` | None used. | unverified | `setsockopt(SO_LINGER, 1, 0)` (or the ring socket command) then close. |
+
+### Inspection
+
+Only a loop that supplies the inspection group needs these.
+
+| Contract item | io_uring (c_proxy) | Status | Adapter work |
+|---|---|---|---|
+| `peer_address` | `getpeername` | unverified | Plain call; the accept completion can also carry the address if requested. |
+| `stop_listening` | `io_uring_prep_cancel64` of the accept (`proxy.c`) then `close` | checked: cancel, `fd_close` | Links accepted stay. |
+| `user` | As above | unverified | The record outlives the close completion until `Closed` has been delivered. |
+
+### Batching
+
+Only a loop that supplies the batching group needs this.
+
+| Contract item | io_uring (c_proxy) | Status | Adapter work |
+|---|---|---|---|
 | `PassEnd` | The end of a batch of completions (`io_uring_submit_and_wait_timeout` with a batch count, `cfg.batch_n`) | checked: batch wait | One per pass that delivered a link event. |
+
+
+## What a loop with only the core costs
+
+An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address`, `stop_listening` or `user`, and no `PassEnd`. Each group is a separate, later addition.
+
+- `listen`: A runtime listener: the same calls, then the multishot accept. `bind` failure by errno gives `AddressInUse`.
+- `listener_port`: Plain call after binding port 0.
+- `dial`: The connect result is the completion's `res`. The link slot is allocated at `dial` and its generation bumped on reuse (`conn_alloc`, `& 0xffffff`).
+- `send`: A per-link bounded output queue in adapter buffers; `Sent` once copied; `Full` at the bound; one `SEND` in flight per link, the next after its completion. A short send completes with fewer bytes: send the rest.
+- `max_send`: A configuration value of at least 4096.
+- `pause_reading`: Do not call `copy_recv`-style submission while paused; a receive already in flight delivers one `Data` (the contract allows one already received).
+- `close`: See *Closing*.
+- `set_user`: The `u32` user value lives in the per-link record.
+- `now_ms`: `CLOCK_MONOTONIC`.
+- `tick_by`: One timeout request: the regular 100 ms `Tick`, replaced by an earlier one when `tick_by` asks (`IORING_TIMEOUT_UPDATE` or cancel and resubmit; unverified).
+- `serve`: One loop = one ring on one thread (`IORING_SETUP_SINGLE_ISSUER \| DEFER_TASKRUN`); the pass delivers events through the contract's queue.
+- `stop`: `stop(grace)`: cancel the accepts, close each link at the deadline with `Shutdown`.
+- `draining`: A flag.
+- `Opened`: Queue `Opened`.
+- `Data`: Lend the buffer; return it to the ring (`buf_put`) after the handler returns. One `Data` pending per link: re-arm the receive only then. When the buffer ring is empty the receive completes with `-ENOBUFS` (`on_recv`): park the link until a buffer comes back, as c_proxy does (`wq_push`).
+- `Writable`: Queue `Writable` when room for the largest refused send has opened.
+- `Closed`: Queue the `Closed` then; reason from the adapter's state or the completion's `-errno` (`-ECONNRESET` is `PeerReset`).
+- `Tick`: The first event of a pass.
+- The peer's end of stream: the core still closes the link with `PeerClosed` once what was accepted is out, which is the default of the `set_keep_open_on_eof` row, without the switch to turn it off.
 
 ## Closing
 
