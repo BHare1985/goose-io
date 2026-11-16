@@ -1,0 +1,7 @@
+# History
+
+| Date | Commit | Goose | Note |
+|---|---|---|---|
+| 2026-11-16 | `a58a8cd` | v2026.4 | Starting point of the contract-v1 work (branch `contract-v1`). The readiness-style sketch (`core/`, `reactor/`, `shim/`) ends here; it did not pass `goose check` and is removed by the change `define-contract-v1`. tcprouter's superseded `integrate/goose-io` branch pins this commit. |
+| 2026-11-17 | `5af3525` | v2026.4 (runtime `dce889723a23`) | Acceptance run of `define-contract-v1` (task 7.3) from a fresh clone of the branch `contract-v1`: every command of `CONTRIBUTING.md` and of `.github/workflows/ci.yml` passed (`goose check`, `goose format --check`, `tests/run_tests.sh` with the purity check, `tests/checks/docs.sh`, the suite on the in-memory provider and on the wrapper, the fifty-repetition run, 55 faults each failing its check, the table, wrapper and import checks, the provider mappings, the layout) and `openspec validate define-contract-v1 --strict`. |
+| 2026-11-17 | working tree | v2026.4 | `.github/workflows/ci.yml` replaces the stale `native-epoll.yml`: one job per build (linux-x64, macos-x64, macos-arm64, windows-x64). Every `run:` command of it was run on Linux from a clean copy of the tree and passed. **The macOS and Windows jobs have not run**: the scripts were made portable (no GNU-only `timeout`, templated `mktemp`) and bash 3.2 was kept in mind, but their first run on GitHub is the test. |

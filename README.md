@@ -1,132 +1,126 @@
 # goose-io
 
-**One portable asynchronous I/O contract for Goose, plus a reusable Linux epoll implementation.**
+**One I/O contract between an event loop and the libraries that run on it, in pure Goose.**
 
-`goose-io` is a small infrastructure package for Goose frameworks and libraries. Its purpose is to let an HTTP framework, a TCP server, a database driver, a Redis client, or any other asynchronous library speak the same I/O language without depending on one another.
+A Postgres client, a Redis client and an HTTP server should not each need to know which event loop they run on, and
+no event loop should need its own copy of each. goose-io is the contract between "the loop" (a *provider*) and "a
+library on the loop": a small set of types, operations and events, with the rules that make them mean the same on every
+provider. A library written once runs on every provider that passes the conformance suite.
 
-For example, an HTTP request coroutine should be able to call an asynchronous Postgres query directly. Skein should not need to know that the nested call is Postgres; Postgres should not need to import Skein; and application code should not need a `PgAdapter`, an `async_event` hook, or a `dispatch_link()` switch.
+Version 0.1 of the contract, an in-memory provider for testing, a provider-neutral conformance suite and two example
+libraries. Nothing here opens a socket or builds C: the package is Goose source and links nothing.
 
-The common boundary is made of generation-checked `Link` and `Timer` handles, numeric socket addresses, normalized errors, nonblocking TCP operations, wait interests, portable completions, timers, and cross-thread wakeups.
+## What it is not
 
-## Goals
+- **Not an event loop.** Providers (tcprouter's engine, uSockets, io_uring, libuv, libevent) are separate; they are
+  mapped, not implemented, here (`docs/providers/`). The in-memory provider is the one working implementation.
+- **Not a protocol library.** No HTTP, TLS, SQL, Redis, routing, pooling or health checks. The two example libraries
+  (a line server and a pooled line client) show the shape of one.
+- **Not name resolution, TLS, UDP or Unix sockets.** See `docs/contract.md`, "What the base contract does not cover".
 
-1. **Interoperability:** any async client library can use the same provider contract as any framework.
-2. **No framework-to-library coupling:** Skein does not import Postgres; Postgres does not import Skein. The same applies to Redis, HTTP clients, and future libraries.
-3. **Portable semantics:** consumers use `Link`, `WaitSet`, `Completion`, and normalized errors—not epoll descriptors, IOCP completion keys, or io_uring user data.
-4. **Replaceable providers:** consumers can use the reference backend or an existing optimized event loop that implements the same contract.
-5. **Small scope:** no HTTP, TLS, SQL, proxy routing, connection-pool policy, health checks, failover, or deployment management.
-6. **Explicit ownership:** handles are worker-affine; reads use caller-owned buffers; writes may be partial; cancellation and deadlines have defined semantics.
+## The contract in one screen
 
-## What goose-io is
-
-There are two pieces:
-
-- **The shared contract** is the API and behavioral rules. Frameworks and asynchronous libraries depend on this.
-- **The reference provider** is a ready-to-use implementation of that contract. Its first backend is Linux epoll.
-
-A reactor waits efficiently for OS events, manages registrations, timers and wakeups, and translates native notifications into portable completions. The Linux provider also supplies nonblocking TCP primitives, so it can be used directly without another networking package.
-
-A reactor is **not** a TCP proxy engine. It does not implement tcprouter's routing, TLS SNI inspection, forwarding pump, retry policy, buffer pool, lease fencing, or per-worker connection policy.
-
-**tcprouter does not need to replace its existing worker/epoll engine with `EpollIo`.** Its current loop is tuned for proxying. tcprouter can implement the same provider contract over its existing engine. `EpollIo` is the generic reference implementation for frameworks and libraries that do not already have a suitable event loop.
-
-## Architecture
+Events go in, calls go out. The host runs the loop and hands every event to its libraries; a library keeps its own
+state and answers with calls. Nothing is stored as a callback. Full text: `docs/contract.md`.
 
 ```text
-  Skein / another HTTP framework       goose-postgres / Redis / HTTP client
-                  \                              /
-                   \---- shared I/O contract ---/
-                                |
-              Link, Timer, WaitSet, Completion,
-                nonblocking TCP operation rules
-                                |
-                    provider implementation
-                       /                 \
-                      /                   \
-          goose-io EpollIo             tcprouter Worker
-          (reference provider)         (optimized provider)
-                    |
-             Linux epoll + TCP
+types       Link { slot, gen }   Listener { id }   Address   SendStatus   CloseReason   ListenError   Event
+
+listen(address, tag) -> Listener, ListenError      listener_port(l)      stop_listening(l)
+dial(address, tag, connect_ms) -> Link             peer_address(link)
+send(link, bytes) -> SendStatus                    send2(link, first, second)    send_room(link)    max_send()
+pause_reading(link, paused)                        set_keep_open_on_eof(link, keep)
+shutdown_write(link)    close(link)    reset(link) set_user(link, u32)    user(link)
+now_ms()    tick_by(at_ms)                         serve() { io, ev => ... }    stop(grace_ms)    draining()
+
+events      Opened  Data  Writable  PeerEof  Closed  Tick  PassEnd
 ```
 
-The framework scheduler records which coroutine frame yielded each interest. The reactor reports a completion for a resource; it does not know which library or application operation owns that wait. A wait set can combine socket readiness with a deadline. The scheduler resumes the matching frame and removes losing registrations.
+- **Links are handles**, a slot and a generation: a stale handle does nothing and never reaches a link that reused its slot.
+- **Received bytes are lent** for one event. **Sends are taken whole or refused** (`Full`, then one `Writable`).
+- **Every link ends with exactly one `Closed`**, and an operation never delivers an event from inside itself.
+- **Time is the loop's** (`now_ms`, `Tick`, `tick_by`), so a test can use a virtual clock.
 
-Goose's coroutine/runtime support is a prerequisite for the fully sequential-looking `await` experience. This repository defines the provider and wait/completion seam; it does not implement the coroutine compiler or a general task scheduler.
+## Try it
 
-## Why readiness + nonblocking operations are the v1 contract
-
-Linux epoll and BSD kqueue naturally report readiness: a socket may be read or written now. The consumer then performs a nonblocking operation and handles partial progress or `WouldBlock`.
-
-Windows IOCP and Linux io_uring are completion-oriented internally. Their providers can translate native results into the same portable contract. OS-specific mechanisms stay behind the backend boundary.
-
-Reads write into caller-owned buffers. A readiness completion tells the coroutine to retry `try_read`. Writes return partial progress; the caller retains and retries the unwritten suffix. This avoids imposing tcprouter's borrowed pooled-buffer lifetime on every backend. A later owned-buffer or borrowed-slice extension must define explicit leases and cancellation.
-
-## Linux reference provider
-
-`reactor/epoll.goose` and `shim/epoll.c` provide:
-
-- epoll and an `eventfd` for cross-thread wakeups;
-- nonblocking, close-on-exec IPv4/IPv6 TCP listeners and accepted sockets;
-- nonblocking outbound connect and connect-result detection;
-- partial nonblocking reads/writes, TCP half-close, graceful close, and RST close;
-- generation-checked `Link` and `Timer` slots;
-- level-triggered readiness registration and normalized accept/connect/read/write/EOF/error completions;
-- monotonic one-shot timers integrated into the epoll timeout;
-- negative-errno native returns and normalized `IoErrorKind` values.
-
-The native shim follows tcprouter's proven low-level approach: construct `sockaddr` in C, isolate epoll's platform-specific event layout, create nonblocking sockets, use `MSG_NOSIGNAL`, and return negative errno values. It does not copy tcprouter's proxy engine.
-
-## Optimized Linux engines
-
-The Linux backend also exposes a raw epoll fast path for an existing reactor
-that already owns its connection table and dispatch loop. It passes native
-epoll masks and 64-bit event keys through unchanged, allowing edge-triggered
-engines to keep their packed event dispatch and batching without per-event
-normalization. This is a Linux-specific optimization capability, not the
-portable contract.
-
-tcprouter uses this path on its `integrate/goose-io` branch. Its worker,
-edge-triggered forwarding pump, buffer pool, backpressure and generation
-checks remain tcprouter-owned. The standalone `EpollIo` remains the generic
-reference provider for frameworks without an existing optimized loop.
-
-## Current backend support
-
-| Backend | Status |
-|---|---|
-| Linux epoll | Reference provider implemented; native C integration test included |
-| Linux io_uring | Roadmap; not implemented |
-| macOS / BSD kqueue | Roadmap; not implemented |
-| Windows IOCP | Roadmap; not implemented |
-
-The contract is intended to keep backends interchangeable, but cancellation races, in-flight buffers, and completion ordering still need backend-specific conformance testing before those platforms can be called supported.
-
-## Build and tests
-
-Run the native Linux shim test without the Goose compiler:
+You need the Goose toolchain (v2026.4). From the root of this repository:
 
 ```bash
-gcc -std=c11 -O2 -Wall -Wextra -Werror \
-  tests/native/epoll_smoke.c shim/epoll.c \
-  -o /tmp/goose-io-epoll-smoke
-/tmp/goose-io-epoll-smoke
+goose check goose_io.goose                      # the contract compiles
+tests/run_tests.sh                              # unit tests, driver tests, example library tests
+tests/checks/docs.sh                             # code quoted in the documents is the code in the repository
 ```
 
-The smoke test covers epoll add/modify/delete, readable/writable notifications, repeated eventfd wakeups, IPv4 listen/connect/accept, data transfer, peer half-close, and the monotonic clock.
+## How to test a library
 
-**Important:** the native C test does not compile or validate the Goose wrapper. The Goose compiler is not available in this environment, so the Goose source and Lit test still need to be checked with the target compiler.
+`memory.goose` is a provider with no sockets and a clock that moves only when the loop has nothing left to do, so a test
+gives the same events at the same times on every run. A test plays the other end of each link with a scripted peer and
+reads back what the library sent. `docs/libraries.md` has the guide, and its example is a test that runs:
 
-## Package layout
+```bash
+goose run tests/unit/library_example_test.goose
+```
 
-- `core/io/types.goose` — handles, address/error types, wait sets, interests, completions.
-- `core/io/contract.goose` — generic provider entry points.
-- `reactor/epoll.goose` — reusable Linux epoll/TCP provider.
-- `shim/epoll.c` — syscall and epoll ABI boundary.
-- `tests/native/` — native C integration smoke test.
-- `tests/lit/` — Goose-side provider tests.
-- `docs/architecture.md` — component boundaries and design rationale.
-- `docs/contract.md` — normative provider semantics.
-- `docs/backend-matrix.md` — backend roadmap and conformance gates.
+The example libraries are `examples/lineserver/`, `examples/lineclient/` and `examples/gateway.goose`; their tests are in
+`tests/examples/`:
+
+```bash
+goose run tests/examples/gateway_test.goose
+tests/examples/over_wrapper.sh                  # the same tests over a provider that changes every byte
+```
+
+## How to run the suite on a provider
+
+The suite is written only against the contract and is generic over the provider. A provider's root program builds its
+loop, a small fixture (an address that never answers, an address that is already held) and calls
+`conformance_part`. `docs/providers.md` shows the program and says how to read a failure. For the in-memory provider:
+
+```bash
+tests/conformance/run.sh                        # every part, one process each
+tests/conformance/run.sh --repeat 50            # fifty times: a check that fails once fails the run
+tests/conformance/faults.sh                     # every check is shown to fail when the provider is broken
+```
+
+## Conforming providers
+
+A provider is listed only after the whole suite has passed against it, with the contract version and the commit.
+
+| Provider | Contract | Suite last passed at | Where |
+|---|---|---|---|
+| in-memory (`memory.goose`) | 0.1 | `5af3525` | this repository |
+| wrapper over it (`tests/support/wrapper.goose`) | 0.1 | `5af3525` | this repository |
+
+Planned example providers, each its own change: tcprouter's engine (with performance-parity gates), uSockets, io_uring.
+How every operation and event maps onto each, and what is still unverified, is in `docs/providers/`.
+
+## Repository layout
+
+- `goose_io.goose`: the contract: the types, the helpers, the version and `require_provider`
+- `deadlines.goose`: `Deadlines`, a bounded heap of deadlines for libraries that have many
+- `memory.goose`: the in-memory provider, with scripted peers, a virtual clock and the named faults
+- `conformance/`: the conformance suite, which imports only the contract: `suite.goose` is the driver and entry point, `support.goose` what every check shares, `handles`, `net`, `data`, `close` and `time` the checks
+- `examples/`: the example libraries: `lineserver/`, `lineclient/` and `gateway.goose`, which runs both on one loop
+- `docs/`: `contract.md`, `libraries.md`, `providers.md` and `history.md`
+- `docs/providers/`: how each candidate provider maps onto the contract
+- `tests/unit/`: tests of the types, `Deadlines` and the in-memory provider
+- `tests/examples/`: tests of the example libraries, and the scripts that run them over the wrapper
+- `tests/conformance/`: running the suite (`run.sh`, `faults.sh`, `table_check.sh`), the table of checks and faults (`checks.tsv`), and the driver's own tests
+- `tests/support/`: what tests share: `kit.goose` (the test kit) and `wrapper.goose` (a provider layered over another)
+- `tests/checks/`: scripts that check the repository itself: quoted code, purity, provider mappings, this layout
+- `tests/run_tests.sh`: runs every `*_test.goose` and `*_mustfail.goose` and the purity check
+- `openspec/`: the specification and the changes that made it
+- `Justfile`: `just check`, `just test`, `just fmt`
+- `CONTRIBUTING.md`: what to run before sending a change, and how to add a provider
+- `README.md`: this file
+- `LICENSE`: Apache-2.0
+
+## Documents
+
+- `docs/contract.md`: the contract, operation by operation, with the rules and the version.
+- `docs/libraries.md`: how to write a library and how to test it.
+- `docs/providers.md`: how to write a provider, run the suite, and which check proves which requirement.
+- `docs/providers/`: how each candidate provider maps onto the contract.
+- `docs/history.md`: where this repository started and what was run when.
 
 ## License
 

@@ -1,4 +1,0 @@
-// goose-io package build configuration.
-// The Linux epoll backend is implemented; non-Linux stubs keep imports explicit.
-c_sources = ["shim/epoll.c"];
-exclude = ["docs", "vendor", "build", "bin"];

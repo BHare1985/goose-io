@@ -1,0 +1,129 @@
+# goose-io is pure Goose, so every build runs the same checks with the Goose release for its platform: the contract
+# compiles, the tests and the conformance suite pass on the in-memory provider and on the wrapper over it, every check is
+# shown to fail against its fault, and the documents agree with the code. The commands are the ones CONTRIBUTING.md lists.
+name: ci
+
+# One run for each commit: a branch is built when it has a pull request, and main is built when it changes. A push
+# and a pull_request run of the same commit would be two sets of jobs, and the macOS arm64 runners are scarce enough
+# (GitHub: "jobs targeting macOS arm64 runners may experience longer queue times") that the second set can be
+# cancelled while it waits for one. A newer push to the same branch cancels the run it supersedes.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-24.04
+            goose: goose-v2026.4-linux-x64.tar.gz
+          - name: macos-x64
+            os: macos-15-intel
+            goose: goose-v2026.4-macos-x64.tar.gz
+          # not `macos-15`: this repository is private, and a job on that label is never picked up (it stays queued);
+          # `macos-26` is an arm64 image and starts at once (checked with a probe, 2026-11-16)
+          - name: macos-arm64
+            os: macos-26
+            goose: goose-v2026.4-macos-arm64.tar.gz
+          - name: windows-x64
+            os: windows-latest
+            goose: goose-v2026.4-windows-x64.zip
+    steps:
+      # Avoid checkout converting LF sources to CRLF: Goose's formatter checks repository bytes, and the quoted
+      # code of the documents is compared byte for byte with the files.
+      - name: Preserve LF line endings on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v6
+
+      - name: Install Goose
+        shell: bash
+        env:
+          ASSET: ${{ matrix.goose }}
+        run: |
+          set -euo pipefail
+          tag=$(sed -n 's/.*goose-\(v[0-9.]*\)-.*/\1/p' <<< "$ASSET")
+          url="https://github.com/aardappel/goose/releases/download/$tag/$ASSET"
+          mkdir -p "$RUNNER_TEMP/goose"
+          curl -fsSL --proto '=https' --tlsv1.2 "$url" -o "$RUNNER_TEMP/$ASSET"
+          if [[ "$ASSET" == *.zip ]]; then
+            unzip -q -o "$RUNNER_TEMP/$ASSET" -d "$RUNNER_TEMP/goose"
+          else
+            tar -xzf "$RUNNER_TEMP/$ASSET" -C "$RUNNER_TEMP/goose"
+          fi
+          bin=$(find "$RUNNER_TEMP/goose" -maxdepth 3 \( -name goose -o -name goose.exe \) -type f | head -1)
+          test -n "$bin"
+          chmod +x "$bin" 2>/dev/null || true
+          echo "$(dirname "$bin")" >> "$GITHUB_PATH"
+          "$bin" version
+
+      - name: Typecheck the contract
+        shell: bash
+        run: goose check goose_io.goose
+
+      - name: Format check
+        shell: bash
+        run: goose format --check .
+
+      - name: Unit, driver and example tests (and the purity check)
+        shell: bash
+        run: bash tests/run_tests.sh
+
+      - name: Code quoted in the documents is the code in the repository
+        shell: bash
+        run: bash tests/checks/docs.sh
+
+      - name: Conformance suite on the in-memory provider
+        shell: bash
+        run: bash tests/conformance/run.sh --repeat 3
+
+      - name: Conformance suite on the wrapper over it
+        shell: bash
+        run: bash tests/conformance/run.sh --wrapped
+
+      - name: Every check fails against its fault
+        shell: bash
+        run: bash tests/conformance/faults.sh
+
+      - name: Specification, table and suite agree
+        shell: bash
+        run: bash tests/conformance/table_check.sh
+
+      - name: Example libraries over the wrapper
+        shell: bash
+        run: bash tests/examples/over_wrapper.sh
+
+      - name: Example libraries import only the contract
+        shell: bash
+        run: bash tests/examples/imports_test.sh
+
+      - name: Provider mappings are complete
+        shell: bash
+        run: bash tests/checks/providers.sh
+
+      - name: The layout listed in the README is the layout
+        shell: bash
+        run: bash tests/checks/layout.sh
+
+      # fifty repetitions: a check that fails once in any of them fails the run (docs/providers.md)
+      - name: Fifty repetitions of the suite
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash tests/conformance/run.sh --repeat 50
