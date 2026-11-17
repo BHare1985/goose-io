@@ -1,5 +1,10 @@
 # Writing an event loop and running the conformance suite
 
+**In short:** you write the engine, and every library written for the contract runs on it. The job is the 13
+operations and 5 events of the core, and as many of the five optional groups as you like; the conformance suite tells
+you when you are done. [`tests/support/core_only.goose`](../tests/support/core_only.goose) is the smallest example of
+the shape (it sits over the in-memory loop, where yours would sit over your sockets).
+
 An event loop is the part of a program that owns a thread and its sockets and supplies the operations and events of
 the contract (`docs/contract.md`). This document is for the author of one. It says what an event loop must supply
 and what it may leave out, how to run the conformance suite on it, the fixture, how to read a failure and the rule

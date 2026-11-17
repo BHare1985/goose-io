@@ -2,6 +2,12 @@
 
 Version 0.1. The declarations are in [`goose_io.goose`](../goose_io.goose); this document is the meaning. The normative requirements, each with test scenarios, are in the OpenSpec capability `io-contract`. Requirement names from it are quoted in *italics* below so that every rule here can be traced to its tests.
 
+**In plain words.** An *event loop* moves the bytes (epoll, io_uring, libuv, or the in-memory one used for tests). A
+*library* speaks a protocol (a server, a client). The contract is the small set of operations and events between them,
+so a library never names the loop under it and a loop never needs to know which libraries run on it. If you want to
+*use* it, start with the echo server in [`libraries.md`](libraries.md); to *supply* it, start with
+[`event-loops.md`](event-loops.md). This document is the full specification both of them follow.
+
 ## 1. Purpose and roles
 
 Only one loop can own a thread. If every loop has its own way to dial, send and receive, every client library has to be written once per loop. This contract is the one way.
