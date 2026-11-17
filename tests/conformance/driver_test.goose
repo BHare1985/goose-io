@@ -62,7 +62,23 @@ fn handle_records() {
     kit::check(d.pair_bad, "a pair issued in a later check of the same part is the same pair");
 }
 
+// --- the entry point sets the loop up before serve (specs/provider-conformance: *The suite checks the life of a loop*) ---------
+
+fn setup_before_serve() {
+    var ok = goose_io_memory::Loop { .. };
+    let fx = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9" };
+    ok.silent("10.255.0.1:81");
+    ok.hold("127.0.0.1:9999");
+    kit::check(goose_io_conformance::conformance_core_part(ok, fx, 0) == 0, "a loop that delivers what was set up before serve passes the core part");
+    var dropped = goose_io_memory::Loop { .. };
+    dropped.silent("10.255.0.1:81");
+    dropped.hold("127.0.0.1:9999");
+    dropped.set_fault("SetupEventsDropped");
+    kit::check(goose_io_conformance::conformance_core_part(dropped, fx, 0) > 0, "a loop that drops the events of what was set up before serve fails the core part");
+}
+
 fn main() {
+    setup_before_serve();
     handle_records();
     var io = goose_io_memory::Loop { .. };
     let fx = goose_io_conformance::Fixture { .. };

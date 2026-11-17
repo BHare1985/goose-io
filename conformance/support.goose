@@ -71,6 +71,10 @@ struct Rec {
 
 // The two checks that carry the handle rules (conformance/handles.goose). The driver fails whichever check is running
 // when a rule is broken, except that each of these two ignores a break of the other's rule, so that each fails for its own.
+// A check whose id is at least this runs after `serve` has returned, on the finished loop, and not inside serve: the driver
+// gives it one step with `k.after` set (*A finished loop does nothing*).
+let AFTER_ID = 900;
+
 let CHECK_PAIR_UNIQUE = 119;
 let CHECK_SLOT_HELD = 120;
 
@@ -104,11 +108,15 @@ root struct Case {
     after:    bool               = false,    // serve has returned: a check that waited for stop gives its verdict
     // What the driver knows of every handle the loop has issued in this part. It is not cleared between the checks of
     // a part, because the rules are about the loop and the loop is shared.
-    issues:   Issue[>..] = [],
-    pair_bad: bool       = false,            // a pair was issued twice, or a link had generation 0
-    slot_bad: bool       = false,            // a slot was issued while the link before it had not had its Closed
-    pair_why: u8[>..]    = [],
-    slot_why: u8[>..]    = [],
+    issues: Issue[>..] = [],
+    // What the entry point set up before serve (see `setup_before_serve` in conformance/handles.goose); not cleared between checks.
+    pre_l:    goose_io::Listener = goose_io::Listener { .. },
+    pre_link: goose_io::Link     = goose_io::Link { .. },
+    pre_done: bool               = false,
+    pair_bad: bool               = false,    // a pair was issued twice, or a link had generation 0
+    slot_bad: bool               = false,    // a slot was issued while the link before it had not had its Closed
+    pair_why: u8[>..]            = [],
+    slot_why: u8[>..]            = [],
 }
 
 // Makes the case ready for check `id` (a Case cannot be copied, so the driver reuses one).

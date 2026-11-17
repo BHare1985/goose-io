@@ -2,6 +2,9 @@
 #   check  part  requirement  scenarios (separated by " | ")  fault  group
 # A check's fault is a named break of the in-memory event loop (memory.goose, set_fault) that makes the check fail; the column may
 # hold several, separated by commas, and the check must fail under each.
+# A check with an id of 900 or more (finished_loop and its group variants) runs after serve has returned, on the finished loop.
+# The half-close and abort groups have no finished-loop check: their link operations return nothing, so their finished-loop cells
+# are covered by the unit tests of tests/unit/memory_loop_test.goose and tests/unit/wrapper_loop_test.goose.
 # The group is the one the check belongs to (core, half-close, sizing, abort, inspection, batching, unix); "pending" is a check
 # not yet assigned (tasks 4.2 to 4.4 of simplify-contract). "-" in the fault column means no fault can be injected in a queue-based event loop; the reason is in docs/event-loops.md.
 handles_stale_reuse	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	core
@@ -94,3 +97,8 @@ states_keep_open	0	Keep-open is configured no later than Opened	Keep open set wh
 states_sizing	0	Sending has one result in each link state	One link in each state	RoomWhenClosed,SendBeforeOpenSent	sizing
 states_reset	0	Ending a link has one result in each link state	Reset a dial in progress | Reset after close	ResetDialOpens,ResetAfterCloseClosesAgain	abort
 states_inspection	0	A link reports its peer's address	A dialling link has no peer address | A closing link still names its peer | A closed link has no peer address	PeerAddressGoneOnClose	inspection
+setup_before_serve	0	A loop is set up, serving, draining or finished	Listening and dialling before serve	SetupEventsDropped	core
+finished_loop	1	A finished loop does nothing	Operations after serve returns | Serve a second time	SendAfterFinishSent,FinishedDialIssues,SecondServeRuns	core
+finished_loop_sizing	0	A finished loop does nothing	Operations after serve returns	SendAfterFinishSent	sizing
+finished_loop_inspection	0	A finished loop does nothing	Operations after serve returns	PeerAddressAfterFinish	inspection
+grace_keeps_local	6	The end of the grace period	Close, then stop | Stop, then close during the grace period	ShutdownOverridesLocal	core

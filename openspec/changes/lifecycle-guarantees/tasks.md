@@ -111,29 +111,31 @@ These apply to every task:
 
 ## 4. The life of a loop
 
-- [ ] 4.1 Write the tests first, in `tests/unit/memory_loop_test.goose`:
+- [x] 4.1 Write the tests first, in `tests/unit/memory_loop_test.goose`:
   - after `serve` returns: `send`, `send2`, `send_room`, `listen`, `dial`, `close`, `reset`, `pause_reading`, `tick_by`, `draining` and `now_ms` give the results of *A finished loop does nothing*, and `dial` returns `Link {}`;
   - a second `serve` never calls its handler;
   - a listen and a dial made before `serve` deliver `Opened` from `serve` and nothing before it.
 
   Verify the second-`serve` and finished-`dial` tests fail against the current loop, and record which of the others already pass.
-- [ ] 4.2 In `memory.goose`, add `_finished`, set when `serve` returns. Every operation checks it first, as `design.md` describes: `dial` returns `Link {}`, `listen` returns kind `Other`, and a second `serve` returns at once. Verify the tests of 4.1 pass.
-- [ ] 4.3 Make `tests/support/wrapper.goose` drop the events it still holds when the inner `serve` returns, and pass the finished-loop results through. `tests/support/core_only.goose` passes them through unchanged. Write the test first in a new `tests/unit/wrapper_loop_test.goose`, and verify it passes.
-- [ ] 4.4 Add a pre-`serve` hook to `_run_part` in `conformance/suite.goose`, and add the check `setup_before_serve` (core, part 0, *A loop is set up, serving, draining or finished*), which listens and dials in the hook. Write its driver test first in `tests/conformance/driver_test.goose`. Add the fault `SetupEventsDropped`: events queued before `serve` are discarded. Verify `faults.sh` shows the check failing.
-- [ ] 4.5 Add `finished_loop` to core part 1. In its `after` step it calls every core operation, requires `is_valid(dial(...))` to be false, and calls `serve` a second time. Its faults are `SendAfterFinishSent`, `FinishedDialIssues` and `SecondServeRuns`.
+- [x] 4.2 In `memory.goose`, add `_finished`, set when `serve` returns. Every operation checks it first, as `design.md` describes: `dial` returns `Link {}`, `listen` returns kind `Other`, and a second `serve` returns at once. Verify the tests of 4.1 pass.
+- [x] 4.3 Make `tests/support/wrapper.goose` drop the events it still holds when the inner `serve` returns, and pass the finished-loop results through. `tests/support/core_only.goose` passes them through unchanged. Write the test first in a new `tests/unit/wrapper_loop_test.goose`, and verify it passes.
+- [x] 4.4 Add a pre-`serve` hook to `_run_part` in `conformance/suite.goose`, and add the check `setup_before_serve` (core, part 0, *A loop is set up, serving, draining or finished*), which listens and dials in the hook. Write its driver test first in `tests/conformance/driver_test.goose`. Add the fault `SetupEventsDropped`: events queued before `serve` are discarded. Verify `faults.sh` shows the check failing.
+- [x] 4.5 Add `finished_loop` to core part 1. In its `after` step it calls every core operation, requires `is_valid(dial(...))` to be false, and calls `serve` a second time. Its faults are `SendAfterFinishSent`, `FinishedDialIssues` and `SecondServeRuns`.
   - Then, for each group suite, find out whether its part 0 ends with `serve` returning before the driver's `after` step.
   - Where it does, add `finished_loop_<group>`, covering that group's operations.
   - Where it does not, record in `checks.tsv` that the group's finished-loop cells are covered by the unit tests of 4.1.
 
   Verify `faults.sh`, `groups_check.sh` and `table_check.sh` pass.
-- [ ] 4.6 Add the check `grace_keeps_local` as core part 6 (*The end of the grace period*, both scenarios). It uses two pairs: one closed before `stop`, and one closed after `stop` within the grace period, each with a paused peer. Its fault is `ShutdownOverridesLocal`. Confirm that `run.sh` and `faults.sh` pick up part 6 from `checks.tsv`, and edit them if they do not. Verify that `tests/conformance/run.sh` runs parts 0 to 6, and that `faults.sh` shows the check failing for both pairs.
-- [ ] 4.7 Record the threading rule:
+
+  Applied as: every part of every group ends with `serve` returning, so the driver has a phase after `serve` for checks with an id of 900 or more (`finished_loop` in core part 1, `finished_loop_sizing`, `finished_loop_inspection`), dispatched apart from `step` because they call `serve`. The half-close and abort operations return nothing, so their finished-loop cells are covered by the unit tests, as `checks.tsv` records. `setup_before_serve` is id 90, run first in core part 0 by a driver hook before `serve`.
+- [x] 4.6 Add the check `grace_keeps_local` as core part 6 (*The end of the grace period*, both scenarios). It uses two pairs: one closed before `stop`, and one closed after `stop` within the grace period, each with a paused peer. Its fault is `ShutdownOverridesLocal`. Confirm that `run.sh` and `faults.sh` pick up part 6 from `checks.tsv`, and edit them if they do not. Verify that `tests/conformance/run.sh` runs parts 0 to 6, and that `faults.sh` shows the check failing for both pairs.
+- [x] 4.7 Record the threading rule:
   - rewrite the thread paragraph of `docs/contract.md` section 1 to *A loop belongs to the thread that serves it*;
   - inspect `examples/gateway.goose`, the tests' root programs and the suite's entry points, and confirm that each sets up and serves on one thread;
   - record "Setting up on the serving thread" in the new section of `docs/event-loops.md` as an inspection step, naming the files inspected.
 
   Verify `table_check.sh` and `docs.sh` pass.
-- [ ] 4.8 Document:
+- [x] 4.8 Document:
   - `docs/contract.md`, "Running and stopping": the four loop states, the finished-loop list (with `dial` returning the invalid link), and the end of the grace period (no promise of delivery; `Local` stands whether the close came before or after `stop`).
   - `docs/libraries.md`: do not count on delivery at the end of the grace period; check `is_valid` on a `dial` made after `serve` might have returned.
   - `docs/event-loops.md`: a section "What the lifecycle guarantees added", listing the obligations: the reserved invalid link, retirement, slots held until `Closed`, the keep-open window, reading controls while dialling, `Closed` is final, the finished loop, and `Local` over `Shutdown`.
@@ -142,13 +144,13 @@ These apply to every task:
 
 ## 5. Version and integration
 
-- [ ] 5.1 Set `VERSION_MINOR` in `goose_io.goose` as `design.md` decides: the same minor as `link-keyed-state` if neither has been released, otherwise one above the value on `main`. Update:
+- [x] 5.1 Set `VERSION_MINOR` in `goose_io.goose` as `design.md` decides: the same minor as `link-keyed-state` if neither has been released, otherwise one above the value on `main`. Update:
   - the expectation in `tests/unit/groups_test.goose`;
   - the version paragraph of `docs/contract.md` section 9, saying what this version adds and that the keep-open window is a tightening;
   - the version column of the `README.md` table.
 
   Verify `tests/run_tests.sh` and `docs.sh` pass.
-- [ ] 5.2 Run every command in `CONTRIBUTING.md`, then `tests/conformance/run.sh --repeat 50`, `--wrapped --repeat 10` and `--core-only --repeat 10`. Verify that all pass, that the output of every repetition is identical, and that `openspec validate lifecycle-guarantees --strict` passes.
+- [x] 5.2 Run every command in `CONTRIBUTING.md`, then `tests/conformance/run.sh --repeat 50`, `--wrapped --repeat 10` and `--core-only --repeat 10`. Verify that all pass, that the output of every repetition is identical, and that `openspec validate lifecycle-guarantees --strict` passes.
 
 ## Workflow follow-up
 

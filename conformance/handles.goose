@@ -26,6 +26,7 @@ fn handles_info(id: i64) -> Info {
     if id == 115 { return Info { name: "handles_unset_inspection", req: "Links are generation-checked handles", part: 0 }; }
     if id == 116 { return Info { name: "events_not_reentrant_after_reset", req: "Events are delivered to one handler, one at a time", part: 0 }; }
     if id == 108 { return Info { name: "slots_dense", req: "Slot numbers are dense", part: 0 }; }
+    if id == 90 { return Info { name: "setup_before_serve", req: "A loop is set up, serving, draining or finished", part: 0 }; }
     if id == 119 { return Info { name: "handles_pair_unique", req: "A slot and generation pair is never issued twice", part: 0 }; }
     if id == 120 { return Info { name: "handles_slot_held", req: "A slot is held until its Closed is delivered", part: 0 }; }
     if id == 117 { return Info { name: "slot_kept_during_closed", req: "A slot is freed when its Closed has been handled", part: 0 }; }
@@ -477,6 +478,35 @@ fn c_handles_slot_held<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
+// --- 90: what the entry point sets up before serve is delivered by serve ---------------------------------------------------
+
+// Called by the driver before serve (part 0 of the core): listens and dials, and keeps the handles for the check below.
+fn setup_before_serve_hook<Io>(k: Case&, io: Io&) {
+    let l, err = io.listen("127.0.0.1:0");
+    if !goose_io::is_listener(l) { return; }
+    var text: u8[>..] = [];
+    format(text, "127.0.0.1:", io.listener_port(l));
+    let link = io.dial(text[..], 0);
+    k.issued(link);
+    k.pre_l = l;
+    k.pre_link = link;
+    k.pre_done = true;
+}
+
+// The check runs first in part 0: the links made before serve open, both ends, and the events arrive from serve.
+fn c_setup_before_serve<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        k.expect(k.pre_done && goose_io::is_listener(k.pre_l) && goose_io::is_valid(k.pre_link), "the entry point could not listen and dial before serve");
+        k.l = k.pre_l;
+        k.link[0] = k.pre_link;
+        k.live = 1;
+        k.step = 1;
+    } else if k.step == 1 && k.pair_open(0) {
+        io.close(k.link[0]);
+        k.finish();
+    }
+}
+
 // Runs the checks of the core: true if the check is one of them.
 fn handles_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 100 { c_handles_stale_reuse(k, io, ev); return true; }
@@ -488,6 +518,7 @@ fn handles_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) ->
     if k.id == 107 { c_owner_dial_found_by_link(k, io, ev); return true; }
     if k.id == 108 { c_slots_dense(k, io, ev); return true; }
     if k.id == 117 { c_slot_kept_during_closed(k, io, ev); return true; }
+    if k.id == 90 { c_setup_before_serve(k, io, ev); return true; }
     if k.id == 119 { c_handles_pair_unique(k, io, ev); return true; }
     if k.id == 120 { c_handles_slot_held(k, io, ev); return true; }
     if k.id == 118 { c_dial_no_event_inside(k, io, ev); return true; }

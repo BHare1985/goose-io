@@ -20,7 +20,7 @@ Only one loop can own a thread. If every loop has its own way to dial, send and 
 
 No role stores a callback, allocates from a heap, or calls through a function pointer (*Three roles: event loop, library, application*). The contract package is Goose source only and links nothing (*The contract package is pure Goose*). No file descriptor, socket address structure or poll mask crosses it (*The contract exposes no operating-system primitives*).
 
-The contract is per loop. One loop runs on one thread. Every event is delivered on that thread and every operation is called on it: from a handler, or by the application before `serve`. Calling an operation from another thread is not supported, and the contract has no operation that crosses threads. A link or a listener is used only on the loop that created it. Starting several loops is the event loop's business.
+**A loop belongs to the thread that serves it** (*A loop is set up, serving, draining or finished*, *A loop belongs to the thread that serves it*). The contract is per loop. The application makes every call to a loop, the calls before `serve` included, on the thread that calls `serve`, and does not use one loop from two threads. Every event is delivered on that thread and every operation is called on it: from a handler, or by the application before `serve`. An event loop may bind itself to the thread of the first call made to it. Calling an operation from another thread is not supported, and the contract has no operation that crosses threads. A wake from another thread is outside the contract (section 11). A link or a listener is used only on the loop that created it. Starting several loops is the event loop's business.
 
 **Who calls what.** A library calls the link operations only on its own links (the ones it dialled and the ones its own listeners accepted), and the listener operations only on its own listeners. `serve` and `stop` belong to the application. `tick_by` is shared by design (section 5). Nothing a library can call changes what another library sees.
 
@@ -260,7 +260,11 @@ A library keeps its own deadlines. It asks for a wake with `tick_by(at_ms)` and 
 
 ### Running and stopping
 
-(*The application runs and stops the loop*, *Draining is the same on every event loop*)
+(*The application runs and stops the loop*, *Draining is the same on every event loop*, *A loop is set up, serving, draining or finished*, *A finished loop does nothing*, *The end of the grace period*)
+
+**The four states of a loop.** A loop is **set up** until `serve` is called: operations work as they do while serving (a `listen` and a `dial` made now are ordinary), and the events they cause are delivered once `serve` runs, none before. It is **serving** until `stop`, **draining** from `stop` until `serve` returns, and **finished** afterwards.
+
+**A finished loop does nothing.** Once `serve` has returned, every operation returns without blocking and without delivering an event. `dial` returns the invalid link (`is_valid` is false), issues no link and starts no connection: this is the one exception to *Dialling never blocks and always ends in one event*, so a library that may dial after `serve` could have returned checks `is_valid` on the link `dial` gave it. `send` and `send2` return `Closed`, `send_room` returns 0, `listen` fails with kind `Other`, `draining()` is true, `now_ms()` never goes backwards, and every other operation has no effect. A second `serve` returns at once and never calls its handler.
 
 `serve` runs the loop on the calling thread. From the call to `stop(grace_ms)`:
 
@@ -268,6 +272,8 @@ A library keeps its own deadlines. It asks for a wake with `tick_by(at_ms)` and 
 2. Links keep working, and `dial` still works, so a library can finish work in hand. Events go on as before. A link dialled now ends with the same grace period; it does not extend it.
 3. `serve` returns as soon as no link is left: none open, none dialling, none whose `Closed` is still to be delivered.
 4. At the end of the grace period the event loop closes every link that is left with reason `Shutdown`, delivers those `Closed` events, and then `serve` returns. A grace period of 0 does this in the current pass.
+
+**The end of the grace period promises no delivery.** The event loop may discard the bytes accepted on a link that is still there, including bytes already handed to the transport, and may end the connection gracefully or by abort; a library does not assume that those bytes reach the peer. A link on which the library called `close` or `reset` before the grace period ended, whether before or after `stop`, ends with reason `Local`, never `Shutdown`: `Shutdown` is only for a link nobody had closed.
 
 Of several calls to `stop` the earliest end of grace stands. A loop whose `serve` has returned is finished and is not run again.
 
@@ -370,7 +376,7 @@ The contract covers TCP byte streams over IPv4 and IPv6, stream sockets at a pat
 
 `goose_io::VERSION_MAJOR` and `goose_io::VERSION_MINOR`. While the major number is 0, a minor increase may change or remove behaviour. From major version 1, a minor increase only adds. An event loop states the contract version it conforms to, the core and the groups it supplies.
 
-The version of this document is **0.3** (`VERSION_MAJOR` 0, `VERSION_MINOR` 3 in `goose_io.goose`). Version 0.1 was the first release; 0.2 adds the unix group; 0.3 removes the tag and the user value from the events and the operations (`set_user`, `user`), takes the tag out of `listen` and `dial`, adds `LinkMap` and the rule that slots are dense. No event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
+The version of this document is **0.3** (`VERSION_MAJOR` 0, `VERSION_MINOR` 3 in `goose_io.goose`). Version 0.1 was the first release; 0.2 adds the unix group; 0.3 removes the tag and the user value from the events and the operations (`set_user`, `user`), takes the tag out of `listen` and `dial`, adds `LinkMap` and the rule that slots are dense, and states the life of a link and of a loop (the link states and the result of each operation in each, the invalid link, retirement of an exhausted slot, slots held until `Closed`, the finished loop and the end of the grace period). The keep-open window is a tightening: a `set_keep_open_on_eof` call made after the link's `Opened` handler has returned, which 0.2 allowed while the peer had not yet finished, has no effect, so a library that called it late moves the call into `Opened`. 0.2 and 0.3 have not been released; 0.1 is the version on `main`. No event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
 
 ## 10. Known gaps
 

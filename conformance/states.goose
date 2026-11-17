@@ -21,6 +21,9 @@ fn states_info(id: i64) -> Info {
     if id == 362 { return Info { name: "states_sizing", req: "Sending has one result in each link state", part: 0 }; }
     if id == 363 { return Info { name: "states_reset", req: "Ending a link has one result in each link state", part: 0 }; }
     if id == 364 { return Info { name: "states_inspection", req: "A link reports its peer's address", part: 0 }; }
+    if id == 900 { return Info { name: "finished_loop", req: "A finished loop does nothing", part: 1 }; }
+    if id == 901 { return Info { name: "finished_loop_sizing", req: "A finished loop does nothing", part: 0 }; }
+    if id == 902 { return Info { name: "finished_loop_inspection", req: "A finished loop does nothing", part: 0 }; }
     if id == 355 { return Info { name: "states_closed_wakes_nothing", req: "A Closed send result is final", part: 0 }; }
     return Info { .. };
 }
@@ -215,6 +218,47 @@ fn c_states_closed_wakes_nothing<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         k.expect(k.count(0, 'W') == 0, "a Writable was delivered for a link whose send returned Closed");
         k.finish();
     }
+}
+
+// --- the finished loop (these run after serve has returned: see AFTER_ID) --------------------------------------------------
+
+// 900: every core operation on a finished loop, and a second serve.
+fn c_finished_loop<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    guard k.after else { k.fail("the finished-loop check ran inside serve"); return; }
+    let stale = goose_io::Link { slot: 0, gen: 1 };
+    let before = io.now_ms();
+    k.expect(io.send(stale, "x") == goose_io::SendStatus.Closed, "send on a finished loop did not return Closed");
+    let l, err = io.listen("127.0.0.1:0");
+    k.expect(!goose_io::is_listener(l) && err.kind == goose_io::ListenErrorKind.Other, "listen on a finished loop did not fail with kind Other");
+    k.expect(!goose_io::is_valid(io.dial("127.0.0.1:1", 0)), "dial on a finished loop did not return the invalid link");
+    io.close(stale);
+    io.pause_reading(stale, true);
+    io.tick_by(before + 10);
+    io.stop(0);
+    k.expect(io.draining(), "draining was false on a finished loop");
+    k.expect(io.now_ms() >= before, "now_ms went backwards on a finished loop");
+    k.n = 0;
+    io.serve() { inner, e => k.n++; };
+    k.expect(k.n == 0, "a second serve called its handler");
+    k.finish();
+}
+
+// 901: send2 and send_room on a finished loop.
+fn c_finished_loop_sizing<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    guard k.after else { k.fail("the finished-loop check ran inside serve"); return; }
+    let stale = goose_io::Link { slot: 0, gen: 1 };
+    k.expect(io.send2(stale, "x", "y") == goose_io::SendStatus.Closed, "send2 on a finished loop did not return Closed");
+    k.expect(io.send_room(stale) == 0, "send_room on a finished loop was not 0");
+    k.finish();
+}
+
+// 902: peer_address and stop_listening on a finished loop.
+fn c_finished_loop_inspection<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    guard k.after else { k.fail("the finished-loop check ran inside serve"); return; }
+    let stale = goose_io::Link { slot: 0, gen: 1 };
+    k.expect(goose_io::is_empty(io.peer_address(stale)), "peer_address on a finished loop was not empty");
+    io.stop_listening(goose_io::Listener { id: 1 });
+    k.finish();
 }
 
 // Runs the checks of the core: true if the check is one of them.
@@ -430,5 +474,22 @@ fn c_states_inspection<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 // Runs the checks of the inspection group: true if the check is one of them.
 fn states_inspection_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 364 { c_states_inspection(k, io, ev); return true; }
+    return false;
+}
+
+// The checks that run after serve has returned. They are dispatched apart from `states_*_step`, because they call `serve`
+// and the compiler does not allow that from a function that runs inside a handler.
+fn states_core_after<Io>(k: Case&, io: Io&, ev: goose_io::Event) -> bool {
+    if k.id == 900 { c_finished_loop(k, io, ev); return true; }
+    return false;
+}
+
+fn states_sizing_after<Io>(k: Case&, io: Io&, ev: goose_io::Event) -> bool {
+    if k.id == 901 { c_finished_loop_sizing(k, io, ev); return true; }
+    return false;
+}
+
+fn states_inspection_after<Io>(k: Case&, io: Io&, ev: goose_io::Event) -> bool {
+    if k.id == 902 { c_finished_loop_inspection(k, io, ev); return true; }
     return false;
 }

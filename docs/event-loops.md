@@ -373,6 +373,23 @@ each group of them lands.
 | A dialling link has no peer address, a closing link still names its peer, a closed link has no peer address | check `states_inspection` (inspection group) | `PeerAddressGoneOnClose` |
 | Sending on a write-shut link (`send2`, `send_room`), `peer_address` while write-shut | `tests/unit/memory_data_test.goose`, `tests/unit/memory_links_test.goose`: the sizing and inspection suites cannot call `shutdown_write` | |
 | The batching and unix groups | no link operation and no states check: batching has only an event, unix only address forms | |
+| Setting up on the serving thread | inspection (task 4.7 of `lifecycle-guarantees`): `grep -rn "thread\|spawn" --include=*.goose examples tests conformance memory.goose` prints nothing, so `examples/gateway.goose`, `examples/echo/`, `examples/lineserver/`, `examples/lineclient/`, every root program under `tests/` (`tests/unit/`, `tests/examples/`, `tests/conformance/memory_conformance.goose`, `wrapped_conformance.goose`, `core_only_conformance.goose`) and every entry point of `conformance/suite.goose` construct their loop, set it up and call `serve` on one thread | |
+| Listening and dialling before serve: no event is delivered before serve, and serve delivers Opened for both links | check `setup_before_serve` (the entry point listens and dials before it calls `serve`), `tests/unit/memory_loop_test.goose` | `SetupEventsDropped` |
+| Operations after serve returns, Serve a second time | checks `finished_loop` (core, part 1), `finished_loop_sizing`, `finished_loop_inspection`: each runs after `serve` has returned (ids of 900 and more); the half-close and abort operations return nothing, so their cells are covered by `tests/unit/memory_loop_test.goose` and `tests/unit/wrapper_loop_test.goose` | `SendAfterFinishSent`, `FinishedDialIssues`, `SecondServeRuns`; `PeerAddressAfterFinish` |
+| Close, then stop; Stop, then close during the grace period | check `grace_keeps_local` (core, part 6) | `ShutdownOverridesLocal` |
+
+### What the lifecycle guarantees added
+
+An event loop that conforms to contract 0.3 keeps these obligations, each shown above:
+
+- **the reserved invalid link**: the default `Link` (generation 0) is the one invalid link, and no loop issues a link with generation 0;
+- **retirement**: a slot whose generations are used up is retired and never issued again, so no slot and generation pair is issued twice;
+- **slots held until `Closed`**: a slot is not issued again until the `Closed` of the link in it has been delivered (and, as the dense-slot rule says, every handler of it has returned);
+- **the keep-open window**: `set_keep_open_on_eof` takes effect only while dialling or in the handler of `Opened`, and an end of stream seen earlier waits for that handler;
+- **reading controls while dialling**: `pause_reading` takes effect on a link that is still dialling;
+- **`Closed` is final**: after a `Closed` send result sending has ended, `send_room` is 0 and no `Writable` follows;
+- **the finished loop**: after `serve` returns every operation does nothing, `dial` returns the invalid link, and a second `serve` returns at once;
+- **`Local` over `Shutdown`**: a link the library closed ends with `Local`, even at the end of the grace period.
 
 ### What cannot be shown by a fault
 

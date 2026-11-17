@@ -157,6 +157,17 @@ any other way, or with another layout (the benchmark has a compact table that st
 because the contract guarantees the identity and lifetime of a link and not the table; the laws a table must obey are in
 `tests/unit/link_map_test.goose`, written so that another table can be run through them.
 
+### The end of the loop
+
+- **Do not count on delivery at the end of the grace period.** When `stop`'s grace period ends the event loop may discard bytes
+  you were told were `Sent`, so a protocol that needs the peer to have received something has the peer say so. A link you had
+  closed before the end of the grace period ends with `Local`, not `Shutdown`, whether you closed it before or after `stop`.
+- **After `serve` has returned the loop is finished.** Every operation does nothing and returns at once: `send` returns `Closed`,
+  `listen` fails, and `dial` returns the invalid link, so check `goose_io::is_valid` on a link from a `dial` that may be made
+  after `serve` could have returned. A second `serve` returns at once without calling your handler.
+- **A loop belongs to the thread that serves it**: set it up (`listen`, `dial`) and call `serve` on one thread, and do not use
+  one loop from two threads.
+
 ### Keep-open and the end of a send
 
 - **Call `set_keep_open_on_eof(link, true)` in the handler of the link's `Opened`**, or before it for a link you dialled

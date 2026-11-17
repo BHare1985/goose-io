@@ -380,6 +380,7 @@ root struct Loop {
     _started:       bool           = false,
     _started_at:    i64            = 0,
     _draining:      bool           = false,
+    _finished:      bool           = false, // serve has returned: every operation does nothing (*A finished loop does nothing*)
     _stop_deadline: i64            = 0x7fffffffffffffff,
     _library_links: i64            = 0, // links that are not scripted peers' ends and not free
     _live_slots:    i64            = 0, // of those, the ones not closed either: what max_links limits
@@ -488,6 +489,7 @@ fn _close(io: Loop&, i: i64, why: goose_io::CloseReason, abort: bool) {
 // --- the contract: listening ---------------------------------------------------------------------
 
 fn listen(io: Loop&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError {
+    if io._finished { return goose_io::Listener { .. }, goose_io::ListenError { kind: goose_io::ListenErrorKind.Other, code: 108 }; }
     io._start();
     var a = io._addr(address);
     guard a.ok else { return goose_io::Listener { .. }, goose_io::ListenError { kind: goose_io::ListenErrorKind.BadAddress, code: 22 }; }
@@ -565,6 +567,7 @@ fn listener_port(io: Loop&, l: goose_io::Listener) -> u16 {
 }
 
 fn stop_listening(io: Loop&, l: goose_io::Listener) {
+    if io._finished { return; }
     let i = io._listener_index(l);
     if i >= 0 { io._listeners[i].active = false; }
     if i >= 0 && io._fault == 12 {          // fault StopListeningClosesLinks
@@ -577,6 +580,8 @@ fn stop_listening(io: Loop&, l: goose_io::Listener) {
 // --- the contract: links -------------------------------------------------------------------------
 
 fn dial(io: Loop&, address: const u8[:], connect_ms: i64) -> goose_io::Link {
+    // on a finished loop: the invalid link, no link issued and no connection started (fault FinishedDialIssues: a link is issued)
+    if io._finished && io._fault != 80 { return goose_io::Link { .. }; }
     io._start();
     let link = io._dial(io._addr(address), connect_ms, -1);
     if io._fault == 15 { return goose_io::Link { .. }; }        // fault DialReturnsInvalid
@@ -601,6 +606,7 @@ fn _dial(io: Loop&, target: _Addr, connect_ms: i64, script: i64) -> goose_io::Li
 fn peer_address(io: Loop&, link: goose_io::Link) -> goose_io::Address {
     let i = io._slot_of(link);
     if i < 0 && io._fault == 14 { return _format_address(io._last_remote); }       // fault StalePeerAddress
+    if io._finished && io._fault == 83 { var a = goose_io::Address { .. }; a.text.append("10.0.0.1:1"); return a; }      // fault PeerAddressAfterFinish
     guard i >= 0 && io._slots[i].opened else { return goose_io::Address { .. }; }
     if io._fault == 78 && io._slots[i].state == _CLOSED { return goose_io::Address { .. }; }      // fault PeerAddressGoneOnClose
     return _format_address(io._slots[i].remote);
@@ -617,6 +623,7 @@ fn send2(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:
 
 // What one send would accept now.
 fn send_room(io: Loop&, link: goose_io::Link) -> i64 {
+    if io._finished { return 0; }
     if io._fault == 2 && link.gen == 0 { return io.cfg.max_send; }      // fault UnsetLinkHasRoom
     let i = io._slot_of(link);
     guard i >= 0 else { return 0; }
@@ -634,11 +641,13 @@ fn max_send(io: Loop&) -> i64 {
 
 // While paused the link's bytes stay where they are, so its peer's sends fill up and are refused.
 fn pause_reading(io: Loop&, link: goose_io::Link, paused: bool) {
+    if io._finished { return; }
     let i = io._slot_of(link);
     if i >= 0 && io._fault != 34 && !(io._fault == 67 && io._slots[i].state == _DIALING) { io._slots[i].paused = paused; }      // faults PauseIgnored and PauseBeforeOpenIgnored
 }
 
 fn _send(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:]) -> goose_io::SendStatus {
+    if io._finished { return if io._fault == 79 { goose_io::SendStatus.Sent } else { goose_io::SendStatus.Closed }; }      // fault SendAfterFinishSent
     let i = io._slot_of(link);
     guard i >= 0 else { return goose_io::SendStatus.Closed; }
     let s .= io._slots[i];
@@ -692,10 +701,13 @@ fn _send(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:
 }
 
 fn close(io: Loop&, link: goose_io::Link) {
+    if io._finished { return; }
     let i = io._slot_of(link);
     if i >= 0 && io._slots[i].state == _CLOSED && io._fault == 68 { io._queue(_EV_CLOSED, i); }      // fault SecondCloseClosesAgain
     guard i >= 0 && io._slots[i].state != _CLOSED else { return; }
     io._slots[i].local_closed = true;
+    // fault ShutdownOverridesLocal: a link whose peer has not read what it was sent is kept until the end of the grace period
+    if io._fault == 84 && io._slots[i].peer >= 0 && io._slots[io._slots[i].peer].in_len > 0 { return; }
     let unread = io._slots[i].in_len > 0;
     io._close(i, goose_io::CloseReason.Local, unread && io._fault == 40);      // fault CloseWithUnreadResets
     if io._fault == 66 { io._release(i); }      // fault SlotFreedOnClose: the slot is free before its Closed is delivered
@@ -703,6 +715,7 @@ fn close(io: Loop&, link: goose_io::Link) {
 
 // Closes at once. What the other end has not read is discarded and it ends with PeerReset.
 fn reset(io: Loop&, link: goose_io::Link) {
+    if io._finished { return; }
     let i = io._slot_of(link);
     if i >= 0 && io._slots[i].state == _CLOSED && io._fault == 77 { io._queue(_EV_CLOSED, i); }      // fault ResetAfterCloseClosesAgain
     guard i >= 0 && io._slots[i].state != _CLOSED else { return; }
@@ -715,6 +728,7 @@ fn reset(io: Loop&, link: goose_io::Link) {
 // fixed window: while the link is dialling or inside the handler of its `Opened`. The setting applies when that handler
 // returns, and a later call has no effect (*Keep-open is configured no later than Opened*).
 fn set_keep_open_on_eof(io: Loop&, link: goose_io::Link, keep: bool) {
+    if io._finished { return; }
     let i = io._slot_of(link);
     guard i >= 0 else { return; }
     let s .= io._slots[i];
@@ -725,6 +739,7 @@ fn set_keep_open_on_eof(io: Loop&, link: goose_io::Link, keep: bool) {
 
 // Ends this side's sending. The other end reads what was sent and then sees the end of the stream.
 fn shutdown_write(io: Loop&, link: goose_io::Link) {
+    if io._finished { return; }
     let i = io._slot_of(link);
     guard i >= 0 else { return; }
     let s .= io._slots[i];
@@ -746,6 +761,7 @@ fn now_ms(io: Loop&) -> i64 { io._clock }
 
 // Asks for a Tick at or after at_ms. Only the earliest request is kept, and the next Tick clears it.
 fn tick_by(io: Loop&, at_ms: i64) {
+    if io._finished { return; }
     if io._fault == 45 { return; }                                   // fault TickByIgnored
     if at_ms < io._wake_at || io._fault == 46 { io._wake_at = at_ms; }      // fault TickByKeepsLatest
 }
@@ -753,6 +769,7 @@ fn tick_by(io: Loop&, at_ms: i64) {
 // Every listener stops now. serve returns when the last link has closed, or grace_ms from now,
 // after closing what is left with Shutdown. Of several calls the earliest end of grace stands.
 fn stop(io: Loop&, grace_ms: i64) {
+    if io._finished { return; }
     io._start();
     io._draining = true;
     for &l in io._listeners { l.active = false; }
@@ -761,9 +778,13 @@ fn stop(io: Loop&, grace_ms: i64) {
     if deadline < io._stop_deadline || io._fault == 53 { io._stop_deadline = deadline; }      // fault StopLatestWins
 }
 
-fn draining(io: Loop&) -> bool { io._draining }
+fn draining(io: Loop&) -> bool { io._draining || io._finished }
 
 fn serve<F>(io: Loop&) {
+    if io._finished {          // a second serve returns at once, without calling its handler
+        if io._fault == 81 { let e: goose_io::Event = goose_io::Event.Tick { now_ms: io._clock }; F(io, e); }      // fault SecondServeRuns
+        return;
+    }
     io._start();
     // Sized here and never from an operation: a handler holds a slice of it while it calls operations.
     if io._scratch.len != io.cfg.read_chunk { io._scratch.resize(io.cfg.read_chunk, 0); }
@@ -772,6 +793,7 @@ fn serve<F>(io: Loop&) {
         io._passes++;
         io._run_due();
         io._queue_reads();
+        if io._fault == 82 && io._passes == 1 { io._pending.clear(); io._pending_head = 0; }      // fault SetupEventsDropped: the events of what was set up before serve are discarded
         // The order of one pass: a Tick if one is due, the link events, then PassEnd, always last.
         if io._clock >= io._next_tick || io._clock >= io._wake_at {
             io._next_tick = io._clock + io._tick_period();
@@ -789,6 +811,7 @@ fn serve<F>(io: Loop&) {
         io._advance();
         if io._hit_limit { break; }
     }
+    io._finished = true;
 }
 
 // --- internals: one pass -------------------------------------------------------------------------
@@ -1347,7 +1370,7 @@ fn _fault_named(name: const u8[:]) -> i64 {
         "UnixListenerIgnored", "UnixOverlapIgnored", "UnixRefusedAsBadAddress", "UnixPortInvented", "UnixRelativeAccepted",
         "UnixLongestRefused", "UnixTripleSlashRefused", "UnixAliasNotHeld", "SlotsNeverReused",
         "GenerationNotAdvanced", "SlotFreedOnClose", "PauseBeforeOpenIgnored", "SecondCloseClosesAgain", "WritableAfterClosedResult", "ClosedResultNotFinal",
-        "KeepOpenWhileDiallingIgnored", "KeepOpenLateHonoured", "EarlyEofActedOn", "ShutdownBeforeOpenRemembered", "ClosedResultEndsShutLink", "ResetDialOpens", "ResetAfterCloseClosesAgain", "PeerAddressGoneOnClose",
+        "KeepOpenWhileDiallingIgnored", "KeepOpenLateHonoured", "EarlyEofActedOn", "ShutdownBeforeOpenRemembered", "ClosedResultEndsShutLink", "ResetDialOpens", "ResetAfterCloseClosesAgain", "PeerAddressGoneOnClose", "SendAfterFinishSent", "FinishedDialIssues", "SecondServeRuns", "SetupEventsDropped", "PeerAddressAfterFinish", "ShutdownOverridesLocal",
     ];
     for n, i in names { if n == name { return i + 1; } }
     return 0;

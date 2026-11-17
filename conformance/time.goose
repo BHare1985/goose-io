@@ -25,6 +25,7 @@ fn time_info(id: i64) -> Info {
     if id == 520 { return Info { name: "stop_libraries_finish", req: "The application runs and stops the loop", part: 2 }; }
     if id == 530 { return Info { name: "listen_while_draining", req: "Draining is the same on every event loop", part: 3 }; }
     if id == 540 { return Info { name: "dial_while_draining", req: "Draining is the same on every event loop", part: 4 }; }
+    if id == 560 { return Info { name: "grace_keeps_local", req: "The end of the grace period", part: 6 }; }
     if id == 550 { return Info { name: "stop_called_twice", req: "Draining is the same on every event loop", part: 5 }; }
     return Info { .. };
 }
@@ -315,6 +316,36 @@ fn c_stop_called_twice<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 }
 
 // Runs the checks of the core: true if the check is one of them.
+// --- 560: the end of the grace period does not override Local ---------------------------------------------------------------
+
+// Two pairs, each with a peer that has stopped reading, so that bytes the library accepted are still unsent. One link is closed
+// before `stop` and the other after it, within the grace period; the grace period ends before either peer reads. Both
+// libraries' links end with reason Local, never Shutdown.
+fn c_grace_keeps_local<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    if k.after {
+        k.expect(k.closed_with(0, goose_io::CloseReason.Local), "a link closed before stop did not end with reason Local at the end of the grace period");
+        k.expect(k.closed_with(2, goose_io::CloseReason.Local), "a link closed after stop, within the grace period, did not end with reason Local");
+        k.finish();
+    } else if k.step == 0 {
+        k.connect_local(io, 0);
+        k.connect_local(io, 1);
+        k.within(io, 20000);
+        k.step = 1;
+    } else if k.step == 1 && k.pair_open(0) && k.pair_open(1) {
+        io.pause_reading(k.link[1], true);
+        io.pause_reading(k.link[3], true);
+        io.send(k.link[0], "unread");
+        io.send(k.link[2], "unread");
+        io.close(k.link[0]);                    // before stop
+        k.t = io.now_ms();
+        io.stop(600);
+        k.step = 2;
+    } else if k.step == 2 && io.now_ms() >= k.t + 200 {
+        io.close(k.link[2]);                    // after stop, within the grace period
+        k.step = 3;
+    }
+}
+
 fn time_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 500 { c_ticks_are_regular(k, io, ev); return true; }
     if k.id == 501 { c_tick_by_is_prompt(k, io, ev); return true; }
@@ -325,6 +356,7 @@ fn time_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bo
     if k.id == 530 { c_listen_while_draining(k, io, ev); return true; }
     if k.id == 540 { c_dial_while_draining(k, fx, io, ev); return true; }
     if k.id == 550 { c_stop_called_twice(k, io, ev); return true; }
+    if k.id == 560 { c_grace_keeps_local(k, io, ev); return true; }
     return false;
 }
 

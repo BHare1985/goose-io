@@ -55,6 +55,7 @@ root struct Layer {
     bytes:     u8[>..]                 = [],       // the bytes of held Data events
     scratch:   u8[>..]                 = [],       // what the application is lent, or what goes to the inner event loop
     out:       Out[>..]                = [],       // events to give the application
+    finished:  bool                    = false,    // serve has returned: nothing it held is ever given late
     modes:     Mode[>..]               = [],
 }
 
@@ -271,6 +272,7 @@ fn _event_of(w: Layer&, o: Out) -> goose_io::Event {
 // Runs the inner event loop's loop and gives the application its events. A held event is given the pass after the one
 // that had it; whatever is still held when the inner loop has finished is given before serve returns.
 fn serve<F>(w: Layer&) {
+    if w.finished { return; }                      // a second serve returns at once, as the loop beneath does
     w._prepare();
     inner.serve() { io, ev =>
         w._on_event(ev);
@@ -301,6 +303,10 @@ fn serve<F>(w: Layer&) {
         }
         w.out.clear();
     }
+    // The loop is finished: what the wrapper could still hold is dropped, so that no event is given after serve has returned.
+    w.held_off = w.held.len;
+    w.out.clear();
+    w.finished = true;
 }
 
 // The wrapper supplies the core and every group. Batching is an event and has no operation to check: the wrapper
