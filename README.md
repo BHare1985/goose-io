@@ -5,14 +5,30 @@
 [![macos-arm64](https://img.shields.io/github/actions/workflow/status/BHare1985/goose-io/ci.yml?branch=main&job=macos-arm64&label=macos-arm64)](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml)
 [![windows-x64](https://img.shields.io/github/actions/workflow/status/BHare1985/goose-io/ci.yml?branch=main&job=windows-x64&label=windows-x64)](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml)
 
-**A small, implementation-independent contract for stream I/O, between the libraries that speak protocols and the
-event loops that move the bytes. Write a stream library once; run it on any event loop that meets the contract.**
+**Write a library or an event loop that works with every other library and event loop that uses goose-io.**
 
-An event loop drives connections and time. A library speaks a protocol on top of it: a Postgres client, a Redis client,
-an HTTP server, a proxy. goose-io is the agreement between them: a small set of types, operations and events, with the
-rules that make them mean the same everywhere. A library written against it does not know which event loop is
-underneath, and an event loop does not know which libraries run on it. Independent implementations agree on how a
-connection behaves without agreeing on how it is implemented.
+goose-io is a small, implementation-independent contract for stream I/O. A library that speaks a protocol (an HTTP
+server, a Postgres client, a proxy) is written against it, and so is an event loop that drives the connections. Each side
+is written once and is compatible with everyone on the other side, without either knowing how the other is implemented.
+
+## Start here
+
+| | **I am writing a network library** | **I am writing an event loop** |
+|---|---|---|
+| Goal | A library that runs on every event loop that uses goose-io | An event loop that runs every library that uses goose-io |
+| You write | A state struct and one function that handles events | The 12 operations of the core, on top of your own I/O |
+| You get | Portable code, and tests that need no network | Every library written for the contract, and a suite that says when you are done |
+| First example | [The echo server](#i-am-writing-a-network-library) | [A loop that supplies only the core](#i-am-writing-an-event-loop) |
+| Guide | [docs/libraries.md](docs/libraries.md) | [docs/event-loops.md](docs/event-loops.md) |
+
+Neither side needs the other's internals. Both rely on [the same contract](docs/contract.md), which exposes no socket,
+file descriptor or poll mask.
+
+## How it fits together
+
+An event loop drives connections and time. A library speaks a protocol on top of it. goose-io is the agreement between
+them: a small set of types, operations and events, with the rules that make them mean the same everywhere. A library does
+not know which event loop is underneath, and an event loop does not know which libraries run on it.
 
 ```mermaid
 flowchart TB
@@ -126,18 +142,6 @@ client behind it. HTTP and Postgres libraries are separate projects; this reposi
 
 So today a library runs on the in-memory loop (and over the test layers below), and runs on the real loops when they
 land. Built and tested on linux-x64, macos-x64, macos-arm64 and windows-x64; the package is Goose source and builds no C.
-
-## Choose your path
-
-| | **I am writing a network library** | **I am writing an event loop** |
-|---|---|---|
-| You write | a state struct and one function that handles events | the 12 operations of the core, on top of your own I/O |
-| You depend on | the contract | the contract |
-| You get | code not tied to an event loop, and tests that need no network | every library written for the contract, and a suite that says when you are done |
-| First example | [the echo server](#i-am-writing-a-network-library) | [a loop that supplies only the core](#i-am-writing-an-event-loop) |
-| Guide | [docs/libraries.md](docs/libraries.md) | [docs/event-loops.md](docs/event-loops.md) |
-
-Neither side needs the other's internals. Both are specified in [docs/contract.md](docs/contract.md).
 
 ## I am writing a network library
 
