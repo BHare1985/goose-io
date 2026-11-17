@@ -51,7 +51,7 @@ The package stays pure Goose: no C, no `extern`, no build sidecar outside `examp
 - `deadlines.goose`: `Deadlines`, a bounded heap of deadlines for libraries that have many
 - `memory.goose`: the in-memory event loop, with scripted peers, a virtual clock and the named faults
 - `conformance/`: the conformance suite, which imports only the contract: `suite.goose` is the driver and the entry points, `support.goose` what every check shares, `handles`, `net`, `data`, `close` and `time` the checks
-- `examples/`: the example libraries: `echo/`, `lineserver/`, `lineclient/` and `gateway.goose`, which runs the last two on one loop
+- `examples/`: the example libraries: `echo/`, `lineserver/`, `lineclient/` and `gateway.goose`, which runs the last two on one loop, and `dispatch.goose`, which sends each event to the library that owns its link
 - `docs/`: `contract.md`, `libraries.md`, `event-loops.md` and `history.md`
 - `docs/event-loops/`: how each candidate event loop maps onto the contract
 - `tests/unit/`: tests of the types, `Deadlines` and the in-memory event loop

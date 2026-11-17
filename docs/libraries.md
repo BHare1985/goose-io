@@ -12,7 +12,7 @@ network. Then come back here for the shape of a library and the rules it follows
 This document covers the shape of a library, what the contract gives it to work with, and how to test it with
 no network. Every excerpt of code in it is copied from a file that the tests build and run, and
 `tests/checks/docs.sh` fails if one drifts: `examples/lineserver/server.goose`, `examples/lineclient/client.goose`
-and `examples/gateway.goose` are the libraries, and `tests/examples/` runs them on scripted peers.
+`examples/gateway.goose` and `examples/dispatch.goose` are the libraries and the applications that run them, and `tests/examples/` runs them on scripted peers.
 
 ## What a library needs
 
@@ -313,6 +313,73 @@ fn step<Io>(front: lineserver::LineServer&, back: lineserver::LineServer&, clien
 
 `tests/examples/gateway_test.goose` runs it, and checks that on `stop` every library closes its links so that
 `serve` returns before the grace period ends.
+
+#### Offering in turn, or dispatching by link
+
+`step` above **offers** each event to the libraries in turn: the first library is offered it, returns `false` if the link is
+not its own (and does nothing), and the application offers it to the next. A library is written to tolerate this, so it is
+the simplest application. `examples/dispatch.goose` is the other way: the application keeps which library owns each link in
+a `LinkMap` and calls only that library.
+
+<!-- excerpt: examples/dispatch.goose#router -->
+```goose
+// The library that owns a link, as a number the application chooses.
+struct Owner { library: i64 = 0 }
+
+root struct Router {
+    owners:  goose_io::LinkMap<Owner> = goose_io::LinkMap<Owner> {},
+    offered: i64                      = 0,        // events offered in turn: the first event of each link
+}
+
+// Offers the event to one library; true if the event was for one of its links.
+fn _offer<Io>(echo: echo::Echo&, client: lineclient::LineClient&, library: i64, io: Io&, ev: goose_io::Event) -> bool {
+    return if library == 0 { echo.echo_event(io, ev) } else { client.client_event(io, ev) };
+}
+
+fn step<Io>(r: Router&, echo: echo::Echo&, client: lineclient::LineClient&, io: Io&, ev: goose_io::Event) {
+    if !goose_io::is_link_event(ev) {
+        // a Tick is about no link: every library has its own
+        echo.echo_event(io, ev);
+        client.client_event(io, ev);
+        return;
+    }
+    let link = goose_io::link_of(ev);
+    let known .= r.owners.find(link);
+    if known != null {
+        _offer(echo, client, known.library, io, ev);                    // one lookup
+    } else {
+        for library in 2 {                                              // the first event of a link: ask each library once
+            r.offered++;
+            if _offer(echo, client, library, io, ev) {
+                r.owners.put(link, Owner { library: library });
+                break;
+            }
+        }
+    }
+    match ev {
+        Closed e => { r.owners.drop(e.link); },                         // the handle is valid until this handler returns
+        _ => {},
+    }
+}
+```
+
+The tradeoffs:
+
+| | Offer in turn (`gateway.goose`) | Dispatch by link (`dispatch.goose`) |
+|---|---|---|
+| **Cost of an event** | A failed ownership check in every library before the owner: a table lookup each, a few nanoseconds when the table is in cache (`bench/README.md`), so it grows linearly with the number of libraries. Not measured for a chain of many libraries. | One `LinkMap` lookup, whatever the number of libraries. |
+| **Cost of a new link** | The same as any other event. | The first event of each link is still offered in turn, until a library claims it: one failed check per library before the owner, once for the life of the link. |
+| **State in the application** | None. | A table with an entry (a generation and an owner number) for each slot up to the loop's highest, as in `LinkMap`; an entry is dropped in `Closed`, and one that is forgotten is harmless because the generation protects it. |
+| **Code** | A few lines. | A router and a drop in `Closed`. |
+| **What it relies on** | Each library returning `false`, and doing nothing, for a link that is not its own (*A library claims only the events of links it owns*). | The same, for the first event of each link: a library that claimed a link that was not its own would own it in the table. |
+| **Choose it when** | There are a few libraries and the cost is not measurable. | There are many libraries, or the events are many and the failed checks add up. |
+
+A library that dials for itself (the line client) makes links the application never sees the handle of, so an application
+cannot register them in advance: dispatching by link learns the owner from the library that claims the first event, as
+`dispatch.goose` does. A `Tick` and `PassEnd` are about no link and go to every library in either way.
+
+`tests/examples/dispatch_test.goose` runs it, with an echo server and a line client on one loop, and checks that only the first
+event of each link was offered in turn.
 
 ## Testing a library
 

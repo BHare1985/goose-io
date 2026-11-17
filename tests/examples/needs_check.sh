@@ -20,7 +20,7 @@ groups=(half-close sizing abort inspection)
 
 files=("$@")
 if [ ${#files[@]} -eq 0 ]; then
-    files=(examples/gateway.goose)
+    files=(examples/gateway.goose examples/dispatch.goose)
     for f in examples/*/*.goose; do files+=("$f"); done
 fi
 

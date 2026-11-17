@@ -239,6 +239,13 @@ return `false`, and to do nothing else, for an event about a link that it did no
 library in the chain is offered every event and ignores the ones that are not its own, and a library never reads or changes
 another library's connection. A `Tick` is not about any link, so every library in turn is offered it.
 
+**Two ways to dispatch.** Offering each event in turn, as above, is the simplest: the application holds no state, and each
+library before the owner does a failed ownership check per event (a table lookup, a few nanoseconds), so the cost grows with
+the number of libraries. [`examples/dispatch.goose`](examples/dispatch.goose) instead keeps which library owns each link and
+makes one lookup per event whatever the number of libraries. That costs a table in the application and a drop in `Closed`, and
+the first event of each link is still offered in turn until a library claims it. The comparison is in
+[docs/libraries.md](docs/libraries.md#offering-in-turn-or-dispatching-by-link).
+
 Connecting the libraries to each other, such as turning a request the server received into a query by the client, is
 ordinary code in the same handler. [`examples/gateway.goose`](examples/gateway.goose) does this with a line server and a
 pooled line client, and [the application section of docs/libraries.md](docs/libraries.md#the-application) explains it.
