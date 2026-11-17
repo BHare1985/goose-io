@@ -201,6 +201,7 @@ tests/conformance/faults.sh                     # every check is shown to fail w
 ## Repository layout
 
 - `goose_io.goose`: the contract: the types, the helpers, the version and `require_core` with one check for each group
+- `bench/`: micro-benchmarks, built with `goose build` and run by hand (`link_map_bench.goose`: the layouts of a table keyed by link)
 - `deadlines.goose`: `Deadlines`, a bounded heap of deadlines for libraries that have many
 - `memory.goose`: the in-memory event loop, with scripted peers, a virtual clock and the named faults
 - `conformance/`: the conformance suite, which imports only the contract: `suite.goose` is the driver and the entry points, `support.goose` what every check shares, `handles`, `net`, `data`, `close` and `time` the checks
