@@ -21,7 +21,7 @@ Application authors implement nothing of goose-io. They get the ecosystem: any l
 | Goal | A library that runs on every event loop that uses goose-io | An event loop that runs every library that uses goose-io | A program that combines libraries on an event loop |
 | You write | A state struct and one function that handles events | The 12 operations of the core, on top of your own I/O | The glue: run the loop, hand each event to the libraries, connect them |
 | You get | Portable code, and tests that need no network | Every library written for the contract, and a suite that says when you are done | Libraries and event loops from anyone, chosen independently |
-| First example | [The echo server](#i-am-writing-a-library) | [A loop that supplies only the core](#i-am-writing-an-event-loop) | [The gateway](#i-am-building-an-application) |
+| First example | [The echo server](#i-am-writing-a-library) | [A loop that supplies only the core](#i-am-writing-an-event-loop) | [Three lines](#i-am-building-an-application) |
 | Guide | [docs/libraries.md](docs/libraries.md) | [docs/event-loops.md](docs/event-loops.md) | [docs/libraries.md](docs/libraries.md#the-application) |
 
 No side needs another's internals. All three rely on [the same contract](docs/contract.md), which exposes no socket,
@@ -212,20 +212,29 @@ other exists.
 
 ## I am building an application
 
-An application is the only code that names an event loop. It runs the loop and hands each event to its libraries, and
-the code that connects one library to another lives here. The whole of the glue in [`examples/gateway.goose`](examples/gateway.goose),
-which runs a line server, a second line server and a pooled line client on one loop, is one call:
+An application chooses libraries and an event loop, and runs the loop. With one library it is three lines. This is the
+echo server, on the in-memory event loop:
 
 ```goose
-io.serve() { io, ev => gateway::step(front, back, client, table, io, ev); };
+var io = goose_io_memory::Loop { .. };               // the event loop: any one that uses goose-io
+var echo = echo::Echo { .. };                        // the library
+echo.start(io, "0.0.0.0:7");                         // the library listens on port 7
+io.serve() { io, ev => echo.echo_event(io, ev); };   // run the loop; give every event to the library
 ```
 
-`step` gives the event to each library until one claims it, then moves requests from the front server to the client and the
-client's results back to the front server's connections. Application authors do not implement goose-io: they choose
-libraries and an event loop written by anyone else, and write only this glue. A different event loop is a one-line change.
+To use another event loop, change the first line. With two libraries, the application offers each event to each library in
+turn. A library says whether the event was for one of its own links, and an event that is not goes on to the next:
 
-**Next:** [the application section of docs/libraries.md](docs/libraries.md#the-application) explains the dispatch and shows
-`step` in full.
+```goose
+io.serve() { io, ev =>
+    if !server.server_event(io, ev) { client.client_event(io, ev); }
+};
+```
+
+Connecting the libraries to each other, such as turning a request the server received into a query by the client, is
+ordinary code in the same handler. [`examples/gateway.goose`](examples/gateway.goose) does this with a line server and a
+pooled line client, and [the application section of docs/libraries.md](docs/libraries.md#the-application) explains it.
+Application authors implement nothing of goose-io: they choose libraries and an event loop written by anyone else.
 
 ## I am writing an event loop
 
