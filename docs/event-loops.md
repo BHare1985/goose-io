@@ -147,9 +147,144 @@ While the contract is at major version 0 an event loop may find that a requireme
 then records what it tried, and the contract is changed only if no other way works (design D13 of the change that
 introduced it).
 
+## The epoll event loop
+
+The first event loop on real sockets is [`examples/loops/epoll/`](../examples/loops/epoll/): one `epoll::Loop` is one thread's loop,
+on Linux, made from the generic layer of tcprouter's engine (the worker loop, slots and generations, the buffer pool and bounded send
+queue, dial, timeouts, drain and statistics) with the proxy removed, and moved to the contract's names. It supplies the core and the
+half-close, sizing, abort, inspection and batching groups; it does not supply the unix group (a `unix:` address is `BadAddress`).
+It is not part of the package (the package is pure Goose): it needs a C layer for sockets and epoll, which lives under
+`examples/loops/`, the one place `tests/checks/purity.sh` allows native files. [`bench/BASELINE.md`](../bench/BASELINE.md) says what it
+is measured against and how.
+
+```
+import goose_io from "<this repository>";
+import epoll from "<this repository>/examples/loops/epoll";
+
+var io = epoll::Loop { .. };               // set io.limits before the first listen, dial or serve
+let listener, err = io.listen("0.0.0.0:8080");
+io.serve() { io, ev => handle(io, ev); };
+```
+
+A program that uses it is built with `goose build` (`examples/loops/epoll/build.sh program.goose output`); `goose run` cannot link the
+loop's C layer. Several loops, one for each thread, share a port (`SO_REUSEPORT`) and are stopped together with `epoll::spawn`,
+`epoll::drain` and `epoll::wait_for_signal_then_drain`; `epoll::probe(address)` first, so that a port held by another process is an
+error and not a shared port. `serve` is the application's; `stop` on one loop is called on its own thread.
+
+**How it differs from tcprouter's engine**, where the contract asked for something else: a slot is freed only after the handlers of its
+`Closed` have returned (so `peer_address` works inside that handler, and a link made there cannot take the slot, a failed `dial`
+included); `Writable` comes once the largest refused send would fit; `close` finishes sending, shuts the write side and drops the
+peer's input in a socket of its own until the peer ends or `half_close_timeout_ms` passes, so it never resets a link with unread input;
+and a Tick comes at least every 90 ms of the loop's clock (a 100 ms period plus a scheduler's slack broke the contract's 100 ms).
+Everything else on the path of a request is tcprouter's, and the system calls per request are the same (`bench/gate_syscalls.sh`).
+
+**Running the suite on it.** The runner is `examples/loops/epoll/conformance.goose`; it makes the fixture without privileges, on the
+loopback: `silent` is a listener with a backlog of one whose accept queue is full and never drained (a connect is dropped, so a dial to it
+ends by its own timeout), `held` a socket the runner keeps bound and listening (so `listen` on its address fails with `AddressInUse`),
+`refused` a port that was bound and released, and `answers` a listener the kernel keeps completing connects for. The runner's
+`half_close_timeout_ms` is 3 seconds, so that `close_when_peer_never_reads` ends in seconds and not in the two minutes the check allows.
+`examples/loops/epoll/conformance.sh [--repeat N] [--group G]` builds it and runs every part of the core and of each group.
+
+<!-- source: examples/loops/epoll/conformance.goose -->
+```
+// Runs one part of the conformance suite against the epoll event loop, on real sockets:
+//
+//     goose build conformance.goose -o conformance && ./conformance <part> <group>
+//
+// The part is the first argument (default 0) and the group the second (core, half-close, sizing, abort, inspection or batching;
+// default core). Both ends of every link are on the loop under test, so the runner supplies what a contract call cannot make
+// (docs/event-loops.md, the fixture), without privileges, on the loopback:
+//
+//   silent   a listener with a backlog of one whose accept queue is full and never drained: its kernel drops further connects, so
+//            a dial to it is never answered and ends by its own timeout
+//   held     a socket bound and listening that the runner keeps, so a listen on its address fails with AddressInUse
+//   refused  a port that was bound and then released: nothing listens, so a dial is refused
+//   answers  a listener the kernel keeps completing connects for, so a dial made while the loop is draining still opens
+import std;
+import os;
+import goose_io from "../../..";
+import goose_io.conformance.suite;
+import epoll from ".";
+
+// The runner's own use of the loop's C layer: declared again here, because a program may name the symbols it links.
+extern fn c_listen(v6: bool, ip: const u8[16]&, port: u16, reuseport: bool, backlog: i32) -> i32;
+extern fn c_local_port(fd: i32) -> i32;
+extern fn c_connect_start(v6: bool, ip: const u8[16]&, port: u16) -> i32;
+extern fn c_close(fd: i32);
+
+var fixture_keep: i32[16] = [-1; 16];
+var fixture_kept: i64     = 0;
+
+fn keep(fd: i32) { fixture_keep[fixture_kept] = fd; fixture_kept++; }
+
+fn loopback() -> u8[16] {
+    var ip: u8[16] = [0; 16];
+    ip[0] = 127; ip[3] = 1;
+    return ip;
+}
+
+// Binds 127.0.0.1:0 with the backlog and returns the address text of what it got, keeping the socket open.
+fn make_listener(backlog: i32, text: u8[>..]&) -> i32 {   // appends the address text
+    var ip = loopback();
+    let fd = c_listen(false, ip, 0, false, backlog);
+    if fd < 0 { print("the runner could not listen: ", -fd); exit(2); }
+    format(text, "127.0.0.1:", c_local_port(fd));
+    return fd;
+}
+
+fn main() {
+    var part = 0;
+    if arg_count() > 1 {
+        var text: u8[>..] = [];
+        arg(1, text);
+        for c in text { if c >= '0' && c <= '9' { part = part * 10 + (c - '0'); } }
+    }
+    var group: u8[>..] = [];
+    if arg_count() > 2 { arg(2, group); }
+
+    // All four address texts live in one array: the suite is only allowed to call a loop that shrinks its own arrays when the views
+    // it holds are of one array exactly (the language's aliasing rule), so the fixture is four slices of one.
+    var texts: u8[>..] = [];
+
+    // silent: fill the accept queue (a backlog of one holds two completed connections), then more connects are dropped
+    let sfd = make_listener(1, texts);
+    keep(sfd);
+    let silent_end = texts.len;
+    var ip = loopback();
+    var port: u16 = c_local_port(sfd) as u16;
+    for k in 6 { let c = c_connect_start(false, ip, port); if c >= 0 { keep(c); } }
+
+    keep(make_listener(16, texts));
+    let held_end = texts.len;
+
+    keep(make_listener(1024, texts));
+    let answers_end = texts.len;
+
+    let rfd = make_listener(1, texts);
+    c_close(rfd);
+
+    var io = epoll::Loop { .. };
+    io.limits.half_close_timeout_ms = 3000;
+    goose_io::require_core(io);
+    goose_io::require_half_close(io);
+    goose_io::require_sizing(io);
+    goose_io::require_abort(io);
+    goose_io::require_inspection(io);
+    let fixture = goose_io_conformance::Fixture { silent: texts[..silent_end], held: texts[silent_end..held_end], refused: texts[answers_end..], answers: texts[held_end..answers_end], unix: "" };
+    if group == "half-close" { exit(goose_io_conformance::conformance_half_close_part(io, fixture, part)); }
+    if group == "sizing" { exit(goose_io_conformance::conformance_sizing_part(io, fixture, part)); }
+    if group == "abort" { exit(goose_io_conformance::conformance_abort_part(io, fixture, part)); }
+    if group == "inspection" { exit(goose_io_conformance::conformance_inspection_part(io, fixture, part)); }
+    if group == "batching" { exit(goose_io_conformance::conformance_batching_part(io, fixture, part)); }
+    exit(goose_io_conformance::conformance_core_part(io, fixture, part));
+}
+```
+
+The network tests that need real peers (the example libraries, the limits, closing) are in `tests/net/`, run by `tests/net/run.sh`.
+
 ## Candidate event loops and libraries
 
-These are candidates, not claims: today only the in-memory event loop exists, and `docs/event-loops/` maps the first
+These are candidates, not claims: today the in-memory event loop and the epoll event loop above exist, and `docs/event-loops/` maps the first
 few in detail. They show how much one contract could unify. They are not equivalent integration targets: some are
 whole event loops (libuv, libevent), some are lower-level interfaces an event loop would be built on (liburing), and
 TLS libraries and QUIC engines would be layers over an event loop, not event loops of their own.

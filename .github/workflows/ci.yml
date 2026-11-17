@@ -147,3 +147,38 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: bash tests/conformance/run.sh --repeat 50
+
+  # The epoll event loop (examples/loops/epoll) is Linux-only and needs a C compiler, so it has a job of its own, with no matrix: the
+  # suite on real sockets, and the network tests that need real peers. The performance gates need an idle host and strace and wrk, and are
+  # run by hand (bench/README.md).
+  epoll:
+    name: epoll event loop (linux-x64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Goose
+        shell: bash
+        env:
+          ASSET: goose-v2026.4-linux-x64.tar.gz
+        run: |
+          set -euo pipefail
+          tag=$(sed -n 's/.*goose-\(v[0-9.]*\)-.*/\1/p' <<< "$ASSET")
+          url="https://github.com/aardappel/goose/releases/download/$tag/$ASSET"
+          mkdir -p "$RUNNER_TEMP/goose"
+          curl -fsSL --proto '=https' --tlsv1.2 "$url" -o "$RUNNER_TEMP/$ASSET"
+          tar -xzf "$RUNNER_TEMP/$ASSET" -C "$RUNNER_TEMP/goose"
+          bin=$(find "$RUNNER_TEMP/goose" -maxdepth 3 -name goose -type f | head -1)
+          test -n "$bin"
+          chmod +x "$bin"
+          echo "$(dirname "$bin")" >> "$GITHUB_PATH"
+          "$bin" version
+
+      - name: Conformance suite on the epoll event loop (the core and each group, three repetitions)
+        shell: bash
+        run: bash examples/loops/epoll/conformance.sh --repeat 3
+
+      - name: Network tests (the example libraries, limits, closing, drain and hostile peers on real sockets)
+        shell: bash
+        run: bash tests/net/run.sh

@@ -16,3 +16,4 @@ build/
 # OpenSpec keeps each change's metadata in a dot file, and keeps empty directories with a placeholder
 !.openspec.yaml
 !.gitkeep
+bench/baseline/

@@ -4,7 +4,7 @@ Ground rules for every group: work on a branch of goose-io, never on `main`; do 
 
 ## 1. Where the loop lives
 
-- [ ] 1.1 Spike: a directory `examples/loops/epoll/` with a Goose file that calls one `extern` function from `examples/loops/epoll/sys.c` (`c_boottime_ms`), imports `goose_io` and the suite, and is built with `goose build`; record in `design.md` D1 how it is built and run (build file, flags), or that it cannot, and then the fallback (a repository of its own); verify the built program prints the clock and that `tests/checks/purity.sh` still passes with the C file there
+- [x] 1.1 Spike: a directory `examples/loops/epoll/` with a Goose file that calls one `extern` function from `examples/loops/epoll/sys.c` (`c_boottime_ms`), imports `goose_io` and the suite, and is built with `goose build`; record in `design.md` D1 how it is built and run (build file, flags), or that it cannot, and then the fallback (a repository of its own); verify the built program prints the clock and that `tests/checks/purity.sh` still passes with the C file there
 - [ ] 1.2 Add `examples/loops/epoll/build.sh` (or the build file the spike found) and `tests/net/run.sh`, which builds a program, runs it, supports a name filter and `REPEAT=n`, and exits non-zero on any failure; verify it runs and reports 0 tests successfully
 - [ ] 1.3 Record the baseline in `bench/BASELINE.md`: tcprouter commit `05995d1` (and that `main` differs only in documents), Goose version, host CPU and kernel; build tcprouter's `examples/http_hello.goose` and `tests/net/harness/forward_server.goose` optimised from a clean checkout into `bench/baseline/` (git-ignored); verify both start and answer a request
 
