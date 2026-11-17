@@ -31,7 +31,9 @@ struct Held {
     len:      i64                   = 0,
 }
 
-// What a library chose for a link. The wrapper delays Opened, so the library chooses what the peer's end of
+// What a library chose for a link. A mode is made when the link is issued (the handle `dial` returns, or an accepted link),
+// so that a choice made while dialling is kept; the choice is closed when the handler of the link's Opened returns, as in
+// the inner event loop (*Keep-open is configured no later than Opened*). The wrapper delays Opened, so the library chooses what the peer's end of
 // stream does after the inner event loop would have acted on its default: the wrapper keeps every inner link
 // open on end of stream and does what the library chose.
 struct Mode {
@@ -40,6 +42,7 @@ struct Mode {
     keep:       bool           = false,     // set_keep_open_on_eof(link, true)
     eof_close:  bool           = false,     // the wrapper closed the inner link because the peer finished and keep is off
     lib_closed: bool           = false,     // the library called close or reset
+    configured: bool           = false,     // the handler of the link's Opened, as the application sees it, has returned
 }
 
 root struct Layer {
@@ -81,7 +84,12 @@ fn _plain(bytes: const u8[:]) -> u8[>..] {
 fn listen(w: Layer&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError { w._prepare(); return inner.listen(address); }
 fn listener_port(w: Layer&, l: goose_io::Listener) -> u16 { w._prepare(); return inner.listener_port(l); }
 fn stop_listening(w: Layer&, l: goose_io::Listener) { w._prepare(); inner.stop_listening(l); }
-fn dial(w: Layer&, address: const u8[:], connect_ms: i64) -> goose_io::Link { w._prepare(); return inner.dial(address, connect_ms); }
+fn dial(w: Layer&, address: const u8[:], connect_ms: i64) -> goose_io::Link {
+    w._prepare();
+    let link = inner.dial(address, connect_ms);
+    if goose_io::is_valid(link) { w.modes.push(Mode { link: link, live: true, .. }); }       // a choice made while dialling is recorded
+    return link;
+}
 fn peer_address(w: Layer&, link: goose_io::Link) -> goose_io::Address { w._prepare(); return inner.peer_address(link); }
 fn send_room(w: Layer&, link: goose_io::Link) -> i64 { w._prepare(); return inner.send_room(link); }
 fn max_send(w: Layer&) -> i64 { w._prepare(); return inner.max_send(); }
@@ -94,7 +102,15 @@ fn _mode(w: Layer&, link: goose_io::Link) -> i64 {
 fn set_keep_open_on_eof(w: Layer&, link: goose_io::Link, keep: bool) {
     w._prepare();
     let m = w._mode(link);
-    if m >= 0 { w.modes[m].keep = keep; }
+    if m >= 0 && !w.modes[m].configured { w.modes[m].keep = keep; }
+}
+
+// The application's handler has returned from an event: the Opened of a link makes its keep-open choice final.
+fn _given(w: Layer&, o: Out) {
+    if o.kind == 'L' && o.h.kind == 'O' {
+        let m = w._mode(o.h.link);
+        if m >= 0 { w.modes[m].configured = true; }
+    }
 }
 fn shutdown_write(w: Layer&, link: goose_io::Link) { w._prepare(); inner.shutdown_write(link); }
 fn now_ms(w: Layer&) -> i64 { w._prepare(); return inner.now_ms(); }
@@ -194,7 +210,7 @@ fn _on_event(w: Layer&, ev: goose_io::Event) {
         },
         Opened e => {
             inner.set_keep_open_on_eof(e.link, true);
-            w.modes.push(Mode { link: e.link, live: true, .. });
+            if w._mode(e.link) < 0 { w.modes.push(Mode { link: e.link, live: true, .. }); }       // an accepted link; a dialled one has its mode already
             w._hold(Held { kind: 'O', link: e.link, listener: e.listener, pass: w.pass, .. });
         },
         Data e => {
@@ -263,6 +279,7 @@ fn serve<F>(w: Layer&) {
             if w._wanted(w.out[i]) {
                 let e = w._event_of(w.out[i]);
                 F(w, e);
+                w._given(w.out[i]);
             }
             i++;
         }
@@ -278,6 +295,7 @@ fn serve<F>(w: Layer&) {
             if w._wanted(w.out[i]) {
                 let e = w._event_of(w.out[i]);
                 F(w, e);
+                w._given(w.out[i]);
             }
             i++;
         }

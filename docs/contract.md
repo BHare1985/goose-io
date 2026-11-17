@@ -54,7 +54,7 @@ All are fixed-size values.
 
 | Type | Shape | Meaning |
 |---|---|---|
-| `Link` | `{ slot: u32, gen: u32 }` | A connection. The default value is invalid. `is_valid(link)`, `same(a, b)`. |
+| `Link` | `{ slot: u32, gen: u32 }` | A connection. The default value (slot 0, generation 0) is the one invalid link of every event loop: no event loop issues a link with generation 0, and every operation treats generation 0 as a handle that was never issued (*The invalid link is reserved*). `is_valid(link)`, `same(a, b)`. |
 | `Listener` | `{ id: u32 }` | A listening endpoint. The default value means "none". `is_listener(l)`, `same(a, b)`. An id is never given to a second listener of the same loop. |
 | `Address` | `{ text: u8[..56] }` | A numeric endpoint as text. Empty when unknown. `is_empty(a)`. |
 | `SendStatus` | `Sent`, `Full`, `TooLarge`, `NotOpen`, `Closed` | Result of `send` and `send2`. |
@@ -65,7 +65,7 @@ All are fixed-size values.
 
 **Addresses** are numeric text: `ip:port` for IPv4 and `[ip]:port` for IPv6, the same on every event loop, with IPv6 as hexadecimal groups. An event loop may accept more text than that (`inet_pton` takes `::ffff:192.0.2.1`), and a portable library passes only this form; the in-memory event loop treats an IPv4 tail as malformed. An event loop never resolves a host name, so there is no lookup to block the loop or to count against `connect_ms`; a host name given to `dial` fails with `ConnectFailed`. An IPv6 zone identifier (`%eth0`) is not part of an address and makes it malformed. An event loop that supplies the unix group (section 6) also takes `unix:/path` and its URL spelling `unix:///path`. Protocol URLs (`postgres://`, `redis://`, `mysql://`) are not addresses: a library resolves them to a path or a `host:port` before it calls `dial`, and text that is neither is `BadAddress`.
 
-**Handles.** A link handle is valid from the `dial` or `Opened` that produced it until the handler of its `Closed` event returns; during that handler `peer_address` (where the loop supplies it) still works. After that it is stale and every operation on it does nothing. The generation is a guard against mistakes, not a licence to keep a handle: a slot's generation repeats after it has been used 2^32 times, so a library drops a handle when it sees its `Closed`. A listener handle is never reused at all (*Listener handles are never reused*); a loop that has issued every handle it can fails `listen` with `NoResources` and never starts again from an old one.
+**Handles.** A link handle is valid from the `dial` or `Opened` that produced it until the handler of its `Closed` event returns; during that handler `peer_address` (where the loop supplies it) still works. After that it is stale and every operation on it does nothing. An event loop never issues a slot and generation pair it has issued before on the same loop: a slot whose generations are used up is retired, not wrapped (*A slot and generation pair is never issued twice*). A slot is also held until the `Closed` of the link in it has been delivered, even with a new generation (*A slot is held until its Closed is delivered*), so a slot names at most one link that has not ended. A library still drops a handle when it sees its `Closed`. A listener handle is never reused at all (*Listener handles are never reused*); a loop that has issued every handle it can fails `listen` with `NoResources` and never starts again from an old one.
 
 **How an event finds its state** (*A link event is recognised by what the library holds*, *Slot numbers are dense*, *A slot is freed when its Closed has been handled*, *A link map finds state by link*). Nothing is attached to a link or a listener: an event carries its link, and a library keeps its own state keyed by that link. A dialled link is the one `dial` returned to the library; an accepted link is one whose `Opened` names a listener the library started (the library compares it with its own listeners); every later event is one whose link the library has state for. The library reports an event as handled only for a link it owns and as not handled for any other, so that the application can offer it to the next library; a library that does not know the link of a `Data`, `Writable`, `PeerEof` or `Closed` does none of its handling for it.
 
@@ -137,7 +137,7 @@ With half-close, the peer's end of stream may add one `PeerEof` after every `Dat
 | `Full` | Does not fit now. Nothing was taken. | One `Writable` once it would fit. |
 | `TooLarge` | Larger than `max_send()`. Will never fit in one call. | Nothing. Send it in pieces. |
 | `NotOpen` | The link has not opened yet. Nothing was queued. | Wait for `Opened`. |
-| `Closed` | The link is closing, closed or write-shut, or the handle is stale. | nothing |
+| `Closed` | The link is closing, closed or write-shut, or the handle is stale. | nothing: sending on it has ended for good |
 
 They are decided in this order: `Closed`, `NotOpen`, then a send of zero bytes on an open link returns `Sent`, then `TooLarge`, then `Full`.
 
@@ -150,6 +150,11 @@ An event loop bounds what it holds unsent for each link, so a peer that never re
 3. That ends the episode. The library retries; the send that was refused now returns `Sent`, unless the library itself has sent on the link in between. A `Full` after it starts a new episode with its own `Writable`.
 
 A link that was never refused gets no `Writable`, and `TooLarge` never leads to one. The event carries no size.
+
+**A `Closed` send result is final for sending** (*A Closed send result is final*). Once `send` or `send2` has returned `Closed`, every later send returns `Closed`, `send_room` is 0, and no `Writable` is delivered for the link. It means one of two things, and the library knows which from what it has called:
+
+- If the library called none of `shutdown_write`, `close` and `reset` on the link, the event loop is ending the link (the peer reset it, a write failed, a limit passed) and its `Closed` event follows with no further call. A loop returns `Closed` only once it has started ending the link, never for a transient condition. A library can drop its send queue on any `Closed` result.
+- If the library called `shutdown_write`, `Closed` means only that **sending** has ended. The link goes on receiving, possibly for a long time, so the library expects `Data` until the `Closed` event, and a `PeerEof` if it asked to keep the link open.
 
 **A refused send is always resolved** (*A refused send is always resolved*). After `Full` the link gets one `Writable` or its `Closed`; it never stays open and silent. It gets no `Writable` once its sending has ended by `close` (or by `shutdown_write` or `reset`, where supplied), including one the event loop had already queued: nothing can fit again, so the event would be untrue. When the peer goes away while a send is refused, an event loop chooses between the two. One on sockets will usually see the reset and close the link. The in-memory event loop delivers `Writable` after the link's `PeerEof` (when the library asked to keep the link open), and the retry is accepted and lost and resets the link.
 
@@ -165,6 +170,42 @@ To hold a peer back in the other direction, a library calls `pause_reading(link,
                     or close() ───────┴── close, the peer, ─────┘
  accepted by a listener ───────────► Open     the event loop, or stop
 ```
+
+**The states of a link** (*A link is in one of five states*). A library can tell the state of each of its links from the calls it made and the events it received. The event loop may have begun to end a link that the library still sees as open (the peer went away), which is why `send` on an open link may return `Closed`.
+
+| State | Means |
+|---|---|
+| dialling | `dial` returned, no event yet |
+| open | after `Opened` |
+| write-shut | after `shutdown_write` on an open link |
+| closing | after `close` or `reset`, before `Closed` |
+| ended | after `Closed`, or a handle that was never issued (the invalid link included) |
+
+**What each operation does in each state** (*Sending has one result in each link state*, *Ending a link has one result in each link state*, *Pausing takes effect in every live state*, *Keep-open is configured no later than Opened*, *A link reports its peer's address*):
+
+| Operation | dialling | open | write-shut | closing | ended |
+|---|---|---|---|---|---|
+| `send`, `send2` | `NotOpen` | `Sent`, `Full` or `TooLarge`; `Closed` if the loop is ending it | `Closed` | `Closed` | `Closed` |
+| `send_room` | 0 | the room | 0 | 0 | 0 |
+| `close`, `reset` | abandon; one `Closed`, `Local`, no `Opened` | end; one `Closed`, `Local` | end; one `Closed`, `Local` | no effect, no second `Closed` | no effect |
+| `shutdown_write` | no effect | ends sending | no effect | no effect | no effect |
+| `pause_reading` | takes effect (no `Data` until resumed) | takes effect | takes effect | no effect | no effect |
+| `set_keep_open_on_eof` | recorded | recorded only while handling `Opened` | no effect | no effect | no effect |
+| `peer_address` | empty | the address | the address | the address | empty |
+
+**How an operation completes** (*Each operation says how it completes*). Every operation takes its effect and gives its result when it returns. Only some have one later notification, and no other event reports an operation's result:
+
+| Operation | Returns with | Later notification |
+|---|---|---|
+| `listen` | a listener, or an error (no event follows an error) | none of its own; each accepted connection is a new link's `Opened` |
+| `dial` | a link (the invalid link on a finished loop) | one `Opened` or one `Closed` (none on a finished loop) |
+| `send`, `send2` | a `SendStatus`; `Sent` means taken, not delivered | after `Full`: one `Writable` or the link's `Closed` |
+| `close`, `reset` | nothing; effective at once (sends return `Closed`) | one `Closed`, reason `Local` |
+| `shutdown_write` | nothing; effective at once | none of its own; the link's `Closed` comes when both sides are done |
+| `pause_reading`, `set_keep_open_on_eof` | nothing; effective at once (keep-open: applied when `Opened` returns) | none |
+| `tick_by` | nothing; the request is recorded | a `Tick` at or after the earliest outstanding request; one `Tick` may answer several calls |
+| `stop` | nothing; draining begins at once | `serve` returns |
+| `stop_listening` | nothing; no connection is accepted after it | none |
 
 **Why a dial failed** (*A failed dial says why*). `ConnectFailed` carries a kind. An event loop translates what its system reports into one of these and never passes an error number through. `Other` is always an honest answer when it cannot tell.
 
@@ -243,12 +284,13 @@ Each group is a small set of operations and events with rules that bind only a l
 (*Peer end of stream and half-close*) Operations `set_keep_open_on_eof(link, keep)` and `shutdown_write(link)`, event `PeerEof`.
 
 - By default, as in the core, the event loop sends what was accepted and closes the link with reason `PeerClosed` when the peer finishes.
-- After `set_keep_open_on_eof(link, true)` (to be called before the peer's end of stream, usually while handling `Opened`) the event loop delivers `PeerEof` once, after all `Data`, and keeps the link open for sending. The library ends it with `shutdown_write` or `close`.
+- After `set_keep_open_on_eof(link, true)` the event loop delivers `PeerEof` once, after all `Data`, and keeps the link open for sending. The library ends it with `shutdown_write` or `close`.
+- **The keep-open window** (*Keep-open is configured no later than Opened*): `set_keep_open_on_eof` is recorded when it is called on a dialling link or while the link's `Opened` is being handled, and the setting applies from the moment that handler returns. A call made later has no effect, whether or not the peer has finished. An event loop that observed the peer's end of stream before then acts on it only after the `Opened` handler has returned, as the setting says. A fixed window makes every loop answer the same way: without it the result would depend on when each loop notices the end of stream.
 - `shutdown_write` ends this side's sending while still receiving: bytes already accepted are sent, the peer sees end of stream after them, `send` afterwards returns `Closed`, and `Data` and `PeerEof` still arrive. When both sides have finished, the link closes with reason `PeerClosed`.
 
 | Operation | Result | Precondition | Stale handle |
 |---|---|---|---|
-| `set_keep_open_on_eof(link, keep)` | none | before the peer's end of stream | no effect |
+| `set_keep_open_on_eof(link, keep)` | none | while the link is dialling or while its `Opened` is handled | no effect |
 | `shutdown_write(link)` | none | link is open | no effect |
 
 A line server that answers what it has read after the peer finished sending needs this group.
@@ -284,7 +326,7 @@ Without sizing a library joins the two parts itself into a buffer of its own, an
 
 (*A link reports its peer's address*, *Listening*) Operations `peer_address(link)` and `stop_listening(listener)`.
 
-- `peer_address` is the remote endpoint as numeric text in the form `dial` accepts, available from the link's `Opened` until its `Closed` has been delivered, and empty for a link that is not open. IPv6 is written in lower case with the longest run of two or more zero groups as `::`.
+- `peer_address` is the remote endpoint as numeric text in the form `dial` accepts. It is the address of an open, write-shut or closing link, available from the link's `Opened` until its `Closed` has been delivered, and empty for a dialling link, for a link whose `Closed` has been delivered, and for a stale or invalid handle. IPv6 is written in lower case with the longest run of two or more zero groups as `::`.
 - `stop_listening` accepts no new connections on that listener. Links already accepted stay open, and the handle is never given to a later listener.
 
 | Operation | Result | Stale or unknown handle |

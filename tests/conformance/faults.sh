@@ -29,24 +29,27 @@ while IFS=$'\t' read -r check part req scenarios fault group; do
     case "$check" in ''|'#'*) continue ;; esac
     want "$check" || continue
     if [ "$fault" = "-" ]; then unfaulted+=("$check"); continue; fi
-    out=$(GOOSE_IO_FAULT="$fault" limited goose run tests/conformance/memory_conformance.goose -- "$part" "$group" 2>&1)
-    code=$?
-    tested=$((tested + 1))
-    if grep -q "^FAIL $check " <<<"$out"; then
-        others=$(grep -c "^FAIL " <<<"$out")
-        echo "ok    $check fails with $fault ($others failing in part $part)"
-    else
-        echo "BAD   $check passes with its fault $fault (exit $code)"
-        sed 's/^/        /' <<<"$out" | tail -n 5
-        bad=$((bad + 1))
-    fi
+    # the fault column holds one fault, or several separated by commas: the check must fail under each of them
+    for one in ${fault//,/ }; do
+        out=$(GOOSE_IO_FAULT="$one" limited goose run tests/conformance/memory_conformance.goose -- "$part" "$group" 2>&1)
+        code=$?
+        tested=$((tested + 1))
+        if grep -q "^FAIL $check " <<<"$out"; then
+            others=$(grep -c "^FAIL " <<<"$out")
+            echo "ok    $check fails with $one ($others failing in part $part)"
+        else
+            echo "BAD   $check passes with its fault $one (exit $code)"
+            sed 's/^/        /' <<<"$out" | tail -n 5
+            bad=$((bad + 1))
+        fi
+    done
 done < tests/conformance/checks.tsv
 
 if [ ${#unfaulted[@]} -gt 0 ]; then echo "no fault possible, see docs/event-loops.md: ${unfaulted[*]}"; fi
 echo "$tested faults tried, $bad checks that did not fail"
 
 # an unknown fault name must not silently pass: the fault table in memory.goose has to know every name used
-for f in $(grep -v '^#' tests/conformance/checks.tsv | cut -f5 | grep -v '^-$'); do
+for f in $(grep -v '^#' tests/conformance/checks.tsv | cut -f5 | grep -v '^-$' | tr ',' '\n'); do
     grep -q "\"$f\"" memory.goose || { echo "BAD   fault $f is not in memory.goose"; bad=$((bad + 1)); }
 done
 [ $bad -eq 0 ]

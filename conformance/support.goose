@@ -69,6 +69,15 @@ struct Rec {
     listener: goose_io::Listener    = goose_io::Listener { .. }, // Opened: the listener that accepted it
 }
 
+// The two checks that carry the handle rules (conformance/handles.goose). The driver fails whichever check is running
+// when a rule is broken, except that each of these two ignores a break of the other's rule, so that each fails for its own.
+let CHECK_PAIR_UNIQUE = 119;
+let CHECK_SLOT_HELD = 120;
+
+// One issuance of a link handle, as the driver saw it: the handle `dial` returned and the same handle in that link's
+// `Opened` are one issuance, an accepted link's `Opened` is another. `closed` is set when its `Closed` is delivered.
+struct Issue { slot: u32 = 0, gen: u32 = 0, closed: bool = false }
+
 root struct Case {
     id:       i64                = 0,
     step:     i64                = 0,
@@ -93,6 +102,13 @@ root struct Case {
     recs:     Rec[>..]           = [],
     bytes:    u8[>..]            = [],
     after:    bool               = false,    // serve has returned: a check that waited for stop gives its verdict
+    // What the driver knows of every handle the loop has issued in this part. It is not cleared between the checks of
+    // a part, because the rules are about the loop and the loop is shared.
+    issues:   Issue[>..] = [],
+    pair_bad: bool       = false,            // a pair was issued twice, or a link had generation 0
+    slot_bad: bool       = false,            // a slot was issued while the link before it had not had its Closed
+    pair_why: u8[>..]    = [],
+    slot_why: u8[>..]    = [],
 }
 
 // Makes the case ready for check `id` (a Case cannot be copied, so the driver reuses one).
@@ -141,6 +157,56 @@ fn within<Io>(k: Case&, io: Io&, ms: i64) {
     k.started = io.now_ms();
     k.deadline = k.started + ms;
     io.tick_by(k.deadline);
+}
+
+// --- the handles the loop issues ---------------------------------------------------------------------
+
+fn _issue_at(k: Case&, slot: u32, gen: u32) -> i64 {
+    for e, i in k.issues { if e.slot == slot && e.gen == gen { return i; } }
+    return -1;
+}
+
+// Fails the check that is running, and every check that asks `pair_bad` later, with the first violation of the pair rule.
+fn _pair_violation(k: Case&, link: goose_io::Link, what: const u8[:]) {
+    var text: u8[>..] = [];
+    format(text, "[A slot and generation pair is never issued twice] slot ", link.slot, " generation ", link.gen, " ", what);
+    if !k.pair_bad { k.pair_bad = true; k.pair_why.append(text[..]); }
+    if k.id != CHECK_SLOT_HELD { k.fail(text[..]); }
+}
+
+fn _slot_violation(k: Case&, link: goose_io::Link) {
+    var text: u8[>..] = [];
+    format(text, "[A slot is held until its Closed is delivered] slot ", link.slot, " was issued while the link in it had not had its Closed delivered");
+    if !k.slot_bad { k.slot_bad = true; k.slot_why.append(text[..]); }
+    if k.id != CHECK_PAIR_UNIQUE { k.fail(text[..]); }
+}
+
+// A handle the loop has just issued: the link `dial` returned, or an accepted link. Called by the driver for an
+// accepted link's `Opened` and by `dial_to` (and by a check that dials itself) for a dialled one.
+fn issued(k: Case&, link: goose_io::Link) {
+    if link.gen == 0 { k._pair_violation(link, "has generation 0, which is reserved for the invalid link"); return; }
+    if k._issue_at(link.slot, link.gen) >= 0 { k._pair_violation(link, "was issued again"); return; }
+    for e in k.issues { if e.slot == link.slot && !e.closed { k._slot_violation(link); break; } }
+    k.issues.push(Issue { slot: link.slot, gen: link.gen, closed: false });
+}
+
+// Every link event the driver is given, whichever check's link it is.
+fn sight(k: Case&, ev: goose_io::Event) {
+    match ev {
+        Opened e => {
+            if goose_io::is_listener(e.listener) { k.issued(e.link); }
+            else if k._issue_at(e.link.slot, e.link.gen) < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: false }); }
+        },
+        Data e => { if k._issue_at(e.link.slot, e.link.gen) < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: false }); } },
+        Writable e => { if k._issue_at(e.link.slot, e.link.gen) < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: false }); } },
+        PeerEof e => { if k._issue_at(e.link.slot, e.link.gen) < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: false }); } },
+        Closed e => {
+            let i = k._issue_at(e.link.slot, e.link.gen);
+            if i < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: true }); }
+            else { k.issues[i].closed = true; }
+        },
+        _ => {},
+    }
 }
 
 // --- roles ---------------------------------------------------------------------------------------
@@ -194,9 +260,22 @@ fn dial_local<Io>(k: Case&, io: Io&, pair: i64, connect_ms: i64) -> goose_io::Li
 
 fn dial_to<Io>(k: Case&, io: Io&, address: const u8[:], pair: i64, connect_ms: i64) -> goose_io::Link {
     let link = io.dial(address, connect_ms);
+    k.issued(link);
     k.link[pair * 2] = link;
     k.live++;
     return link;
+}
+
+// Asks for the end of stream to be kept open on the accepted end of `pair`, in the handler of its `Opened` (a call made
+// later has no effect). Call it with every event from the check's step; it needs the half-close group. The dialled end is
+// configured with `io.set_keep_open_on_eof` right after `dial_to`, while it is dialling.
+fn keep_open_on_accept<Io>(k: Case&, io: Io&, ev: goose_io::Event, pair: i64) {
+    match ev {
+        Opened e => {
+            if goose_io::is_listener(e.listener) && k.accepted_role(e.listener) == pair * 2 + 1 { io.set_keep_open_on_eof(e.link, true); }
+        },
+        _ => {},
+    }
 }
 
 // A pair on the loopback: listen, dial. Returns whether both calls were made.

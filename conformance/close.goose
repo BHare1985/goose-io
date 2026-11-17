@@ -179,11 +179,11 @@ fn c_peer_eof_closes_by_default<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 // --- 407: answering after the peer half-closes -------------------------------------------------------------------------------------------
 
 fn c_half_close_then_answer<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    k.keep_open_on_accept(io, ev, 0);       // the server end, in the handler of its Opened
     if k.step == 0 {
         k.connect_local(io, 0);
         k.step = 1;
     } else if k.step == 1 && k.pair_open(0) {
-        io.set_keep_open_on_eof(k.link[1], true);
         io.send(k.link[0], "the request");
         io.shutdown_write(k.link[0]);
         k.step = 2;

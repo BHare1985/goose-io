@@ -350,6 +350,30 @@ scenarios. A library finds its state from the link of an event; the event loop p
 | Two libraries share one loop, Another library's Closed is not handled, Two instances of one library on one loop, A dialled link's Opened does not replace its state | `tests/examples/lineserver_test.goose`, `tests/examples/gateway_test.goose` and `tests/examples/lineclient_test.goose`: a library reports an event of a link it does not own as not handled |  |
 | An operation that was removed | `tests/unit/removed_set_user_mustfail.goose`, `tests/unit/removed_tag_mustfail.goose` |  |
 
+### Scenarios added by the lifecycle guarantees
+
+The change `lifecycle-guarantees` (contract 0.3) states the life of a link and of a loop: the states, the result of every
+operation in each state, the keep-open window, the handles and the loop's own states. Its scenarios are proved here, as
+each group of them lands.
+
+| Scenario | Proved by | Fault |
+|---|---|---|
+| Handles in a long run are distinct, No issued link has generation 0 | check `handles_pair_unique`; the driver also records every handle in every part of every group's suite and fails the running check on a pair issued twice | `GenerationNotAdvanced` |
+| A slot is not reused while its Closed is pending | check `handles_slot_held`; the driver fails the running check in every other part | `SlotFreedOnClose` |
+| The invalid link is never issued | check `handles_unset` (and its group variants); `tests/unit/memory_links_test.goose` | `UnsetHandleAccepted` |
+| The last generation retires the slot, A retired slot does not lower the link limit | `tests/unit/memory_links_test.goose` (`age_slot`); no check of the suite can age a slot | |
+| A dialled link seen twice is one issuance, A loop that does not advance the generation fails, A loop that reuses a slot early fails | `tests/conformance/driver_test.goose` and the two faults above | |
+| Sending has one result in each link state, A link is in one of five states: one link in each state, a dialled link moves through the states, the event loop ends a link the library sees as open | check `states_send` (and `states_sizing` for `send2` and `send_room`) | `SendBeforeOpenSent`; `RoomWhenClosed`, `SendBeforeOpenSent` |
+| A Closed send result is final: the peer goes away, a refused send then a Closed result | checks `states_closed_is_final`, `states_closed_wakes_nothing` | `ClosedResultNotFinal`; `WritableAfterClosedResult` |
+| Ending a link has one result in each link state: close twice, reset a dial in progress, reset after close | checks `states_close`, `states_reset` (abort group) | `SecondCloseClosesAgain`; `ResetDialOpens`, `ResetAfterCloseClosesAgain` |
+| Sending on a write-shut link, shutdown before the link opens, close after shutdown, a Closed result concerns only sending | check `states_half_close` (half-close group) | `ShutdownBeforeOpenRemembered`, `ClosedResultEndsShutLink` |
+| Pausing takes effect in every live state: pause before Opened | check `states_pause` | `PauseBeforeOpenIgnored` |
+| Keep-open is configured no later than Opened: while dialling, while handling Opened, a late call has no effect, an end of stream before Opened is handled | check `states_keep_open` (half-close group) | `KeepOpenWhileDiallingIgnored`, `KeepOpenLateHonoured`, `EarlyEofActedOn` |
+| Each operation says how it completes: pausing is complete when it returns, one Tick may answer several requests | check `states_completion` | `TickByIgnored` |
+| A dialling link has no peer address, a closing link still names its peer, a closed link has no peer address | check `states_inspection` (inspection group) | `PeerAddressGoneOnClose` |
+| Sending on a write-shut link (`send2`, `send_room`), `peer_address` while write-shut | `tests/unit/memory_data_test.goose`, `tests/unit/memory_links_test.goose`: the sizing and inspection suites cannot call `shutdown_write` | |
+| The batching and unix groups | no link operation and no states check: batching has only an event, unix only address forms | |
+
 ### What cannot be shown by a fault
 
 `events_not_reentrant` (*A close does not re-enter the handler*), `events_not_reentrant_after_reset` (*A send that closes

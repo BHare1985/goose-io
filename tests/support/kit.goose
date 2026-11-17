@@ -199,6 +199,21 @@ fn track<Io>(p: Pair&, log: Log&, io: Io&, ev: goose_io::Event) -> bool {
     }
 }
 
+// Like `track`, and asks for the end of stream to be kept open as the contract allows: on the accepted end ("server") and
+// the dialled end ("client") in the handler of that link's own `Opened`. A call made after that handler has returned has
+// no effect (*Keep-open is configured no later than Opened*), so a test that wants PeerEof calls this and not
+// `set_keep_open_on_eof` from its first `true` of `track`. It needs the half-close group.
+fn track_keep<Io>(p: Pair&, log: Log&, io: Io&, ev: goose_io::Event, server: bool, client: bool) -> bool {
+    match ev {
+        Opened e => {
+            if goose_io::is_listener(e.listener) { if server { io.set_keep_open_on_eof(e.link, true); } }
+            else if client { io.set_keep_open_on_eof(e.link, true); }
+        },
+        _ => {},
+    }
+    return track(p, log, io, ev);
+}
+
 // Stops the loop at the first Tick at or after at_ms.
 fn stop_after<Io>(io: Io&, ev: goose_io::Event, at_ms: i64) {
     match ev {

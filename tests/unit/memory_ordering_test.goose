@@ -45,7 +45,6 @@ fn arrange(f: Four&, io: goose_io_memory::Loop&) {
         io.send(f.a1, "to c1");
         io.send(f.a2, "to c2");
     } else if f.mode == CLOSE_WITH_EOF {
-        io.set_keep_open_on_eof(f.c2, true);
         io.send(f.a1, "to c1");
         io.shutdown_write(f.a2);
     } else if f.mode == RESET_WITH_PEER_DATA {
@@ -99,8 +98,10 @@ fn run_four(mode: i64, act: bool, log: kit::Log&) -> Four {
     small(io);
     var f = Four { mode: mode, act: act, .. };
     let l, err = io.listen("127.0.0.1:9001");
-    io.dial("127.0.0.1:9001", 0);
-    io.dial("127.0.0.1:9001", 0);
+    let d1 = io.dial("127.0.0.1:9001", 0);
+    let d2 = io.dial("127.0.0.1:9001", 0);
+    // c2 is the second dialled end to open; keep-open is configured before its Opened, while it is dialling
+    if mode == CLOSE_WITH_EOF { io.set_keep_open_on_eof(d2, true); }
     io.serve() { io, ev => four_event(f, log, io, ev); };
     return f;
 }

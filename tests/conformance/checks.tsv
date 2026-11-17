@@ -1,6 +1,7 @@
 # One row per conformance check. Columns (tab separated):
 #   check  part  requirement  scenarios (separated by " | ")  fault  group
-# A check's fault is a named break of the in-memory event loop (memory.goose, set_fault) that makes the check fail.
+# A check's fault is a named break of the in-memory event loop (memory.goose, set_fault) that makes the check fail; the column may
+# hold several, separated by commas, and the check must fail under each.
 # The group is the one the check belongs to (core, half-close, sizing, abort, inspection, batching, unix); "pending" is a check
 # not yet assigned (tasks 4.2 to 4.4 of simplify-contract). "-" in the fault column means no fault can be injected in a queue-based event loop; the reason is in docs/event-loops.md.
 handles_stale_reuse	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	core
@@ -15,6 +16,8 @@ handles_unset_inspection	0	Links are generation-checked handles	An unset handle 
 handles_valid_in_closed	0	Links are generation-checked handles	The handle is still valid while Closed is handled	ClosedHandleStaleEarly	inspection
 events_not_reentrant	0	Events are delivered to one handler, one at a time	A close does not re-enter the handler	-	core
 events_not_reentrant_after_reset	0	Events are delivered to one handler, one at a time	A send that closes the link does not re-enter the handler	-	abort
+handles_pair_unique	0	A slot and generation pair is never issued twice	Handles in a long run are distinct | No issued link has generation 0	GenerationNotAdvanced	core
+handles_slot_held	0	A slot is held until its Closed is delivered	A slot is not reused while its Closed is pending	SlotFreedOnClose	core
 owner_listener_named	0	A link event is recognised by what the library holds	An accepted link names its listener	WrongListenerNamed	core
 owner_dial_found_by_link	0	A link event is recognised by what the library holds	A dial that fails at once is found by its link	DialClosedLost	core
 slots_dense	0	Slot numbers are dense	Slots are reused before new ones are issued | A reused slot has a new generation	SlotsNeverReused	core
@@ -80,3 +83,14 @@ unix_malformed_paths	0	A Unix socket path is absolute and bounded	Malformed path
 unix_longest_path	0	A Unix socket path is absolute and bounded	The longest path	UnixLongestRefused	unix
 unix_url_spelling	0	unix:///path is a spelling of unix:/path	The URL spelling names the same path	UnixTripleSlashRefused	unix
 unix_alias_held	0	unix:///path is a spelling of unix:/path	A held path is held under either spelling	UnixAliasNotHeld	unix
+states_send	0	Sending has one result in each link state	One link in each state | A dialled link moves through the states | The event loop ends a link the library sees as open	SendBeforeOpenSent	core
+states_closed_is_final	0	A Closed send result is final	The peer goes away | A refused send then a Closed result	ClosedResultNotFinal	core
+states_closed_wakes_nothing	0	A Closed send result is final	A refused send then a Closed result	WritableAfterClosedResult	core
+states_close	0	Ending a link has one result in each link state	Close twice	SecondCloseClosesAgain	core
+states_pause	0	Pausing takes effect in every live state	Pause before Opened	PauseBeforeOpenIgnored	core
+states_completion	0	Each operation says how it completes	Pausing is complete when it returns | One Tick may answer several requests	TickByIgnored	core
+states_half_close	0	Ending a link has one result in each link state	Sending on a write-shut link | Shutdown before the link opens | Close after shutdown | After shutdown a Closed result concerns only sending | Shutdown is complete when it returns	ShutdownBeforeOpenRemembered,ClosedResultEndsShutLink	half-close
+states_keep_open	0	Keep-open is configured no later than Opened	Keep open set while dialling | Keep open set while handling Opened | A late call has no effect | An end of stream that arrives before Opened is handled	KeepOpenWhileDiallingIgnored,KeepOpenLateHonoured,EarlyEofActedOn	half-close
+states_sizing	0	Sending has one result in each link state	One link in each state	RoomWhenClosed,SendBeforeOpenSent	sizing
+states_reset	0	Ending a link has one result in each link state	Reset a dial in progress | Reset after close	ResetDialOpens,ResetAfterCloseClosesAgain	abort
+states_inspection	0	A link reports its peer's address	A dialling link has no peer address | A closing link still names its peer | A closed link has no peer address	PeerAddressGoneOnClose	inspection

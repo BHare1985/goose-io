@@ -157,6 +157,16 @@ any other way, or with another layout (the benchmark has a compact table that st
 because the contract guarantees the identity and lifetime of a link and not the table; the laws a table must obey are in
 `tests/unit/link_map_test.goose`, written so that another table can be run through them.
 
+### Keep-open and the end of a send
+
+- **Call `set_keep_open_on_eof(link, true)` in the handler of the link's `Opened`**, or before it for a link you dialled
+  (right after `dial` returns, while it is dialling). A call made later, from the handler of a `Data` for instance, has no
+  effect even if the peer has not finished: the contract fixes this window so that every event loop answers the same way
+  (`examples/lineserver` calls it in the handler of `Opened`).
+- **A `Closed` result from `send` is final for sending**: drop the send queue for that link, and expect no `Writable`. It does
+  not mean no more `Data`: if you called `shutdown_write` the link goes on receiving until its `Closed` event, and if you
+  did not, the event loop is ending the link and its `Closed` follows with no further call.
+
 ### `Full` and `Writable`
 
 `send` takes every byte or none. When it answers `Full` the library keeps what it could not send and waits: the
@@ -583,6 +593,10 @@ And for checking afterwards:
 - **`serve` returns** after `stop` once no link of a library is left. Scripted peers do not keep
   it running. A test usually stops at a time, as `kit::stop_after(io, ev, 200)` does, or when the
   library reaches the state under test.
+- **A slot is retired, not wrapped.** When the link holding a slot's last generation (`0xffffffff`) has had its
+  `Closed` delivered, the loop never issues that slot again, so no slot and generation pair is issued twice. It does not
+  lower `cfg.max_links`, which counts link ends. A test shows it without 2^32 reuses by setting a free slot's next
+  generation with `io.age_slot(slot, next_gen)`, a scripting call that is not part of the contract.
 - **It is not a network.** Bytes arrive in the pass after they were sent, complete and in order.
   There is no delay, loss or reordering to script, apart from what peers do with their steps.
 - **Sending to an end that has gone** returns `Sent`; the bytes are lost and the link then ends

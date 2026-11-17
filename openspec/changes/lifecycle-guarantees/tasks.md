@@ -17,40 +17,40 @@ These apply to every task:
 
 ## 1. Order and baseline
 
-- [ ] 1.1 Confirm that `link-keyed-state` is archived. Verify by running `openspec list --json`: it no longer lists `link-keyed-state`, and `openspec/specs/io-contract/spec.md` contains `### Requirement: Slot numbers are dense`. If it is not archived, stop and ask the owner whether to wait, or to go first and add the `set_user` row (like `pause_reading`) and the `user` row (like `peer_address`), as the proposal describes.
-- [ ] 1.2 Amend the dense-slot bound for retired slots:
+- [x] 1.1 Confirm that `link-keyed-state` is archived. Verify by running `openspec list --json`: it no longer lists `link-keyed-state`, and `openspec/specs/io-contract/spec.md` contains `### Requirement: Slot numbers are dense`. If it is not archived, stop and ask the owner whether to wait, or to go first and add the `set_user` row (like `pause_reading`) and the `user` row (like `peer_address`), as the proposal describes.
+- [x] 1.2 Amend the dense-slot bound for retired slots:
   - If *Slot numbers are dense* is in the main spec, add a `## MODIFIED Requirements` block for it to this change's `specs/io-contract/spec.md`. Copy the whole block and add "plus the slots the event loop has retired" to the bound.
   - If it is not, make the same edit in `link-keyed-state`'s delta.
   - Verify `openspec validate lifecycle-guarantees --strict` passes.
-- [ ] 1.3 Run every command in `CONTRIBUTING.md` on the branch before any change. Verify all pass, and record the output of `tests/conformance/run.sh` as the baseline.
+- [x] 1.3 Run every command in `CONTRIBUTING.md` on the branch before any change. Verify all pass, and record the output of `tests/conformance/run.sh` as the baseline.
 
 ## 2. Handles: the invalid link, pairs and slots
 
-- [ ] 2.1 Write the tests first, in `tests/unit/memory_links_test.goose`:
+- [x] 2.1 Write the tests first, in `tests/unit/memory_links_test.goose`:
   - for both scenarios of *The in-memory event loop retires an exhausted slot*:
     - age a free slot to `0xffffffff` with `age_slot`, issue and close a link in it, and check that no later link uses the slot or has generation 0;
     - retire a slot and open four link ends with `max_links` of 4;
   - for *The invalid link is reserved*: `send`, `close` and `pause_reading` on `Link {}` affect no link.
 
   Verify the file fails to compile, because `age_slot` does not exist.
-- [ ] 2.2 In `memory.goose`:
+- [x] 2.2 In `memory.goose`:
   - in `_release`, retire the slot when the released generation is `0xffffffff` instead of wrapping it;
   - add the scripting function `age_slot(slot, next_gen)`, documented as not part of the contract;
   - state the retirement in the loop's list of limits.
 
   Verify the tests of 2.1 and every `tests/unit/memory_*` pass.
-- [ ] 2.3 Write tests first in `tests/conformance/driver_test.goose`:
+- [x] 2.3 Write tests first in `tests/conformance/driver_test.goose`:
   - a pair seen again after its `Closed` fails `handles_pair_unique`, naming the slot and generation;
   - a generation-0 link fails `handles_pair_unique`;
   - a new pair in a slot whose `Closed` is pending fails `handles_slot_held`;
   - a dialled handle followed by its `Opened` fails neither.
 
   Verify they fail. Then make the driver in `conformance/suite.goose` and `conformance/support.goose` keep one record per issuance, as `design.md` describes, and verify the driver tests pass.
-- [ ] 2.4 Add the checks `handles_pair_unique` (*A slot and generation pair is never issued twice*, and the first scenario of *The invalid link is reserved*) and `handles_slot_held` (*A slot is held until its Closed is delivered*) to `checks.tsv`, both in group core.
+- [x] 2.4 Add the checks `handles_pair_unique` (*A slot and generation pair is never issued twice*, and the first scenario of *The invalid link is reserved*) and `handles_slot_held` (*A slot is held until its Closed is delivered*) to `checks.tsv`, both in group core.
   - Add the faults `GenerationNotAdvanced` and `SlotFreedOnClose` to `memory.goose`. `SlotFreedOnClose` frees the slot at `close` and still advances the generation.
   - In group suites, a violation fails the run with a driver `FAIL` line.
   - Verify that `faults.sh` shows `handles_pair_unique` failing only under `GenerationNotAdvanced` and `handles_slot_held` failing under `SlotFreedOnClose`, and that `groups_check.sh` and `table_check.sh` pass.
-- [ ] 2.5 Document the three rules (the reserved invalid link, pairs, slots held until `Closed`):
+- [x] 2.5 Document the three rules (the reserved invalid link, pairs, slots held until `Closed`):
   - `docs/contract.md`: the `Link` row of section 3, and the handle paragraph of section 4, next to the listener rule;
   - `docs/event-loops.md`: list them among the obligations.
 
@@ -58,7 +58,7 @@ These apply to every task:
 
 ## 3. Link states and how operations complete
 
-- [ ] 3.1 Create `conformance/states.goose` with the core checks, each wired into `step` and `group_of` in `conformance/suite.goose`:
+- [x] 3.1 Create `conformance/states.goose` with the core checks, each wired into `step` and `group_of` in `conformance/suite.goose`:
   - `states_send`: *Sending has one result in each link state*, "One link in each state"; also both scenarios of *A link is in one of five states*;
   - `states_closed_is_final`: the first two scenarios of *A Closed send result is final*;
   - `states_close`: "Close twice";
@@ -66,7 +66,9 @@ These apply to every task:
   - `states_completion`: "Pausing is complete when it returns" and "One Tick may answer several requests".
 
   Run `tests/conformance/run.sh` and confirm that each passes on the in-memory loop. Where a check fails, the in-memory loop has a defect: fix it in `memory.goose`, with a unit test written first.
-- [ ] 3.2 Add one fault to `memory.goose` for each core check of 3.1, and give each check its row in `checks.tsv`:
+
+  Applied as: ids 350 to 355 (core part 0 runs in id order and ends with the `stop` check at 505, so a check must have a lower id), and `states_closed_is_final` is split in two (`states_closed_wakes_nothing`, the refused-send scenario, so that the Writable fault has its own check). No defect of the in-memory loop was found.
+- [x] 3.2 Add one fault to `memory.goose` for each core check of 3.1, and give each check its row in `checks.tsv`:
   - `PauseBeforeOpenIgnored`: `pause_reading` on a dialling slot is dropped;
   - `SecondCloseClosesAgain`;
   - `WritableAfterClosedResult`;
@@ -75,32 +77,32 @@ These apply to every task:
   - for `states_completion`, reuse an existing tick fault (such as `TickEvery250`) where it breaks the scenario, and say so in the row.
 
   Verify `faults.sh` shows each check failing under its fault.
-- [ ] 3.3 Move every `set_keep_open_on_eof` call that runs after its link's own `Opened` handler into that handler, or before `Opened` for a dialled end:
+- [x] 3.3 Move every `set_keep_open_on_eof` call that runs after its link's own `Opened` handler into that handler, or before `Opened` for a dialled end:
   - in `conformance/`: `c_half_close_then_answer` (`close.goose:186`) and `c_full_resolved_when_peer_closes` (`data.goose:451`);
   - in `tests/unit/`: the calls in `memory_close_test.goose` (around lines 75, 123, 229 and 270) and `memory_ordering_test.goose:48`.
 
   Add a helper to `tests/support/kit.goose` if it shortens the pair-based tests. Leave the stale-handle calls (`memory_close_test.goose:366`, `memory_ordering_test.goose:176`) as they are. Verify `tests/run_tests.sh` and `tests/conformance/run.sh` still pass on the unchanged loop. Also run `grep -rn set_keep_open_on_eof conformance tests examples` and confirm that every remaining call is in an `Opened` handler, before `Opened`, or on a stale handle.
-- [ ] 3.4 Implement the keep-open window in `memory.goose`:
+- [x] 3.4 Implement the keep-open window in `memory.goose`:
   - add a per-slot `configured` flag, set by `serve` when the handler of that slot's `Opened` returns;
   - make `set_keep_open_on_eof` do nothing on a configured slot;
   - make the end-of-stream decision for a slot only once it is configured.
 
   Write the unit tests first in `tests/unit/memory_close_test.goose`, one for each of the four scenarios of *Keep-open is configured no later than Opened*, and verify that "A late call has no effect" fails before the change. Verify that all four pass after it.
-- [ ] 3.5 Add the half-close checks to `conformance/states.goose`, each with its fault and its `checks.tsv` row:
+- [x] 3.5 Add the half-close checks to `conformance/states.goose`, each with its fault and its `checks.tsv` row:
   - `states_half_close`: "Sending on a write-shut link" without `send2`, "Shutdown before the link opens", "Close after shutdown", "Shutdown is complete when it returns", and "After shutdown a Closed result concerns only sending". Faults: `ShutdownBeforeOpenRemembered`, `ClosedResultEndsShutLink` (a send after `shutdown_write` closes the whole link).
   - `states_keep_open`: the four scenarios of *Keep-open is configured no later than Opened*. Faults: `KeepOpenWhileDiallingIgnored`, `KeepOpenLateHonoured`, `EarlyEofActedOn` (an end of stream seen before the `Opened` handler returns is acted on by the old setting).
 
-  Verify that `faults.sh` shows each check failing under each of its faults.
-- [ ] 3.6 Add the other group checks to `conformance/states.goose`, each with its fault and its `checks.tsv` row:
+  Verify that `faults.sh` shows each check failing under each of its faults. (The fault column of `checks.tsv` may now list several faults, separated by commas; `faults.sh` and `table_check.sh` try each one. The half-close checks are ids 360 and 361.)
+- [x] 3.6 Add the other group checks to `conformance/states.goose`, each with its fault and its `checks.tsv` row:
   - `states_sizing` (sizing): `send2` and `send_room` while dialling, open, closing and ended. Fault: `RoomWhenClosed`, or a new one if it does not break every cell. The write-shut cell is a unit test in `tests/unit/memory_data_test.goose`.
   - `states_reset` (abort): "Reset a dial in progress" and "Reset after close". Faults: `ResetDialOpens`, `ResetAfterCloseClosesAgain`.
   - `states_inspection` (inspection): `peer_address` while dialling, open, closing and ended, which covers the new scenarios of *A link reports its peer's address*. Fault: `PeerAddressGoneOnClose`. The write-shut cell is a unit test of the in-memory loop.
 
   Record in `docs/event-loops.md` that batching and unix have no link operation and no states check. Verify that `groups_check.sh` reports no check calling an operation outside its group, and that `faults.sh` passes.
-- [ ] 3.7 Run the states checks on the layers. Verify that `tests/conformance/run.sh --wrapped` and `--core-only` pass, and that `--repeat 5` gives identical output.
+- [x] 3.7 Run the states checks on the layers. Verify that `tests/conformance/run.sh --wrapped` and `--core-only` pass, and that `--repeat 5` gives identical output.
   - If the wrapper fails "Pause before Opened" because it delays `Opened`, fix it to keep the pause it passed to the inner loop.
   - Likewise for the keep-open window: the wrapper keeps every inner link open on end of stream, so its own `configured` point must be its delayed `Opened`.
-- [ ] 3.8 Document:
+- [x] 3.8 Document:
   - `docs/contract.md`, "The life of a link": the operation × state table and the completion table from `design.md`. "Sending and backpressure" gets the two meanings of a `Closed` result. The half-close section states the keep-open window, and the inspection section the `peer_address` states.
   - `docs/libraries.md`: set keep-open in `Opened`, or before it for a dialled link; on a `Closed` send result, drop the send queue, but expect `Data` until the `Closed` event.
   - `docs/event-loops/io-uring.md`: a note that an end of stream completed before `Opened` is held until the `Opened` handler returns.

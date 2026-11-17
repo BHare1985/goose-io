@@ -1,6 +1,7 @@
 // goose-io conformance suite, group 4.3: handles, delivery, event order and ownership.
 // Requirements: Links are generation-checked handles; Events are delivered to one handler, one at a time;
-// Link events follow a fixed order; A link event is recognised by what the library holds; Slot numbers are dense;
+// Link events follow a fixed order; A slot and generation pair is never issued twice; A slot is held until its Closed is
+// is delivered; The invalid link is reserved; A link event is recognised by what the library holds; Slot numbers are dense;
 // A slot is freed when its Closed has been handled; Dialling never blocks and always ends in one event.
 namespace goose_io_conformance;
 import std;
@@ -25,6 +26,8 @@ fn handles_info(id: i64) -> Info {
     if id == 115 { return Info { name: "handles_unset_inspection", req: "Links are generation-checked handles", part: 0 }; }
     if id == 116 { return Info { name: "events_not_reentrant_after_reset", req: "Events are delivered to one handler, one at a time", part: 0 }; }
     if id == 108 { return Info { name: "slots_dense", req: "Slot numbers are dense", part: 0 }; }
+    if id == 119 { return Info { name: "handles_pair_unique", req: "A slot and generation pair is never issued twice", part: 0 }; }
+    if id == 120 { return Info { name: "handles_slot_held", req: "A slot is held until its Closed is delivered", part: 0 }; }
     if id == 117 { return Info { name: "slot_kept_during_closed", req: "A slot is freed when its Closed has been handled", part: 0 }; }
     if id == 118 { return Info { name: "dial_no_event_inside", req: "Dialling never blocks and always ends in one event", part: 0 }; }
     return Info { .. };
@@ -397,6 +400,7 @@ fn c_slot_kept_during_closed<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
                 if goose_io::same(e.link, k.old) {
                     // a link made inside the handler of the Closed does not take the slot of the link being closed
                     let fresh = io.dial("not an address", 0);
+                    k.issued(fresh);
                     k.expect(fresh.slot != e.link.slot, "a link made inside a Closed handler took the slot of the link being closed");
                     k.link[2] = fresh;
                     k.live++;
@@ -427,6 +431,52 @@ fn c_dial_no_event_inside<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
+// --- 119: a slot and generation pair is never issued twice ---------------------------------------------------------
+
+// Opens and closes a pair of links five times in a row, so that slots are reused. The driver records every handle it
+// is given (`k.issued`, `k.sight`): this check fails when any pair was issued twice or a link had generation 0, in this
+// part or earlier in it, and also that every link issued is valid.
+fn c_handles_pair_unique<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        k.connect_local(io, 0);
+        k.step = 1;
+    } else if k.step == 1 && k.pair_open(0) {
+        k.expect(goose_io::is_valid(k.link[0]) && goose_io::is_valid(k.link[1]), "a link the loop issued was not valid");
+        io.close(k.link[0]);
+        k.step = 2;
+    } else if k.step == 2 && k.first(0, 'C') >= 0 && k.first(1, 'C') >= 0 {
+        k.n++;
+        if k.n < 5 {
+            k.recs.clear();
+            k.live = 0;
+            k.connect_local(io, 0);
+            k.step = 1;
+        } else {
+            k.expect(!k.pair_bad, k.pair_why[..]);
+            k.finish();
+        }
+    }
+}
+
+// --- 120: a slot is held until its Closed is delivered -------------------------------------------------------------
+
+// A library closes a link and dials in the same handler: the new link is not in the closed link's slot.
+fn c_handles_slot_held<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        k.connect_local(io, 0);
+        k.step = 1;
+    } else if k.step == 1 && k.pair_open(0) {
+        let closing = k.link[0];
+        io.close(closing);
+        let fresh = k.dial_to(io, "not an address", 1, 0);
+        k.expect(fresh.slot != closing.slot, "a link dialled right after close was issued in the slot of the link still closing");
+        k.expect(!k.slot_bad, k.slot_why[..]);
+        k.step = 2;
+    } else if k.step == 2 && k.first(0, 'C') >= 0 && k.first(1, 'C') >= 0 && k.first(2, 'C') >= 0 {
+        k.finish();
+    }
+}
+
 // Runs the checks of the core: true if the check is one of them.
 fn handles_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 100 { c_handles_stale_reuse(k, io, ev); return true; }
@@ -438,6 +488,8 @@ fn handles_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) ->
     if k.id == 107 { c_owner_dial_found_by_link(k, io, ev); return true; }
     if k.id == 108 { c_slots_dense(k, io, ev); return true; }
     if k.id == 117 { c_slot_kept_during_closed(k, io, ev); return true; }
+    if k.id == 119 { c_handles_pair_unique(k, io, ev); return true; }
+    if k.id == 120 { c_handles_slot_held(k, io, ev); return true; }
     if k.id == 118 { c_dial_no_event_inside(k, io, ev); return true; }
     return false;
 }

@@ -218,6 +218,7 @@ fn c_dial_bad_address<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         let h, herr = io.listen("db.example.com:80");
         k.expect(!goose_io::is_listener(h) && herr.kind == goose_io::ListenErrorKind.BadAddress, "listen on a host name did not return BadAddress");
         k.link[1] = io.dial("[fe80::1%eth0]:80", 0);
+        k.issued(k.link[1]);
         k.live++;
     } else if k.step == 1 && k.first(0, 'C') >= 0 && k.first(2, 'C') >= 0 && k.first(1, 'C') >= 0 {
         k.expect(k.kinds(0) == "C" && k.kinds(2) == "C" && k.kinds(1) == "C", "a dial to a bad address did not give exactly one Closed and no Opened");
@@ -408,9 +409,11 @@ fn c_unix_malformed_paths<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Even
         // four dials, one for each of the four roles: the empty path, a relative one, an abstract name, and 104 bytes
         k.dial_to(io, "unix:", 0, 0);
         k.link[1] = io.dial("unix:run/x.sock", 0);
+        k.issued(k.link[1]);
         k.live++;
         k.dial_to(io, "unix:@name", 1, 0);
         k.link[3] = io.dial(long[..], 0);
+        k.issued(k.link[3]);
         k.live++;
         k.step = 1;
     } else if k.step == 1 && k.first(0, 'C') >= 0 && k.first(1, 'C') >= 0 && k.first(2, 'C') >= 0 && k.first(3, 'C') >= 0 {

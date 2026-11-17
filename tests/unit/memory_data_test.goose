@@ -417,7 +417,33 @@ fn library_closes_while_the_peer_is_refused() {
     kit::check(io.peer_closed(p), "a peer whose send was refused is not left waiting when the library closes");
 }
 
+// --- sizing on a write-shut link (the cell the sizing suite cannot reach without half-close) ---------------------------------
+
+struct ShutSizing { p: kit::Pair = kit::Pair { .. }, send2: goose_io::SendStatus = goose_io::SendStatus.Sent, room: i64 = -1, done: bool = false }
+
+fn shut_sizing_event(s: ShutSizing&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
+    if kit::track(s.p, log, io, ev) {
+        io.shutdown_write(s.p.client);
+        s.send2 = io.send2(s.p.client, "a", "b");
+        s.room = io.send_room(s.p.client);
+        s.done = true;
+    }
+    kit::stop_after(io, ev, 100);
+}
+
+fn sizing_on_a_write_shut_link() {
+    var io = goose_io_memory::Loop { .. };
+    var log = kit::Log { .. };
+    var s = ShutSizing { .. };
+    kit::connect(io, s.p, "127.0.0.1:8130");
+    io.serve() { io, ev => shut_sizing_event(s, log, io, ev); };
+    kit::check(s.done, "fixture: the pair opened");
+    kit::check(s.send2 == goose_io::SendStatus.Closed, "send2 on a write-shut link returns Closed");
+    kit::check(s.room == 0, "send_room of a write-shut link is 0");
+}
+
 fn main() {
+    sizing_on_a_write_shut_link();
     basics();
     large_transfer();
     backpressure();

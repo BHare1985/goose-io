@@ -595,7 +595,142 @@ fn slot_kept_during_closed() {
     kit::check(bad.new_slot == bad.old_slot, "with fault ClosedHandleStaleEarly it does");
 }
 
+// --- an exhausted slot is retired (specs/io-contract of the change lifecycle-guarantees) -----------------------------
+
+// Issues a link in a free slot whose next generation is the largest, closes it, and then opens more links. `pairs` opens
+// two dials to a listener (four link ends) instead of five refused dials.
+struct Retire {
+    pairs:                 bool                = false,
+    stage:                 i64                 = 0,
+    first:                 goose_io::Link      = goose_io::Link { .. },
+    second:                goose_io::Link      = goose_io::Link { .. },
+    later:                 goose_io::Link[..8] = [],
+    slots:                 u32[..8]            = [],
+    opened:                i64                 = 0,
+    closed_later:          i64                 = 0,
+    refused_for_resources: i64                 = 0,
+}
+
+fn retire_event(r: Retire&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
+    match ev {
+        Opened e => { if r.stage == 4 { r.opened++; r.slots.push(e.link.slot); } },
+        Closed e => {
+            if r.stage == 0 && goose_io::same(e.link, r.first) { r.stage = 1; }
+            else if r.stage == 2 && goose_io::same(e.link, r.second) { r.stage = 3; }
+            else if r.stage == 4 {
+                r.closed_later++;
+                let no_resources: goose_io::CloseReason = goose_io::CloseReason.ConnectFailed { kind: goose_io::ConnectFailure.NoResources };
+                if e.why == no_resources { r.refused_for_resources++; }
+            }
+        },
+        Tick t => {
+            if r.stage == 1 {
+                // the slot of `first` is free now: its next generation is the largest
+                io.age_slot(r.first.slot, 0xffffffff);
+                r.second = io.dial("127.0.0.1:1", 0);
+                r.stage = 2;
+            } else if r.stage == 3 {
+                r.stage = 4;
+                if r.pairs {
+                    let l, err = io.listen("127.0.0.1:8701");
+                    io.dial("127.0.0.1:8701", 0);
+                    io.dial("127.0.0.1:8701", 0);
+                } else {
+                    for i in 5 { r.later.push(io.dial("127.0.0.1:1", 0)); }
+                }
+            } else if r.stage == 4 && ((r.pairs && t.now_ms >= 400) || (!r.pairs && r.closed_later >= 5)) {
+                io.stop(0);
+            }
+        },
+        _ => {},
+    }
+}
+
+fn retire_run(pairs: bool) -> Retire {
+    var io = goose_io_memory::Loop { .. };
+    io.cfg.max_links = if pairs { 4 } else { 1000 };
+    var r = Retire { pairs: pairs, .. };
+    r.first = io.dial("127.0.0.1:1", 0);        // refused: its slot is free again once its Closed is handled
+    io.serve() { io, ev => retire_event(r, io, ev); };
+    return r;
+}
+
+fn retired_slot() {
+    let r = retire_run(false);
+    kit::check(r.second.slot == r.first.slot && r.second.gen == 0xffffffff, "fixture: the aged slot issued a link with the largest generation");
+    var reused = false;
+    var zero = false;
+    for l in r.later {
+        if l.slot == r.first.slot { reused = true; }
+        if l.gen == 0 { zero = true; }
+    }
+    kit::check(r.later.len == 5 && !reused, "no later link is issued in the slot whose last generation was used");
+    kit::check(!zero, "and no later link has generation 0");
+}
+
+fn retired_slot_keeps_the_limit() {
+    let r = retire_run(true);
+    kit::check(r.opened == 4, "with a slot retired and max_links of 4, four link ends open");
+    kit::check(r.refused_for_resources == 0, "and no dial is refused for resources");
+    var reused = false;
+    for sl in r.slots { if sl == r.first.slot { reused = true; } }
+    kit::check(!reused, "and none of them is issued in the retired slot");
+}
+
+// --- the invalid link is reserved ------------------------------------------------------------------------------
+
+struct Reserved { p: kit::Pair = kit::Pair { .. }, sent: goose_io::SendStatus = goose_io::SendStatus.Sent }
+
+fn reserved_event(r: Reserved&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
+    if kit::track(r.p, log, io, ev) {
+        let none = goose_io::Link { .. };
+        r.sent = io.send(none, "x");
+        io.close(none);
+        io.pause_reading(none, true);
+        kit::check(io.send(r.p.client, "alive") == goose_io::SendStatus.Sent, "fixture: a real link still sends");
+    }
+    kit::stop_after(io, ev, 200);
+}
+
+fn invalid_link_reserved() {
+    var io = goose_io_memory::Loop { .. };
+    var log = kit::Log { .. };
+    var r = Reserved { .. };
+    kit::connect(io, r.p, "127.0.0.1:8702");
+    io.serve() { io, ev => reserved_event(r, log, io, ev); };
+    kit::check(r.sent == goose_io::SendStatus.Closed, "send on the invalid link returns Closed");
+    kit::check(kit::count(log, kit::CLOSED) == 2 && kit::data_of(log, r.p.server) == "alive", "and close and pause_reading on it touch no link: the pair worked and closed only at stop");
+    kit::check(!goose_io::is_valid(goose_io::Link { .. }) && goose_io::is_valid(r.p.client) && goose_io::is_valid(r.p.server), "an issued link is valid, the default link is not");
+}
+
+// --- peer_address on a write-shut link (the cell the inspection suite cannot reach without half-close) -------------------------
+
+struct ShutAddress { p: kit::Pair = kit::Pair { .. }, before: goose_io::Address = goose_io::Address { .. }, after: goose_io::Address = goose_io::Address { .. } }
+
+fn shut_address_event(s: ShutAddress&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
+    if kit::track(s.p, log, io, ev) {
+        s.before = io.peer_address(s.p.client);
+        io.shutdown_write(s.p.client);
+        s.after = io.peer_address(s.p.client);
+    }
+    kit::stop_after(io, ev, 100);
+}
+
+fn peer_address_on_a_write_shut_link() {
+    var io = goose_io_memory::Loop { .. };
+    var log = kit::Log { .. };
+    var s = ShutAddress { .. };
+    kit::connect(io, s.p, "127.0.0.1:8131");
+    io.serve() { io, ev => shut_address_event(s, log, io, ev); };
+    kit::check(!goose_io::is_empty(s.before), "fixture: an open link names its peer");
+    kit::check(s.after.text[..] == s.before.text[..], "a write-shut link names its peer as it did while open");
+}
+
 fn main() {
+    peer_address_on_a_write_shut_link();
+    retired_slot();
+    retired_slot_keeps_the_limit();
+    invalid_link_reserved();
     dense_slots();
     slot_kept_during_closed();
     failure_kinds();

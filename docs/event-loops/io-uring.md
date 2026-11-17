@@ -147,6 +147,13 @@ completes with `-ECANCELED`:
 | `-EMFILE`, `-ENFILE`, `-ENOBUFS`, `-ENOMEM` | `NoResources` |
 | other | `Other` |
 
+## The keep-open window
+
+The contract fixes `set_keep_open_on_eof` to the time a link is dialling or its `Opened` is being handled (*Keep-open is
+configured no later than Opened*). On this substrate a receive of end of stream can complete before the `Opened` event has
+been given to the library: hold it until the handler of `Opened` has returned, then act on it with the setting the
+library made there (close with `PeerClosed` by default, or deliver `PeerEof` after the `Data` and keep the link open).
+
 ## Known gaps
 
 None: every row has a mapping. io_uring is a completion substrate, which is why the contract lends `Data` for one

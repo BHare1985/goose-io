@@ -25,6 +25,21 @@ An event loop that supplies the inspection group SHALL provide `peer_address(lin
 - **WHEN** a library calls `close` on an open link and asks for its peer address before the link's `Closed` is delivered
 - **THEN** it obtains the same address it obtained while the link was open
 
+### Requirement: Slot numbers are dense
+An event loop SHALL give a new link a slot freed earlier before it gives a slot it has never used, so that no link's slot is ever as large as the greatest number of links valid at once on that loop, plus the slots the event loop has retired. A slot whose generations are used up MAY be retired and not given again. A library MAY therefore size a table by slot to the event loop's peak, and SHALL NOT assume the bound is its own peak of links.
+
+#### Scenario: Slots are reused before new ones are issued
+- **WHEN** a library opens eight links, closes all of them, waits for every `Closed`, and opens eight more
+- **THEN** every link of the second eight has a slot below eight
+
+#### Scenario: A reused slot has a new generation
+- **WHEN** a slot is reused by a new link
+- **THEN** the new link's generation differs from the generation of the link that held it before
+
+#### Scenario: The bound is the loop's peak
+- **WHEN** a library keeps two links while other libraries on the same event loop hold 99,999 others, and the library then opens another link
+- **THEN** that link's slot may be as high as 99,999, and no link's slot reaches 100,001, not counting retired slots
+
 ## ADDED Requirements
 
 ### Requirement: A link is in one of five states
