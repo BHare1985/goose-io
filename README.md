@@ -5,9 +5,11 @@
 [![macos-arm64](https://img.shields.io/github/actions/workflow/status/BHare1985/goose-io/ci.yml?branch=main&job=macos-arm64&label=macos-arm64)](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml)
 [![windows-x64](https://img.shields.io/github/actions/workflow/status/BHare1985/goose-io/ci.yml?branch=main&job=windows-x64&label=windows-x64)](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml)
 
+**goose-io is a pure-Goose I/O contract between event loops and the libraries that run on them.**
+
 An event loop moves bytes over sockets. A library speaks a protocol on top of it: a Postgres client, a Redis client,
-an HTTP server, a proxy. **goose-io is the contract between the two, in pure Goose**: a small set of types, operations
-and events, with the rules that make them mean the same on every event loop. A library written against it does not
+an HTTP server, a proxy. The contract between the two is a small set of types, operations and events,
+with the rules that make them mean the same on every event loop. A library written against it does not
 know which event loop is underneath, and an event loop does not know which libraries run on it.
 
 ### Write network code once, run it on any event loop
@@ -129,11 +131,11 @@ io_uring, libuv, libevent) onto the contract.
 Version 0.1 of the contract, built and tested on linux-x64, macos-x64, macos-arm64 and windows-x64. Nothing here opens
 a socket or builds C: the package is Goose source and links nothing.
 
-| Event loop | Contract | Core | Groups | Suite last passed at | Where |
-|---|---|---|---|---|---|
-| in-memory (`memory.goose`) | 0.1 | yes | half-close, sizing, abort, inspection, batching | `650c8c5` | this repository |
-| wrapper over it (`tests/support/wrapper.goose`) | 0.1 | yes | half-close, sizing, abort, inspection, batching | `650c8c5` | this repository |
-| core only (`tests/support/core_only.goose`) | 0.1 | yes | none | `650c8c5` | this repository |
+| Event loop | Contract | Core | Groups | Where |
+|---|---|---|---|---|
+| in-memory (`memory.goose`) | 0.1 | yes | half-close, sizing, abort, inspection, batching | this repository |
+| wrapper over it (`tests/support/wrapper.goose`) | 0.1 | yes | half-close, sizing, abort, inspection, batching | this repository |
+| core only (`tests/support/core_only.goose`) | 0.1 | yes | none | this repository |
 
 **Honestly:** the one working event loop today is the in-memory one, which is for tests. An event loop on real sockets
 (an optimized epoll loop) is planned as its own change (`openspec/changes/epoll-event-loop/`), and so are
