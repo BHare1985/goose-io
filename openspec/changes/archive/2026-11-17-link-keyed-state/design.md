@@ -112,7 +112,7 @@ What the old design allowed and this one does not: two libraries given the same 
 
 **`set_user`, `user` and the tag go.** The contract has one fewer operation and one fewer event field per event. `tag_of` and `user_of` go. The in-memory loop's `Closed` for a failed dial no longer needs "read the value at delivery"; the library already holds the link. The note in `docs/event-loops/tcprouter-engine.md` that records the defect becomes moot and is edited. Rejected: leaving `user` as an optional extra in the inspection group, since a library that wants a number can keep it in its own value.
 
-**One minor version, 0.3, and no compatibility shim.** At major 0 a minor increase may remove behaviour (*The contract states its version*). The break is a compile error naming the operation, and the migration is mechanical (below). Rejected: a release with both forms, which would keep every check and fault for the old form for a version nobody wants.
+**One minor version, 0.2 (the release after 0.1 on `main`), and no compatibility shim.** At major 0 a minor increase may remove behaviour (*The contract states its version*). The break is a compile error naming the operation, and the migration is mechanical (below). Rejected: a release with both forms, which would keep every check and fault for the old form for a version nobody wants.
 
 ## Migration
 

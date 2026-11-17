@@ -163,7 +163,7 @@ The checks and the contract read only the error's kind. `ListenError.code` stays
 - `Local` over `Shutdown`;
 - the keep-open window, which is a tightening.
 
-So the minor number goes up. If this change and `link-keyed-state` ship in one release, both are 0.3. Otherwise this change takes the minor after whatever main has. Task 5.1 reads `goose_io.goose` at apply time.
+So the minor number goes up. If this change and `link-keyed-state` ship in one release, both are in the next release after main. Otherwise this change takes the minor after whatever main has. Task 5.1 reads `goose_io.goose` at apply time.
 
 **Threading is documented, not enforced.** Goose has threads, but the contract's operations take `Io&` and cannot tell which thread calls them. The rule is the most restrictive one for applications and the most permissive for loops:
 - An io_uring loop with `IORING_SETUP_SINGLE_ISSUER` can bind at its first call.

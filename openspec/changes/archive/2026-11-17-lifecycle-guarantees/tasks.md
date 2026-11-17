@@ -146,7 +146,7 @@ These apply to every task:
 
 - [x] 5.1 Set `VERSION_MINOR` in `goose_io.goose` as `design.md` decides: the same minor as `link-keyed-state` if neither has been released, otherwise one above the value on `main`. Update:
 
-  Applied as: the version is 0.2. `main` is at 0.1, and `add-unix-sockets`, `link-keyed-state` and this change are one release, so all three are 0.2 (an earlier step had numbered `link-keyed-state` 0.3).
+  Applied as: the version is 0.2. `main` is at 0.1, and `add-unix-sockets`, `link-keyed-state` and this change are one release, so all three are 0.2.
   - the expectation in `tests/unit/groups_test.goose`;
   - the version paragraph of `docs/contract.md` section 9, saying what this version adds and that the keep-open window is a tightening;
   - the version column of the `README.md` table.
