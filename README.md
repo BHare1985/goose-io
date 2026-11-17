@@ -58,59 +58,61 @@ in-memory event loop for tests, and example libraries.
 
 ## A common case: an HTTP server that calls Postgres
 
-**The problem.** A request handler needs a row from the database. Both sides do network I/O, and each is normally written
-for one way of driving connections: the HTTP server for the loop it runs on, the Postgres client for its own (blocking
-sockets, a thread pool, or a different poller). Putting them in one process then costs you one of these:
+A request handler needs data from a database. Two problems follow.
 
-- block the loop's thread on the database call, so one slow query stalls every other request;
-- a thread pool, with hand-off queues and locks between the loop and the threads;
-- rewrite the client for the server's loop, and again for every other loop you want to run on;
-- run a second loop for the database and bridge the two.
+1. **A library is tied to the server it was written for.** An HTTP server exposes connections and events through its
+   own interfaces. A library written against them runs only on that server, and must be rewritten for each other.
+2. **A client that avoids this usually carries its own I/O.** To work independently of any server, a Postgres client
+   typically brings blocking sockets, threads or an event loop of its own, and in one process these must be reconciled
+   with the server's loop: block its thread, hand work to a thread pool, or run and bridge a second loop. The
+   alternatives are a client that exposes only a state machine for the caller to drive, which moves the I/O work onto
+   every user, or one that polls file descriptors, which excludes loops that have none.
 
-And you cannot test the pair without a real Postgres and real time: a slow query, a refused connection and a timeout
-are each a lab setup.
+Neither can be tested without a real database and real time.
 
-**What goose-io changes.** Both are libraries on the same contract, so one event loop on one thread drives both:
+With goose-io both libraries are written against the contract and not against an event loop, so a single event loop
+on one thread drives both:
 
 ```mermaid
-flowchart LR
-    B["HTTP client"] -->|"request"| LOOP
+flowchart TB
+    C["<b>HTTP client</b>"]
+
     subgraph PROC["One process, one thread"]
         direction TB
-        H["HTTP server<br/>library"]
-        P["Postgres client<br/>library + pool"]
-        APP["Application:<br/>hands each event to both"]
-        LOOP["Event loop"]
-        H -->|"query"| P
-        P -->|"row"| H
-        APP --> H
-        APP --> P
-        LOOP -->|"events"| APP
-        H -->|"send · dial · close"| LOOP
-        P -->|"send · dial · close"| LOOP
+        H["<b>HTTP server library</b><br/>accepts requests"]
+        G["<b>Postgres client library</b><br/>connection pool"]
+        K["<b>goose-io contract</b><br/>send · dial · close · events"]
+        E["<b>Event loop</b><br/>epoll · io_uring · in-memory"]
+        H -->|"query"| G
+        G -->|"row"| H
+        H --> K
+        G --> K
+        K --> E
     end
-    LOOP -->|"TCP"| DB[("Postgres")]
+
+    D[("<b>PostgreSQL</b>")]
+
+    C -->|"HTTP request"| H
+    E -->|"TCP"| D
 
     classDef library fill:#e0efff,stroke:#3978b8,color:#17365d,stroke-width:1.5px
+    classDef contract fill:#fff0cc,stroke:#c58b24,color:#553800,stroke-width:2px
     classDef loop fill:#e3f2df,stroke:#548b48,color:#21451c,stroke-width:1.5px
-    class H,P library
-    class LOOP loop
+    class H,G library
+    class K contract
+    class E loop
 ```
 
-- **No blocking and no threads.** The handler asks the Postgres library for a row; the library dials or reuses a pooled
-  link and sends through the same loop; the reply arrives as an event, and the application passes it to whichever
-  library owns that link (each library recognises its own links and ignores the rest).
-- **Backpressure is explicit.** A send that does not fit returns `Full`, and `Writable` says when to go on, so a slow
-  database or a slow client cannot make either library's memory grow without bound.
-- **Write each once, move them together.** The HTTP server and the Postgres client are written against the contract, not
-  against an event loop, so the same pair moves to another event loop without a rewrite.
-- **Deterministic tests with no database.** Run both on the in-memory event loop with a scripted Postgres peer and a
-  virtual clock: a slow query, a reset connection or a refused dial is a few lines of test, and a timeout test takes no
-  time.
+- **Portable.** Each library runs on any conforming event loop, so neither is tied to a particular server or loop.
+- **No second loop, no thread pool, no blocking.** The Postgres library dials or reuses a pooled link through the same
+  loop, and each reply is an event that the application passes to the library that owns the link.
+- **Bounded memory.** A send that does not fit returns `Full`, and `Writable` signals when to continue, so a slow
+  client or a slow database cannot make either library's memory grow without bound.
+- **Testable without a database.** Both libraries run on the in-memory event loop against a scripted Postgres peer
+  and a virtual clock. A slow query, a reset connection or a refused dial is a few lines of test and takes no real time.
 
-[`examples/gateway.goose`](examples/gateway.goose) is this shape, with a line server in front and a pooled line client
-behind it on one loop, neither library knowing the other exists. Real HTTP and Postgres libraries are separate
-projects; this repository has the contract they would share.
+[`examples/gateway.goose`](examples/gateway.goose) has this structure with a line server in front and a pooled line
+client behind it. HTTP and Postgres libraries are separate projects; this repository provides the contract they share.
 
 ## Where it stands
 
