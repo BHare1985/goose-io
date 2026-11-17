@@ -11,17 +11,20 @@ goose-io is a small, implementation-independent contract for stream I/O. A libra
 server, a Postgres client, a proxy) is written against it, and so is an event loop that drives the connections. Each side
 is written once and is compatible with everyone on the other side, without either knowing how the other is implemented.
 
+An **application** puts them together: it chooses libraries and an event loop, and connects the libraries to each other.
+Application authors implement nothing of goose-io. They get the ecosystem: any library, on any event loop.
+
 ## Start here
 
-| | **I am writing a network library** | **I am writing an event loop** |
-|---|---|---|
-| Goal | A library that runs on every event loop that uses goose-io | An event loop that runs every library that uses goose-io |
-| You write | A state struct and one function that handles events | The 12 operations of the core, on top of your own I/O |
-| You get | Portable code, and tests that need no network | Every library written for the contract, and a suite that says when you are done |
-| First example | [The echo server](#i-am-writing-a-network-library) | [A loop that supplies only the core](#i-am-writing-an-event-loop) |
-| Guide | [docs/libraries.md](docs/libraries.md) | [docs/event-loops.md](docs/event-loops.md) |
+| | **I am writing a library** | **I am writing an event loop** | **I am building an application** |
+|---|---|---|---|
+| Goal | A library that runs on every event loop that uses goose-io | An event loop that runs every library that uses goose-io | A program that combines libraries on an event loop |
+| You write | A state struct and one function that handles events | The 12 operations of the core, on top of your own I/O | The glue: run the loop, hand each event to the libraries, connect them |
+| You get | Portable code, and tests that need no network | Every library written for the contract, and a suite that says when you are done | Libraries and event loops from anyone, chosen independently |
+| First example | [The echo server](#i-am-writing-a-library) | [A loop that supplies only the core](#i-am-writing-an-event-loop) | [The gateway](#i-am-building-an-application) |
+| Guide | [docs/libraries.md](docs/libraries.md) | [docs/event-loops.md](docs/event-loops.md) | [docs/libraries.md](docs/libraries.md#the-application) |
 
-Neither side needs the other's internals. Both rely on [the same contract](docs/contract.md), which exposes no socket,
+No side needs another's internals. All three rely on [the same contract](docs/contract.md), which exposes no socket,
 file descriptor or poll mask.
 
 ## How it fits together
@@ -32,6 +35,8 @@ not know which event loop is underneath, and an event loop does not know which l
 
 ```mermaid
 flowchart TB
+    APP["<b>Application</b><br/>Chooses libraries and an event loop · runs the loop · connects the libraries"]
+
     subgraph LIB["1 · Network libraries"]
         direction LR
         L1["HTTP"]
@@ -50,13 +55,17 @@ flowchart TB
         E4["In-memory"]
     end
 
+    APP -->|"composes"| LIB
     LIB -->|"use the contract"| C
     LOOPS -->|"implement the contract"| C
+    APP -.->|"runs on"| LOOPS
 
+    classDef app fill:#f5e6f5,stroke:#9a5a9a,color:#4a1f4a,stroke-width:1.5px
     classDef library fill:#e0efff,stroke:#3978b8,color:#17365d,stroke-width:1.5px
     classDef contract fill:#fff0cc,stroke:#c58b24,color:#553800,stroke-width:2px
     classDef loop fill:#e3f2df,stroke:#548b48,color:#21451c,stroke-width:1.5px
 
+    class APP app
     class L1,L2,L3,L4 library
     class C contract
     class E1,E2,E3,E4 loop
@@ -64,7 +73,8 @@ flowchart TB
 
 | Layer | Responsibility |
 |---|---|
-| **Libraries** | Implement protocols and applications using only the contract. |
+| **Application** | Chooses the libraries and the event loop, runs the loop, and connects the libraries to each other. It implements nothing of goose-io. |
+| **Libraries** | Implement protocols using only the contract. |
 | **The contract** | Defines the operations, events, types and behavioural guarantees both sides rely on. |
 | **Event loops** | Implement the contract with their own I/O mechanism: a poller, a completion ring, a userspace stack, or none at all. |
 
@@ -86,8 +96,8 @@ A request handler needs data from a database. Two problems follow.
 
 Neither can be tested without a real database and real time.
 
-With goose-io both libraries are written against the contract and not against an event loop, so a single event loop
-on one thread drives both:
+With goose-io both libraries are written against the contract and not against an event loop. A single event loop on one
+thread drives both, and the **application** is the glue between them:
 
 ```mermaid
 flowchart TB
@@ -95,29 +105,41 @@ flowchart TB
 
     subgraph PROC["One process, one thread"]
         direction TB
+        APP["<b>Application</b><br/>handler code · runs the loop · hands each event to its libraries"]
         H["<b>HTTP server library</b><br/>accepts requests"]
         G["<b>Postgres client library</b><br/>connection pool"]
         K["<b>goose-io contract</b><br/>send · dial · close · events"]
         E["<b>Event loop</b><br/>epoll · io_uring · in-memory"]
-        H -->|"query"| G
-        G -->|"row"| H
+        APP -->|"event"| H
+        APP -->|"event"| G
+        H -->|"request"| APP
+        APP -->|"query"| G
+        G -->|"row"| APP
         H --> K
         G --> K
         K --> E
+        E -->|"every event"| APP
     end
 
     D[("<b>PostgreSQL</b>")]
 
-    C -->|"HTTP request"| H
+    C -->|"HTTP request"| E
     E -->|"TCP"| D
 
+    classDef app fill:#f5e6f5,stroke:#9a5a9a,color:#4a1f4a,stroke-width:1.5px
     classDef library fill:#e0efff,stroke:#3978b8,color:#17365d,stroke-width:1.5px
     classDef contract fill:#fff0cc,stroke:#c58b24,color:#553800,stroke-width:2px
     classDef loop fill:#e3f2df,stroke:#548b48,color:#21451c,stroke-width:1.5px
+    class APP app
     class H,G library
     class K contract
     class E loop
 ```
+
+The application is ordinary code. It receives each event from the event loop and passes it to the libraries; each library
+recognises its own links and ignores the rest. When the HTTP library hands over a request, the application's handler asks the
+Postgres library for the row and, when the row arrives, gives it back as the reply. Neither library names the other, and
+neither names the event loop.
 
 - **Portable.** Each library runs on any conforming event loop, so neither is tied to a particular server or loop.
 - **No second loop, no thread pool, no blocking.** The Postgres library dials or reuses a pooled link through the same
@@ -143,7 +165,7 @@ client behind it. HTTP and Postgres libraries are separate projects; this reposi
 So today a library runs on the in-memory loop (and over the test layers below), and runs on the real loops when they
 land. Built and tested on linux-x64, macos-x64, macos-arm64 and windows-x64; the package is Goose source and builds no C.
 
-## I am writing a network library
+## I am writing a library
 
 A library handles five core events (`Opened`, `Data`, `Writable`, `Closed`, `Tick`) and calls a handful of operations
 (`send`, `close`, `dial`, `listen`, ...). That is its whole interface to the network: no sockets, descriptors, poll
@@ -187,6 +209,23 @@ tests/examples/over_wrapper.sh
 **Next:** [docs/libraries.md](docs/libraries.md) covers writing and testing a library. Bigger examples are in
 `examples/`: a line server, a pooled line client, and `gateway.goose`, which runs both on one loop, neither knowing the
 other exists.
+
+## I am building an application
+
+An application is the only code that names an event loop. It runs the loop and hands each event to its libraries, and
+the code that connects one library to another lives here. The whole of the glue in [`examples/gateway.goose`](examples/gateway.goose),
+which runs a line server, a second line server and a pooled line client on one loop, is one call:
+
+```goose
+io.serve() { io, ev => gateway::step(front, back, client, table, io, ev); };
+```
+
+`step` gives the event to each library until one claims it, then moves requests from the front server to the client and the
+client's results back to the front server's connections. Application authors do not implement goose-io: they choose
+libraries and an event loop written by anyone else, and write only this glue. A different event loop is a one-line change.
+
+**Next:** [the application section of docs/libraries.md](docs/libraries.md#the-application) explains the dispatch and shows
+`step` in full.
 
 ## I am writing an event loop
 
