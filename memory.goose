@@ -1254,7 +1254,8 @@ fn silent(io: Loop&, address: const u8[:]) {
 // conformance suite can be shown to fail on it (see tests/conformance/faults.sh). Does nothing for a name
 // it does not know.
 fn set_fault(io: Loop&, name: const u8[:]) {
-    io._fault = _fault_named(name);
+    let fault = _fault_named(name);
+    if fault != 0 { io._fault = fault; }
 }
 
 fn _fault_named(name: const u8[:]) -> i64 {

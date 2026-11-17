@@ -2,6 +2,12 @@
 
 Version 0.1. The declarations are in [`goose_io.goose`](../goose_io.goose); this document is the meaning. The normative requirements, each with test scenarios, are in the OpenSpec capability `io-contract`. Requirement names from it are quoted in *italics* below so that every rule here can be traced to its tests.
 
+**In plain words.** An *event loop* moves the bytes (epoll, io_uring, libuv, or the in-memory one used for tests). A
+*library* speaks a protocol (a server, a client). The contract is the small set of operations and events between them,
+so a library never names the loop under it and a loop never needs to know which libraries run on it. If you want to
+*use* it, start with the echo server in [`libraries.md`](libraries.md); to *supply* it, start with
+[`event-loops.md`](event-loops.md). This document is the full specification both of them follow.
+
 ## 1. Purpose and roles
 
 Only one loop can own a thread. If every loop has its own way to dial, send and receive, every client library has to be written once per loop. This contract is the one way.
@@ -22,7 +28,7 @@ The contract is per loop. One loop runs on one thread. Every event is delivered 
 
 (*The contract is a core and groups of extras*, *The core is thirteen operations and five events*, *Each group is named and checked on its own*)
 
-An event loop has to supply **the core**: 13 operations and 5 events, enough for a client or a server that answers requests. Everything else is in one of five **groups** that an event loop may supply or leave out. A library uses what it needs and says so in its header; built against a loop that lacks something it calls, it fails to compile, and the error names the operation.
+An event loop has to supply **the core**: 13 operations and 5 events, enough for a client, and for a server that answers as the bytes arrive. A server that answers after the peer has finished sending needs the half-close group (the line server does; the line client does not). Everything else is in one of five **groups** that an event loop may supply or leave out. A library uses what it needs and says so in its header; built against a loop that lacks something it calls, it fails to compile, and the error names the operation.
 
 | | Operations | Events |
 |---|---|---|

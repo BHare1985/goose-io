@@ -99,7 +99,18 @@ fn set_keep_open_on_eof(w: Layer&, link: goose_io::Link, keep: bool) {
     if m >= 0 { w.modes[m].keep = keep; }
 }
 fn shutdown_write(w: Layer&, link: goose_io::Link) { w._prepare(); inner.shutdown_write(link); }
-fn set_user(w: Layer&, link: goose_io::Link, user: u32) { w._prepare(); inner.set_user(link, user); }
+// The user value is read when an event is given, so an event the wrapper holds (or has queued) for the link takes the
+// new value too: every event given after `set_user` carries it.
+fn set_user(w: Layer&, link: goose_io::Link, user: u32) {
+    w._prepare();
+    inner.set_user(link, user);
+    for i in w.held.len {
+        if i >= w.held_off && goose_io::same(w.held[i].link, link) { w.held[i].user = user; }
+    }
+    for i in w.out.len {
+        if w.out[i].kind == 'L' && goose_io::same(w.out[i].h.link, link) { w.out[i].h.user = user; }
+    }
+}
 fn user(w: Layer&, link: goose_io::Link) -> u32 { w._prepare(); return inner.user(link); }
 fn now_ms(w: Layer&) -> i64 { w._prepare(); return inner.now_ms(); }
 fn tick_by(w: Layer&, at_ms: i64) { w._prepare(); inner.tick_by(at_ms); }
@@ -289,8 +300,9 @@ fn serve<F>(w: Layer&) {
     }
 }
 
-// The wrapper passes through the core and every group but batching, so it supplies each of them. This function
-// is never called: it makes the compiler check the wrapper against the contract's own checks whenever it is built.
+// The wrapper supplies the core and every group. Batching is an event and has no operation to check: the wrapper
+// gives `PassEnd` itself (see `_end_pass`) and passes the batching part of the suite. This function checks the
+// operations, and is never called: it makes the compiler check the wrapper against the contract's own checks whenever it is built.
 fn _supplied(w: Layer&) {
     goose_io::require_core(w);
     goose_io::require_half_close(w);

@@ -4,6 +4,11 @@ A library is Goose code that speaks a protocol over links: an HTTP server, a dat
 proxy. It is generic over the event loop, so the same source runs on any event loop that meets the
 contract in [contract.md](contract.md).
 
+**New here?** Read [`examples/echo/echo.goose`](../examples/echo/echo.goose) first: about 130 lines, the whole of a
+server that answers every byte with the same byte, including what to do when the peer is too slow to read the answer.
+Its test, [`tests/examples/echo_test.goose`](../tests/examples/echo_test.goose), shows how to run a library with no
+network. Then come back here for the shape of a library and the rules it follows.
+
 This document covers the shape of a library, what the contract gives it to work with, and how to test it with
 no network. Every excerpt of code in it is copied from a file that the tests build and run, and
 `tests/checks/docs.sh` fails if one drifts: `examples/lineserver/server.goose`, `examples/lineclient/client.goose`
