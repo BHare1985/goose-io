@@ -44,7 +44,6 @@ Every event loop supplies these.
 | `max_send` | None. | n/a | A configuration value of at least 4096. |
 | `pause_reading` | `uv_read_stop(stream)` and `uv_read_start` | checked: `uv_read_stop` in `uv.h`, `uv__read` in `stream.c` | A pending `Data` is delivered before the stop takes effect; the contract allows exactly one already received. |
 | `close` | `uv_shutdown` then `uv_close(handle, close_cb)`; the close callback runs from the loop (`core.c`, `uv__run_closing_handles`) | checked | See *Closing*. The `Closed` is queued from the close callback and delivered after the handler that called `close` has returned. |
-| `set_user` | The handle's `data` pointer | unverified | A per-link record indexed by the `Link` slot; `uv_handle_set_data`. |
 | `now_ms` | `uv_now(loop)`, milliseconds, updated at the start of each iteration | unverified | `uv_update_time` before reading it when called mid-iteration. |
 | `tick_by` | `uv_timer_start(timer, cb, timeout_ms, repeat_ms)` | unverified: declaration | One timer: the regular 100 ms `Tick`, moved earlier by `tick_by`. |
 | `serve` | `uv_run(loop, UV_RUN_ONCE)` returns after each iteration (`uv.h`, `UV_RUN_ONCE`) | checked: enum | The adapter drives the loop one iteration at a time from Goose and delivers the queued events after each. This is what the research found libuv can do and uSockets cannot. |
@@ -91,7 +90,6 @@ Only a loop that supplies the inspection group needs these.
 |---|---|---|---|
 | `peer_address` | `uv_tcp_getpeername` | unverified: declaration | Format as the contract's text. |
 | `stop_listening` | `uv_close` on the listening handle | unverified | Links accepted from it are other handles. |
-| `user` | As above | unverified | The record outlives the close callback until `Closed` has been delivered. |
 
 ### Batching
 
@@ -104,7 +102,7 @@ Only a loop that supplies the batching group needs this.
 
 ## What a loop with only the core costs
 
-An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address`, `stop_listening` or `user`, and no `PassEnd`. Each group is a separate, later addition.
+An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each group is a separate, later addition.
 
 - `listen`: Parse the address with the contract's grammar first, then fill a `sockaddr` (do not call `uv_ip6_addr` on unchecked text, see above). `UV_EADDRINUSE` from bind maps to `AddressInUse`.
 - `listener_port`: Bind to port 0 and read the port back.
@@ -113,7 +111,6 @@ An event loop on this substrate that supplies only the core does the adapter wor
 - `max_send`: A configuration value of at least 4096.
 - `pause_reading`: A pending `Data` is delivered before the stop takes effect; the contract allows exactly one already received.
 - `close`: See *Closing*. The `Closed` is queued from the close callback and delivered after the handler that called `close` has returned.
-- `set_user`: A per-link record indexed by the `Link` slot; `uv_handle_set_data`.
 - `now_ms`: `uv_update_time` before reading it when called mid-iteration.
 - `tick_by`: One timer: the regular 100 ms `Tick`, moved earlier by `tick_by`.
 - `serve`: The adapter drives the loop one iteration at a time from Goose and delivers the queued events after each. This is what the research found libuv can do and uSockets cannot.
@@ -123,6 +120,7 @@ An event loop on this substrate that supplies only the core does the adapter wor
 - `Data`: Give libuv a buffer the adapter owns; in `read_cb` stop reading (`uv_read_stop`) and queue the event; the slice is lent until the handler returns, then the buffer is reused and reading resumes. No copy is forced.
 - `Writable`: The adapter's queue drained: queue `Writable` once the room that the largest refused send needs is free.
 - `Closed`: Reason from the adapter's state: `Local`, `PeerClosed`, `PeerReset` (`UV_ECONNRESET`), `Shutdown`, `ConnectFailed`, `Error`.
+- Slots: the adapter keeps one record for each link in a table indexed by the `Link` slot and takes a freed slot (from a free list) before it extends the table, so slots are dense (*Slot numbers are dense*); a slot is freed only after the `Closed` handlers return.
 - `Tick`: Delivered as the first event of a pass.
 - The peer's end of stream: the core still closes the link with `PeerClosed` once what was accepted is out, which is the default of the `set_keep_open_on_eof` row, without the switch to turn it off.
 

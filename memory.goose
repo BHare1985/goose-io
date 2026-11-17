@@ -281,8 +281,6 @@ let _EPHEMERAL_PORTS = 16384;     // 49152 to 65535
 struct _Slot {
     gen:              u32                   = 1,
     state:            u8                    = 0,
-    tag:              u16                   = 0,
-    user:             u32                   = 0,
     listener:         u32                   = 0,     // the listener that accepted it, 0 for a dialled link
     peer:             i64                   = -1,    // the slot of the other end, -1 when there is none (any more)
     script:           i64                   = -1,    // the scripted peer that plays this end, -1 for a library's link
@@ -307,7 +305,7 @@ struct _Slot {
     connect_deadline: i64                   = 0,
 }
 
-struct _Listener { addr: _Addr = _Addr { .. }, tag: u16 = 0, active: bool = false }
+struct _Listener { addr: _Addr = _Addr { .. }, active: bool = false }
 
 // A dial to addr fails with this kind (fail_dials).
 struct _Failing { addr: _Addr = _Addr { .. }, kind: goose_io::ConnectFailure = goose_io::ConnectFailure.Other }
@@ -428,7 +426,7 @@ fn _link_of(io: Loop&, i: i64) -> goose_io::Link {
 
 fn _new_slot(io: Loop&, script: i64) -> i64 {
     var i = 0;
-    if io._free.len > 0 {
+    if io._free.len > 0 && io._fault != 64 {       // fault SlotsNeverReused: a new slot for every link
         i = io._free[io._free.len - 1];
         io._free.pop();
         let gen = io._slots[i].gen;
@@ -485,7 +483,7 @@ fn _close(io: Loop&, i: i64, why: goose_io::CloseReason, abort: bool) {
 
 // --- the contract: listening ---------------------------------------------------------------------
 
-fn listen(io: Loop&, address: const u8[:], tag: u16) -> goose_io::Listener, goose_io::ListenError {
+fn listen(io: Loop&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError {
     io._start();
     var a = io._addr(address);
     guard a.ok else { return goose_io::Listener { .. }, goose_io::ListenError { kind: goose_io::ListenErrorKind.BadAddress, code: 22 }; }
@@ -506,12 +504,11 @@ fn listen(io: Loop&, address: const u8[:], tag: u16) -> goose_io::Listener, goos
         for l, k in io._listeners {
             if !l.active && _same_endpoint(l.addr, a) {
                 io._listeners[k].active = true;
-                io._listeners[k].tag = tag;
                 return goose_io::Listener { id: (k + 1) as u32 }, goose_io::ListenError { .. };
             }
         }
     }
-    io._listeners.push(_Listener { addr: a, tag: tag, active: true });
+    io._listeners.push(_Listener { addr: a, active: true });
     return goose_io::Listener { id: io._listeners.len as u32 }, goose_io::ListenError { .. };
 }
 
@@ -575,18 +572,17 @@ fn stop_listening(io: Loop&, l: goose_io::Listener) {
 
 // --- the contract: links -------------------------------------------------------------------------
 
-fn dial(io: Loop&, address: const u8[:], tag: u16, connect_ms: i64) -> goose_io::Link {
+fn dial(io: Loop&, address: const u8[:], connect_ms: i64) -> goose_io::Link {
     io._start();
-    let link = io._dial(io._addr(address), tag, connect_ms, -1);
+    let link = io._dial(io._addr(address), connect_ms, -1);
     if io._fault == 15 { return goose_io::Link { .. }; }        // fault DialReturnsInvalid
     return link;
 }
 
-fn _dial(io: Loop&, target: _Addr, tag: u16, connect_ms: i64, script: i64) -> goose_io::Link {
+fn _dial(io: Loop&, target: _Addr, connect_ms: i64, script: i64) -> goose_io::Link {
     let i = io._new_slot(script);
     let s .= io._slots[i];
     s.state = _DIALING;
-    s.tag = tag;
     let link = goose_io::Link { slot: i as u32, gen: s.gen };
     if script < 0 && io._live_slots > io.cfg.max_links { io._close(i, _failed(goose_io::ConnectFailure.NoResources), false); return link; }
     s.target = target;
@@ -719,16 +715,6 @@ fn shutdown_write(io: Loop&, link: goose_io::Link) {
     if s.eof_seen { io._close(i, goose_io::CloseReason.PeerClosed, false); }
 }
 
-fn set_user(io: Loop&, link: goose_io::Link, user: u32) {
-    let i = io._slot_of(link);
-    if i >= 0 { io._slots[i].user = user; }
-}
-
-fn user(io: Loop&, link: goose_io::Link) -> u32 {
-    let i = io._slot_of(link);
-    if i >= 0 { io._slots[i].user } else { 0 }
-}
-
 // --- the contract: time and the application side --------------------------------------------------
 
 fn now_ms(io: Loop&) -> i64 { io._clock }
@@ -815,7 +801,6 @@ fn _connect(io: Loop&, i: i64) {
             return;
         }
         j = io._new_slot(-1);
-        io._slots[j].tag = io._listeners[found].tag;
         io._slots[j].listener = (found + 1) as u32;
     } else {
         // no listener: the first scripted peer still waiting at this address takes the dial
@@ -892,7 +877,7 @@ fn _deliver<F>(io: Loop&) -> i64 {
                 if !s.local_closed || io._fault == 38 {
                     if s.state == _OPENING { s.state = _OPEN; }
                     s.opened = true;
-                    let e: goose_io::Event = goose_io::Event.Opened { link: link, tag: s.tag, user: s.user, listener: goose_io::Listener { id: if io._fault == 9 { 0 } else { s.listener } } };
+                    let e: goose_io::Event = goose_io::Event.Opened { link: link, listener: goose_io::Listener { id: if io._fault == 9 { 0 } else if io._fault == 6 && s.listener != 0 { 1 } else { s.listener } } };      // faults OpenedWithoutListener and WrongListenerNamed
                     delivered++;
                     F(io, e);
                 }
@@ -907,25 +892,25 @@ fn _deliver<F>(io: Loop&) -> i64 {
                     s.in_len = rest;
                     io._room_opened(s.peer);
                     if io._fault == 20 { io._scratch[0] = io._scratch[0] ^ 1; }      // fault DataCorrupted
-                    let e: goose_io::Event = goose_io::Event.Data { link: link, tag: if io._fault == 6 { s.tag + 1 } else { s.tag }, user: if io._fault == 7 { 0 } else { s.user }, bytes: io._scratch[..n] };
+                    let e: goose_io::Event = goose_io::Event.Data { link: link, bytes: io._scratch[..n] };
                     delivered++;
                     F(io, e);
                 }
             } else if r.kind == _EV_WRITABLE {
                 // not after shutdown_write, even if it was queued before the call: nothing can fit now
                 if (s.state == _OPEN || io._fault == 37) && (!s.wr_shut || io._fault == 35) {
-                    let e: goose_io::Event = goose_io::Event.Writable { link: link, tag: s.tag, user: s.user };
+                    let e: goose_io::Event = goose_io::Event.Writable { link: link };
                     delivered++;
                     F(io, e);
                 }
             } else if r.kind == _EV_PEER_EOF {
                 if !s.local_closed {
-                    let e: goose_io::Event = goose_io::Event.PeerEof { link: link, tag: s.tag, user: s.user };
+                    let e: goose_io::Event = goose_io::Event.PeerEof { link: link };
                     delivered++;
                     F(io, e);
                 }
             } else if r.kind == _EV_CLOSED {
-                let e: goose_io::Event = goose_io::Event.Closed { link: link, tag: s.tag, user: if io._fault == 8 && goose_io::is_connect_failed(s.why) { 0 } else { s.user }, why: s.why };
+                let e: goose_io::Event = goose_io::Event.Closed { link: if io._fault == 7 && goose_io::is_connect_failed(s.why) { goose_io::Link { .. } } else { link }, why: s.why };      // fault DialClosedLost
                 delivered++;
                 if io._fault == 3 { io._release(r.slot); }      // fault ClosedHandleStaleEarly
                 F(io, e);
@@ -1173,7 +1158,7 @@ fn _run_script(io: Loop&, k: i64) {
             // a peer plays one connection: a second connect step does nothing
             if !sc.taken {
                 sc.taken = true;
-                let link = io._dial(st.addr, 0, 0, k);
+                let link = io._dial(st.addr, 0, k);
                 sc.slot = link.slot;
             }
         } else if sc.closed || (sc.taken && sc.slot < 0) {
@@ -1297,9 +1282,10 @@ fn set_fault(io: Loop&, name: const u8[:]) {
 }
 
 fn _fault_named(name: const u8[:]) -> i64 {
+    guard name.len > 0 else { return 0; }       // position 8 of the list is retired (it was UserReadAtDial)
     let names = [
         "StaleHandleAccepted", "UnsetLinkHasRoom", "ClosedHandleStaleEarly", "PeerCloseDropsData", "OpenedBeforeFailure",
-        "WrongTag", "UserLostInData", "UserReadAtDial", "OpenedWithoutListener", "HeldIgnored",
+        "WrongListenerNamed", "DialClosedLost", "", "OpenedWithoutListener", "HeldIgnored",
         "PortZeroReportsZero", "StopListeningClosesLinks", "ListenerHandleReused", "StalePeerAddress", "DialReturnsInvalid",
         "RefusedAsUnreachable", "TimeoutEarly", "BadAddressAsRefused", "Ipv6Unsupported", "DataCorrupted",
         "SendClobbersLentBytes", "SendDropsLastByte", "SendBeforeOpenSent", "SendAfterCloseAccepted", "Send2SwapsParts",
@@ -1310,7 +1296,7 @@ fn _fault_named(name: const u8[:]) -> i64 {
         "TickByKeepsLatest", "NoPassEnd", "IdlePassEnd", "StopWaitsForGrace", "ShutdownEarly",
         "ListenAfterStop", "DialFailsWhileDraining", "StopLatestWins", "UnsetHandleAccepted", "SendAfterShutdownAccepted",
         "UnixListenerIgnored", "UnixOverlapIgnored", "UnixRefusedAsBadAddress", "UnixPortInvented", "UnixRelativeAccepted",
-        "UnixLongestRefused", "UnixTripleSlashRefused", "UnixAliasNotHeld",
+        "UnixLongestRefused", "UnixTripleSlashRefused", "UnixAliasNotHeld", "SlotsNeverReused",
     ];
     for n, i in names { if n == name { return i + 1; } }
     return 0;

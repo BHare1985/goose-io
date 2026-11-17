@@ -113,11 +113,22 @@ struct Batch {
     asked:   bool                 = false,
 }
 
+fn is_server(b: Batch&, link: goose_io::Link) -> bool {
+    for l in b.servers { if goose_io::same(l, link) { return true; } }
+    return false;
+}
+
+// True when the link's Opened in the log named a listener, so it is a server end.
+fn is_server_link(log: kit::Log&, link: goose_io::Link) -> bool {
+    let i = kit::first_for(log, kit::OPENED, link);
+    return i >= 0 && goose_io::is_listener(log.entries[i].listener);
+}
+
 fn batch_event(b: Batch&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
     kit::note(log, io, ev);
     match ev {
-        Opened e => { if e.tag == 1 { b.servers.push(e.link); } },
-        Data d => { if d.tag == 1 { b.got.push(d.link); } },
+        Opened e => { if goose_io::is_listener(e.listener) { b.servers.push(e.link); } },
+        Data d => { if is_server(b, d.link) { b.got.push(d.link); } },
         PassEnd => {
             // the batch: one reply to every request of this pass
             for l in b.got { kit::check(io.send(l, "reply") == goose_io::SendStatus.Sent, "an operation in PassEnd behaves as anywhere else"); }
@@ -139,8 +150,8 @@ fn pass_end() {
     var log = kit::Log { .. };
     log.ticks = true;
     var b = Batch { .. };
-    let l, err = io.listen("127.0.0.1:8200", 1);
-    for i in 10 { b.clients.push(io.dial("127.0.0.1:8200", 2, 0)); }
+    let l, err = io.listen("127.0.0.1:8200");
+    for i in 10 { b.clients.push(io.dial("127.0.0.1:8200", 0)); }
     io.serve() { io, ev => batch_event(b, log, io, ev); };      // nothing asks for PassEnd: it is always delivered
 
     // the shape of the whole log
@@ -162,7 +173,7 @@ fn pass_end() {
     let first = kit::nth(log, kit::DATA, 0);
     var ten = first >= 0 && first + 10 < log.entries.len;
     if ten {
-        for k in 10 { if log.entries[first + k].kind != kit::DATA || log.entries[first + k].tag != 1 { ten = false; } }
+        for k in 10 { if log.entries[first + k].kind != kit::DATA || !is_server_link(log, log.entries[first + k].link) { ten = false; } }
         if log.entries[first + 10].kind != kit::PASS_END { ten = false; }
     }
     kit::check(ten, "ten requests arriving in one pass give ten Data events and then one PassEnd");
@@ -189,7 +200,7 @@ fn last_event(s: Last&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
 fn pass_end_is_last() {
     var io = goose_io_memory::Loop { .. };
     var s = Last { .. };
-    let l, err = io.listen("127.0.0.1:8207", 1);
+    let l, err = io.listen("127.0.0.1:8207");
     // peers whose bytes arrive in the very pass that also has a Tick
     for i in 3 {
         let p = io.add_peer();
@@ -218,10 +229,10 @@ fn idle_stop_event(io: goose_io_memory::Loop&, ev: goose_io::Event) {
 
 fn stop_with_nothing_open() {
     var io = goose_io_memory::Loop { .. };
-    let l, err = io.listen("127.0.0.1:8201", 1);
+    let l, err = io.listen("127.0.0.1:8201");
     io.serve() { io, ev => idle_stop_event(io, ev); };
     kit::check(io.now_ms() == 100, "with no link open, serve returns without waiting for the grace period");
-    let l2, err2 = io.listen("127.0.0.1:8202", 1);
+    let l2, err2 = io.listen("127.0.0.1:8202");
     kit::check(!goose_io::is_listener(l2) && goose_io::failed(err2), "listen on a loop that is stopping fails");
 }
 
@@ -234,10 +245,10 @@ fn linger_event(s: Linger&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goos
             if s.stopped_at < 0 {
                 s.stopped_at = t.now_ms;
                 io.stop(2000);
-                s.late = io.dial("127.0.0.1:8203", 3, 0);       // the listener stopped at once
-                let l, err = io.listen("127.0.0.1:8206", 1);
+                s.late = io.dial("127.0.0.1:8203", 0);       // the listener stopped at once
+                let l, err = io.listen("127.0.0.1:8206");
                 kit::check(!goose_io::is_listener(l) && goose_io::failed(err), "listen fails once the loop is stopping");
-                s.out = io.dial("10.0.0.20:80", 3, 0);          // dialling out is still allowed
+                s.out = io.dial("10.0.0.20:80", 0);          // dialling out is still allowed
             } else if io.draining() {
                 s.saw_draining = true;
             }

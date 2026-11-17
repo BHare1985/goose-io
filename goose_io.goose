@@ -20,7 +20,7 @@ import std;
 
 // While the major number is 0 a minor increase may change or remove behaviour.
 let VERSION_MAJOR = 0;
-let VERSION_MINOR = 2;
+let VERSION_MINOR = 3;
 
 // --- handles -------------------------------------------------------------------------------------
 
@@ -113,22 +113,23 @@ fn failed(e: ListenError) -> bool {
 
 // What the application's serve block is called with. Read it with `match`.
 //
-// Every link event carries the link, the tag given to dial or listen (which library owns it) and
-// the user value last set with set_user (which of that library's connections it is; 0 until set).
+// Every link event carries the link. Nothing is attached to it by the application or a library: a library finds
+// its state for an event from the link (a `LinkMap` keyed by it) and recognises an accepted link by the listener
+// `Opened` names. See docs/libraries.md, "How an event finds its state".
 enum Event {
     // The link is open. `listener` is the listener that accepted it, or none for a dialled link.
     // Always the first event of a link that opens; a dial that fails gets Closed and no Opened.
-    Opened { link: Link, tag: u16, user: u32, listener: Listener },
+    Opened { link: Link, listener: Listener },
     // Bytes from the peer, in order. `bytes` belongs to the event loop and is valid only until the
     // handler returns: copy what must be kept.
-    Data { link: Link, tag: u16, user: u32, bytes: const u8[:] },
+    Data { link: Link, bytes: const u8[:] },
     // One or more sends returned Full and now any one of them would fit (each on its own, not all
     // together). Delivered once, however many were refused; a Full after it starts again.
-    Writable { link: Link, tag: u16, user: u32 },
+    Writable { link: Link },
     // The peer finished sending. Only after set_keep_open_on_eof(link, true); the link can still send.
-    PeerEof { link: Link, tag: u16, user: u32 },
+    PeerEof { link: Link },
     // Always the last event of a link, exactly once.
-    Closed { link: Link, tag: u16, user: u32, why: CloseReason },
+    Closed { link: Link, why: CloseReason },
     // At least every 100 ms of the loop's clock, and at or after any time asked for with tick_by.
     Tick { now_ms: i64 },
     // The end of a pass that delivered at least one link event: the moment to send what was batched.
@@ -145,30 +146,6 @@ fn is_link_event(ev: Event) -> bool {
     }
 }
 
-// The tag of a link event, 0 for Tick and PassEnd.
-fn tag_of(ev: Event) -> u16 {
-    match ev {
-        Opened e => e.tag,
-        Data e => e.tag,
-        Writable e => e.tag,
-        PeerEof e => e.tag,
-        Closed e => e.tag,
-        _ => 0,
-    }
-}
-
-// The user value of a link event, 0 for Tick and PassEnd.
-fn user_of(ev: Event) -> u32 {
-    match ev {
-        Opened e => e.user,
-        Data e => e.user,
-        Writable e => e.user,
-        PeerEof e => e.user,
-        Closed e => e.user,
-        _ => 0,
-    }
-}
-
 // The link of a link event, an invalid Link for Tick and PassEnd.
 fn link_of(ev: Event) -> Link {
     match ev {
@@ -179,6 +156,53 @@ fn link_of(ev: Event) -> Link {
         Closed e => e.link,
         _ => Link { .. },
     }
+}
+
+// --- a library's state, keyed by link --------------------------------------------------------------
+
+// A table of a library's own values keyed by Link, so that an event finds its state from the link it carries and the
+// event loop passes nothing in. It is a helper: a library may keep its state any other way, since the contract
+// guarantees a link's identity and lifetime and not the table (docs/libraries.md, "Choosing a table").
+//
+// Flat: one entry, a generation and a value, for each slot up to the highest a library has used, in one grow-only
+// array, so it is an ordinary struct with a single resizable field and a library can hold it in its own state (a
+// `root struct` cannot be a field of another struct, which is why the generations and the values are not two arrays).
+// Slots are dense on every event loop (the greatest slot is below the greatest number of links valid at once on that
+// loop), so the memory is the event loop's peak slot count times the size of an entry, not the library's own peak. A
+// lookup is one indexed load and a generation compare, and no operation allocates but `put` growing the table. The
+// generation stored beside a value makes a stale or foreign link find nothing. A reference from `find` stays valid
+// while later links are put (the array only grows and nothing moves); `drop` resets the entry, so a reference kept past
+// `drop` reads an empty value. Use one map only with the links of one event loop: two loops can issue equal slot and
+// generation pairs. bench/link_map_bench.goose measures it.
+struct LinkEntry<T> { gen: u32 = 0, v: T = T { .. } }       // gen 0 means empty
+
+struct LinkMap<T> {
+    entries: LinkEntry<T>[>..] = [],
+}
+
+// Stores `v` for `link`, replacing whatever an earlier link of the same slot left. An invalid link is not stored.
+fn put<T>(m: LinkMap<T>&, link: Link, v: T) {
+    guard link.gen != 0 else { return; }
+    while m.entries.len <= link.slot { m.entries.push(LinkEntry<T> { .. }); }
+    m.entries[link.slot] = LinkEntry<T> { gen: link.gen, v: v };
+}
+
+// The value of `link`, or null for a link that is invalid, stale, never put or dropped.
+fn find<T>(m: LinkMap<T>&, link: Link) -> T&? {
+    guard link.gen != 0 && link.slot < m.entries.len else { return null; }
+    let e .= m.entries[link.slot];
+    guard e.gen == link.gen else { return null; }
+    return e.v;
+}
+
+fn has<T>(m: LinkMap<T>&, link: Link) -> bool {
+    return link.gen != 0 && link.slot < m.entries.len && m.entries[link.slot].gen == link.gen;
+}
+
+// Empties the entry of `link` and no other, and resets its value. Does nothing for a link that is not in the map.
+fn drop<T>(m: LinkMap<T>&, link: Link) {
+    guard m.has(link) else { return; }
+    m.entries[link.slot] = LinkEntry<T> { .. };
 }
 
 // --- what an event loop must supply ---------------------------------------------------------------
@@ -192,26 +216,25 @@ fn link_of(ev: Event) -> Link {
 // Each operation is a function whose first parameter is the event loop.
 //
 // The core:
-//   listen(address, tag) -> Listener, ListenError      listener_port(listener) -> u16
-//   dial(address, tag, connect_ms) -> Link             send(link, bytes) -> SendStatus
+//   listen(address) -> Listener, ListenError          listener_port(listener) -> u16
+//   dial(address, connect_ms) -> Link                  send(link, bytes) -> SendStatus
 //   max_send() -> i64                                  pause_reading(link, paused)
-//   close(link)                                        set_user(link, user)
-//   now_ms() -> i64                                    tick_by(at_ms)
+//   close(link)                                        now_ms() -> i64
+//   tick_by(at_ms)
 //   serve() { io, ev => ... }                          stop(grace_ms)   draining() -> bool
 fn require_core<Io>(io: Io&) {
     if _never() {
-        let listener, listen_error = io.listen("127.0.0.1:0", 1);
+        let listener, listen_error = io.listen("127.0.0.1:0");
         _is_listener_type(listener);
         _is_listen_error_type(listen_error);
         _is_u16(io.listener_port(listener));
 
-        let link = io.dial("127.0.0.1:1", 1, 0);
+        let link = io.dial("127.0.0.1:1", 0);
         _is_link_type(link);
         _is_send_status_type(io.send(link, "x"));
         _is_i64(io.max_send());
         io.pause_reading(link, false);
         io.close(link);
-        io.set_user(link, 1);
 
         _is_i64(io.now_ms());
         io.tick_by(0);
@@ -247,13 +270,12 @@ fn require_abort<Io>(io: Io&) {
     }
 }
 
-// Inspection: peer_address(link) -> Address, stop_listening(listener), user(link) -> u32.
+// Inspection: peer_address(link) -> Address, stop_listening(listener).
 fn require_inspection<Io>(io: Io&) {
     if _never() {
         let link = Link { .. };
         _is_address_type(io.peer_address(link));
         io.stop_listening(Listener { .. });
-        _is_u32(io.user(link));
     }
 }
 
@@ -265,6 +287,5 @@ fn _is_address_type(v: Address) {}
 fn _is_send_status_type(v: SendStatus) {}
 fn _is_event_type(v: Event) {}
 fn _is_u16(v: u16) {}
-fn _is_u32(v: u32) {}
 fn _is_i64(v: i64) {}
 fn _is_bool(v: bool) {}

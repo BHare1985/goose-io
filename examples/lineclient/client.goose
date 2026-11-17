@@ -8,7 +8,7 @@
 // that is counted on the loop's clock, and `Full` and `Writable` for sends that are refused.
 //
 //     var c = lineclient::LineClient { .. };
-//     c.start(io, "10.0.0.2:6379", tag, 4, 200);          // a pool of four links, 200 ms backoff
+//     c.start(io, "10.0.0.2:6379", 4, 200);               // a pool of four links, 200 ms backoff
 //     let id = c.request(io, "GET key", 1000);            // answered, or timed out, within a second
 //     io.serve() { io, ev =>
 //         c.client_event(io, ev);
@@ -62,35 +62,37 @@ struct Req { id: u32 = 0, state: u8 = 0, off: i64 = 0, len: i64 = 0 }
 
 struct Result { found: bool = false, id: u32 = 0, outcome: Outcome = Outcome.Ok }
 
+// Where a link is in the pool: the index of its slot.
+struct PoolRef { index: i64 = 0 }
+
 struct Done { id: u32 = 0, outcome: Outcome = Outcome.Ok, off: i64 = 0, len: i64 = 0 }
 
 root struct LineClient {
-    tag:        u16                      = 0,
-    address:    goose_io::Address        = goose_io::Address { .. },
-    size:       i64                      = 0,
-    backoff_ms: i64                      = 0,
-    connect_ms: i64                      = 1000,
-    next_id:    u32                      = 1,
-    slots:      Slot[..8]                = [],
-    reqs:       Req[..256]               = [],
-    deadlines:  goose_io::Deadlines      = goose_io::Deadlines { .. },
-    dials:      i64                      = 0,
-    fulls:      i64                      = 0,
-    last_dial:  i64                      = -1,
-    last_kind:  goose_io::ConnectFailure = goose_io::ConnectFailure.Other,
-    wait_ids:   u32[>..]                 = [],            // requests waiting for a link, in order
-    wait_text:  u8[>..]                  = [],            // their texts
-    done:       Done[>..]                = [],            // results not yet taken
-    done_head:  i64                      = 0,
-    done_text:  u8[>..]                  = [],
+    address:    goose_io::Address          = goose_io::Address { .. },
+    size:       i64                        = 0,
+    backoff_ms: i64                        = 0,
+    connect_ms: i64                        = 1000,
+    next_id:    u32                        = 1,
+    slots:      Slot[..8]                  = [],
+    reqs:       Req[..256]                 = [],
+    deadlines:  goose_io::Deadlines        = goose_io::Deadlines { .. },
+    dials:      i64                        = 0,
+    fulls:      i64                        = 0,
+    last_dial:  i64                        = -1,
+    last_kind:  goose_io::ConnectFailure   = goose_io::ConnectFailure.Other,
+    refs:       goose_io::LinkMap<PoolRef> = goose_io::LinkMap<PoolRef> {},     // the slot of each link the pool dialled
+    wait_ids:   u32[>..]                   = [],          // requests waiting for a link, in order
+    wait_text:  u8[>..]                    = [],          // their texts
+    done:       Done[>..]                  = [],          // results not yet taken
+    done_head:  i64                        = 0,
+    done_text:  u8[>..]                    = [],
 }
 
-// Starts a pool of `pool` links (at most 8) to `address`, whose links carry `tag`. A failed dial or a lost link
+// Starts a pool of `pool` links (at most 8) to `address`. A failed dial or a lost link
 // is dialled again after `backoff_ms`, doubling for each failure in a row. False if the address is too long or
 // the pool size is out of range.
-fn start<Io>(c: LineClient&, io: Io&, address: const u8[:], tag: u16, pool: i64, backoff_ms: i64) -> bool {
+fn start<Io>(c: LineClient&, io: Io&, address: const u8[:], pool: i64, backoff_ms: i64) -> bool {
     guard pool >= 1 && pool <= POOL_MAX && address.len <= 56 else { return false; }
-    c.tag = tag;
     c.size = pool;
     c.backoff_ms = backoff_ms;
     c.address.text.append(address);
@@ -156,8 +158,8 @@ fn _find(c: LineClient&, id: u32) -> i64 {
 
 fn _open_slot<Io>(c: LineClient&, io: Io&, i: i64) {
     let s .= c.slots[i];
-    s.link = io.dial(c.address.text[..], c.tag, c.connect_ms);
-    io.set_user(s.link, i as u32);
+    s.link = io.dial(c.address.text[..], c.connect_ms);
+    c.refs.put(s.link, PoolRef { index: i });       // found from the link of every event, whether the dial opens or fails at once
     s.state = DIALLING;
     s.sent = 0;
     s.queue.clear();
@@ -167,10 +169,13 @@ fn _open_slot<Io>(c: LineClient&, io: Io&, i: i64) {
     c.last_dial = io.now_ms();
 }
 
-fn _slot_of(c: LineClient&, user: u32, link: goose_io::Link) -> i64 {
-    guard user < c.size else { return -1; }
-    guard c.slots[user].state != EMPTY && goose_io::same(c.slots[user].link, link) else { return -1; }
-    return user;
+// The slot a link event belongs to, or -1 when the link is not one this pool dialled (another library's, or stale).
+fn _slot_of(c: LineClient&, link: goose_io::Link) -> i64 {
+    let r .= c.refs.find(link);
+    guard r != null else { return -1; }
+    let i = r.index;
+    guard i < c.size && c.slots[i].state != EMPTY && goose_io::same(c.slots[i].link, link) else { return -1; }
+    return i;
 }
 
 fn _backoff(c: LineClient&, i: i64) -> i64 {
@@ -382,47 +387,41 @@ fn client_event<Io>(c: LineClient&, io: Io&, ev: goose_io::Event) -> bool {
         },
         PassEnd => { return false; },
         Opened e => {
-            if e.tag != c.tag { return false; }
-            let i = c._slot_of(e.user, e.link);
-            if i >= 0 {
-                c.slots[i].state = OPEN;
-                c.slots[i].fails = 0;
-                c._dispatch(io);
-            }
+            // the pool only dials: an accepted link (one that names a listener) is another library's
+            guard !goose_io::is_listener(e.listener) else { return false; }
+            let i = c._slot_of(e.link);
+            guard i >= 0 else { return false; }
+            c.slots[i].state = OPEN;
+            c.slots[i].fails = 0;
+            c._dispatch(io);
             return true;
         },
         Data e => {
-            if e.tag != c.tag { return false; }
-            let i = c._slot_of(e.user, e.link);
-            if i >= 0 {
-                let s .= c.slots[i];
-                if s.in_buf.len + e.bytes.len > IN_CAP { io.close(s.link); return true; }       // not this protocol
-                s.in_buf.append(e.bytes);
-                c._read_lines(io, i);
-                c._dispatch(io);
-            }
+            let i = c._slot_of(e.link);
+            guard i >= 0 else { return false; }
+            let s .= c.slots[i];
+            if s.in_buf.len + e.bytes.len > IN_CAP { io.close(s.link); return true; }       // not this protocol
+            s.in_buf.append(e.bytes);
+            c._read_lines(io, i);
+            c._dispatch(io);
             return true;
         },
         Writable e => {
-            if e.tag != c.tag { return false; }
-            let i = c._slot_of(e.user, e.link);
-            if i >= 0 {
-                c._flush(io, i);
-                c._dispatch(io);
-            }
+            let i = c._slot_of(e.link);
+            guard i >= 0 else { return false; }
+            c._flush(io, i);
+            c._dispatch(io);
             return true;
         },
         PeerEof e => {
-            if e.tag != c.tag { return false; }
-            return true;                  // the link is not kept open: its Closed follows
+            return c._slot_of(e.link) >= 0;      // the link is not kept open: its Closed follows
         },
         Closed e => {
-            if e.tag != c.tag { return false; }
-            let i = c._slot_of(e.user, e.link);
-            if i >= 0 {
-                c._lost(io, i, e.why);
-                c._rearm(io);
-            }
+            let i = c._slot_of(e.link);
+            guard i >= 0 else { return false; }
+            c._lost(io, i, e.why);
+            c.refs.drop(e.link);
+            c._rearm(io);
             return true;
         },
     }

@@ -9,8 +9,9 @@
 //     role 0: a dialled link (pair 0)    role 1: the link a listener accepted for it
 //     role 2: a dialled link (pair 1)    role 3: the link a listener accepted for it
 //
-// Tags are `base + 2p` for the accepted end of pair p and `base + 2p + 1` for the dialled end, so a
-// check's events are told from those of an earlier check whose links are still closing.
+// A check's events are told from those of an earlier check whose links are still closing by their links: a dialled
+// end is the link `dial` returned to the check, an accepted end is one whose `Opened` names a listener the check started
+// (`k.l` for pair 0, `k.l2` for pair 1), and every later event is one whose link the check holds.
 namespace goose_io_conformance;
 import std;
 import goose_io;
@@ -18,8 +19,6 @@ import goose_io;
 let RUNNING = 0;
 let PASSED = 1;
 let FAILED = 2;
-
-let TAGS_PER_CHECK = 4;
 
 // What contract calls cannot produce: an address that never answers a connect, and one that is held.
 struct Fixture {
@@ -67,14 +66,11 @@ struct Rec {
     off:      i64                   = 0,    // Data: its bytes in Case.bytes
     len:      i64                   = 0,
     why:      goose_io::CloseReason = goose_io::CloseReason.Error,
-    user:     u32                   = 0,
-    tag:      u16                   = 0,
     listener: goose_io::Listener    = goose_io::Listener { .. }, // Opened: the listener that accepted it
 }
 
 root struct Case {
     id:       i64                = 0,
-    base:     i64                = 0,
     step:     i64                = 0,
     verdict:  i64                = 0,
     why:      u8[>..]            = [],       // an owned copy: a slice could not outlive serve
@@ -86,6 +82,7 @@ root struct Case {
     l:        goose_io::Listener = goose_io::Listener { .. },
     l2:       goose_io::Listener = goose_io::Listener { .. },
     old:      goose_io::Link     = goose_io::Link { .. },    // a handle kept to see that it goes stale
+    prev:     goose_io::Link[4]  = [goose_io::Link { .. }; 4],   // the links of an earlier round of the check
     port:     i64                = 0,
     n:        i64                = 0,
     m:        i64                = 0,
@@ -99,9 +96,8 @@ root struct Case {
 }
 
 // Makes the case ready for check `id` (a Case cannot be copied, so the driver reuses one).
-fn reset(k: Case&, id: i64, base: i64) {
+fn reset(k: Case&, id: i64) {
     k.id = id;
-    k.base = base;
     k.step = 0;
     k.verdict = RUNNING;
     k.why.clear();
@@ -114,6 +110,7 @@ fn reset(k: Case&, id: i64, base: i64) {
     k.l = goose_io::Listener { .. };
     k.l2 = goose_io::Listener { .. };
     k.old = goose_io::Link { .. };
+    for r in 4 { k.prev[r] = goose_io::Link { .. }; }
     k.port = 0;
     k.n = 0;
     k.m = 0;
@@ -146,28 +143,37 @@ fn within<Io>(k: Case&, io: Io&, ms: i64) {
     io.tick_by(k.deadline);
 }
 
-// --- tags and roles ------------------------------------------------------------------------------
-
-fn tag(k: Case&, i: i64) -> u16 { (k.base + i) as u16 }
-
-// The role of the link whose tag index is i: an even index is an accepted end, an odd one a dialled end.
-fn role_of_tag(i: i64) -> i64 { if i % 2 == 0 { i + 1 } else { i - 1 } }
-
-fn owns(k: Case&, t: u16) -> bool { t >= k.base && t < k.base + TAGS_PER_CHECK }
+// --- roles ---------------------------------------------------------------------------------------
 
 fn role(k: Case&, link: goose_io::Link) -> i64 {
     for r in 4 { if goose_io::same(k.link[r], link) { return r; } }
     return -1;
 }
 
+// The role an `Opened` that names a listener belongs to: 1 for the listener of pair 0, 3 for pair 1, -1 when the
+// listener is not one this check started (another check's, still open).
+fn accepted_role(k: Case&, listener: goose_io::Listener) -> i64 {
+    if goose_io::is_listener(k.l) && goose_io::same(listener, k.l) { return 1; }
+    if goose_io::is_listener(k.l2) && goose_io::same(listener, k.l2) { return 3; }
+    return -1;
+}
+
+// True for a link event of this check: its link is one the check holds, or it is the `Opened` of a link that one of
+// the check's listeners accepted.
 fn is_mine(k: Case&, ev: goose_io::Event) -> bool {
     if !goose_io::is_link_event(ev) { return false; }
-    return k.owns(goose_io::tag_of(ev));
+    match ev {
+        Opened e => {
+            if goose_io::is_listener(e.listener) { return k.accepted_role(e.listener) >= 0; }
+            return k.role(e.link) >= 0;
+        },
+        _ => { return k.role(goose_io::link_of(ev)) >= 0; },
+    }
 }
 
 // Listens on the loopback address with a system-chosen port and remembers the port.
 fn listen_local<Io>(k: Case&, io: Io&, pair: i64) -> bool {
-    let l, err = io.listen("127.0.0.1:0", k.tag(pair * 2));
+    let l, err = io.listen("127.0.0.1:0");
     k.expect(goose_io::is_listener(l) && !goose_io::failed(err), "listen on a free port failed");
     if pair == 0 { k.l = l; } else { k.l2 = l; }
     k.port = io.listener_port(l) as i64;
@@ -187,7 +193,7 @@ fn dial_local<Io>(k: Case&, io: Io&, pair: i64, connect_ms: i64) -> goose_io::Li
 }
 
 fn dial_to<Io>(k: Case&, io: Io&, address: const u8[:], pair: i64, connect_ms: i64) -> goose_io::Link {
-    let link = io.dial(address, k.tag(pair * 2 + 1), connect_ms);
+    let link = io.dial(address, connect_ms);
     k.link[pair * 2] = link;
     k.live++;
     return link;
@@ -202,15 +208,10 @@ fn connect_local<Io>(k: Case&, io: Io&, pair: i64) -> bool {
 
 // --- recording -----------------------------------------------------------------------------------
 
-// Appends a record and checks the tag the event carried against the role of the link: every check gets
-// the rule that an event names its owner (*Every link event names its owner*) for nothing.
-fn _record(k: Case&, link: goose_io::Link, tag: u16, rec: Rec) {
+// Appends a record of an event of this check, for the role of its link.
+fn _record(k: Case&, link: goose_io::Link, rec: Rec) {
     var r = rec;
     r.role = k.role(link);
-    r.tag = tag;
-    if r.role >= 0 && tag - k.base != (if r.role % 2 == 1 { r.role - 1 } else { r.role + 1 }) {
-        k.fail("a link event carried the wrong tag");
-    }
     k.recs.push(r);
 }
 
@@ -219,24 +220,29 @@ fn track<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     let now = io.now_ms();
     match ev {
         Opened e => {
-            if k.owns(e.tag) {
-                let r = role_of_tag(e.tag - k.base);
-                if goose_io::is_listener(e.listener) { k.link[r] = e.link; k.live++; }
-                k._record(e.link, e.tag, Rec { kind: 'O', at: now, user: e.user, listener: e.listener, .. });
+            if goose_io::is_listener(e.listener) {
+                let r = k.accepted_role(e.listener);
+                if r >= 0 {
+                    k.link[r] = e.link;
+                    k.live++;
+                    k._record(e.link, Rec { kind: 'O', at: now, listener: e.listener, .. });
+                }
+            } else if k.role(e.link) >= 0 {
+                k._record(e.link, Rec { kind: 'O', at: now, listener: e.listener, .. });
             }
         },
         Data e => {
-            if k.owns(e.tag) {
+            if k.role(e.link) >= 0 {
                 let off = k.bytes.len;
                 k.bytes.append(e.bytes);
-                k._record(e.link, e.tag, Rec { kind: 'D', at: now, off: off, len: e.bytes.len, user: e.user, .. });
+                k._record(e.link, Rec { kind: 'D', at: now, off: off, len: e.bytes.len, .. });
             }
         },
-        Writable e => { if k.owns(e.tag) { k._record(e.link, e.tag, Rec { kind: 'W', at: now, user: e.user, .. }); } },
-        PeerEof e => { if k.owns(e.tag) { k._record(e.link, e.tag, Rec { kind: 'E', at: now, user: e.user, .. }); } },
+        Writable e => { if k.role(e.link) >= 0 { k._record(e.link, Rec { kind: 'W', at: now, .. }); } },
+        PeerEof e => { if k.role(e.link) >= 0 { k._record(e.link, Rec { kind: 'E', at: now, .. }); } },
         Closed e => {
-            if k.owns(e.tag) {
-                k._record(e.link, e.tag, Rec { kind: 'C', at: now, why: e.why, user: e.user, .. });
+            if k.role(e.link) >= 0 {
+                k._record(e.link, Rec { kind: 'C', at: now, why: e.why, .. });
                 k.live--;
             }
         },

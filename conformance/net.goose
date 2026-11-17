@@ -41,7 +41,6 @@ fn c_listen_accepts<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     } else if k.step == 1 && k.pair_open(0) {
         let o = k.recs[k.first(1, 'O')];
         k.expect(goose_io::same(o.listener, k.l), "Opened of an accepted link did not carry the listener's handle");
-        k.expect(o.tag == k.tag(0), "Opened of an accepted link did not carry the listener's tag");
         let d = k.recs[k.first(0, 'O')];
         k.expect(!goose_io::is_listener(d.listener), "Opened of a dialled link carried a listener");
         io.close(k.link[0]);
@@ -55,7 +54,7 @@ fn c_listen_accepts<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 fn c_listen_held_address<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
         k.expect(fx.held.len > 0, "the fixture supplied no held address");
-        let l, err = io.listen(fx.held, k.tag(0));
+        let l, err = io.listen(fx.held);
         k.expect(!goose_io::is_listener(l), "listen on a held address returned a listener");
         k.expect(err.kind == goose_io::ListenErrorKind.AddressInUse, "listen on a held address did not return AddressInUse");
         k.expect(goose_io::failed(err), "failed() was false for an error");
@@ -118,7 +117,7 @@ fn c_listener_handle_never_reused<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
             io.stop_listening(first);
             k.expect(io.listener_port(first) == 0, "listener_port of a stopped listener was not 0");
             // listen again on the very address the first one had
-            let again, err = io.listen(local_text(k.n), k.tag(2));
+            let again, err = io.listen(local_text(k.n));
             k.expect(goose_io::is_listener(again) && !goose_io::failed(err), "could not listen again on the address of a stopped listener");
             k.expect(!goose_io::same(again, first), "a stopped listener's handle was given to a new listener");
             k.l2 = again;
@@ -214,11 +213,11 @@ fn c_dial_bad_address<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         k.dial_to(io, "not an address", 0, 0);
         k.dial_to(io, "db.example.com:5432", 1, 0);
         k.step = 1;
-        let l, err = io.listen("[fe80::1%eth0]:8080", k.tag(0));
+        let l, err = io.listen("[fe80::1%eth0]:8080");
         k.expect(!goose_io::is_listener(l) && err.kind == goose_io::ListenErrorKind.BadAddress, "listen with a zone identifier did not return BadAddress");
-        let h, herr = io.listen("db.example.com:80", k.tag(0));
+        let h, herr = io.listen("db.example.com:80");
         k.expect(!goose_io::is_listener(h) && herr.kind == goose_io::ListenErrorKind.BadAddress, "listen on a host name did not return BadAddress");
-        k.link[1] = io.dial("[fe80::1%eth0]:80", k.tag(0), 0);
+        k.link[1] = io.dial("[fe80::1%eth0]:80", 0);
         k.live++;
     } else if k.step == 1 && k.first(0, 'C') >= 0 && k.first(2, 'C') >= 0 && k.first(1, 'C') >= 0 {
         k.expect(k.kinds(0) == "C" && k.kinds(2) == "C" && k.kinds(1) == "C", "a dial to a bad address did not give exactly one Closed and no Opened");
@@ -233,7 +232,7 @@ fn c_dial_bad_address<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 
 fn c_ipv6_loopback<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
-        let l, err = io.listen("[::1]:0", k.tag(0));
+        let l, err = io.listen("[::1]:0");
         k.expect(goose_io::is_listener(l) && !goose_io::failed(err), "could not listen on [::1]");
         k.l = l;
         k.port = io.listener_port(l) as i64;
@@ -256,7 +255,7 @@ fn c_ipv6_loopback<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 
 fn c_peer_address_ipv6<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
-        let l, err = io.listen("[::1]:0", k.tag(0));
+        let l, err = io.listen("[::1]:0");
         k.expect(goose_io::is_listener(l) && !goose_io::failed(err), "could not listen on [::1]");
         k.l = l;
         k.port = io.listener_port(l) as i64;
@@ -313,7 +312,7 @@ fn c_unix_listen_dial<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
         k.expect(fx.unix.len > 0, "the fixture supplied no unix path");
         let path = unix_address(k, fx, "");
-        let l, err = io.listen(path[..], k.tag(0));
+        let l, err = io.listen(path[..]);
         k.expect(goose_io::is_listener(l) && !goose_io::failed(err), "listen on a path failed");
         k.l = l;
         k.dial_to(io, path[..], 0, 0);
@@ -321,7 +320,6 @@ fn c_unix_listen_dial<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     } else if k.step == 1 && k.pair_open(0) {
         let o = k.recs[k.first(1, 'O')];
         k.expect(goose_io::same(o.listener, k.l), "Opened of an accepted path link did not carry the listener's handle");
-        k.expect(o.tag == k.tag(0), "Opened of an accepted path link did not carry the listener's tag");
         let d = k.recs[k.first(0, 'O')];
         k.expect(!goose_io::is_listener(d.listener), "Opened of a dialled path link carried a listener");
         io.send(k.link[0], "ping");
@@ -342,14 +340,14 @@ fn c_unix_held_path<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
         k.expect(fx.unix.len > 0, "the fixture supplied no unix path");
         let path = unix_address(k, fx, "");
-        let l, err = io.listen(path[..], k.tag(0));
+        let l, err = io.listen(path[..]);
         k.expect(goose_io::is_listener(l) && !goose_io::failed(err), "listen on a path failed");
         k.l = l;
-        let again, again_err = io.listen(path[..], k.tag(0));
+        let again, again_err = io.listen(path[..]);
         k.expect(!goose_io::is_listener(again), "a second listen on a held path returned a listener");
         k.expect(again_err.kind == goose_io::ListenErrorKind.AddressInUse, "a second listen on a held path did not return AddressInUse");
         let other_path = unix_address(k, fx, ".other");
-        let other, other_err = io.listen(other_path[..], k.tag(0));
+        let other, other_err = io.listen(other_path[..]);
         k.expect(goose_io::is_listener(other) && !goose_io::failed(other_err), "a different path conflicted with a held one");
         k.within(io, 600);
         k.step = 1;
@@ -380,7 +378,7 @@ fn c_unix_no_port<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
         k.expect(fx.unix.len > 0, "the fixture supplied no unix path");
         let path = unix_address(k, fx, "");
-        let l, err = io.listen(path[..], k.tag(0));
+        let l, err = io.listen(path[..]);
         k.expect(goose_io::is_listener(l) && !goose_io::failed(err), "listen on a path failed");
         k.expect(io.listener_port(l) == 0, "listener_port of a path listener was not 0");
         k.step = 1;
@@ -409,10 +407,10 @@ fn c_unix_malformed_paths<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Even
         k.expect_bad_listen(io, "unix://");
         // four dials, one for each of the four roles: the empty path, a relative one, an abstract name, and 104 bytes
         k.dial_to(io, "unix:", 0, 0);
-        k.link[1] = io.dial("unix:run/x.sock", k.tag(0), 0);
+        k.link[1] = io.dial("unix:run/x.sock", 0);
         k.live++;
         k.dial_to(io, "unix:@name", 1, 0);
-        k.link[3] = io.dial(long[..], k.tag(2), 0);
+        k.link[3] = io.dial(long[..], 0);
         k.live++;
         k.step = 1;
     } else if k.step == 1 && k.first(0, 'C') >= 0 && k.first(1, 'C') >= 0 && k.first(2, 'C') >= 0 && k.first(3, 'C') >= 0 {
@@ -426,7 +424,7 @@ fn c_unix_malformed_paths<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Even
 
 // Calls listen on text that must be malformed and records a failure if it is accepted.
 fn expect_bad_listen<Io>(k: Case&, io: Io&, text: const u8[:]) -> bool {
-    let l, err = io.listen(text, k.tag(0));
+    let l, err = io.listen(text);
     let ok = !goose_io::is_listener(l) && err.kind == goose_io::ListenErrorKind.BadAddress;
     k.expect(ok, "listen on a malformed path did not return BadAddress");
     return ok;
@@ -438,7 +436,7 @@ fn c_unix_longest_path<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) 
     if k.step == 0 {
         k.expect(fx.unix.len > 0 && fx.unix.len <= 103, "the fixture's unix path is empty or longer than 103 bytes");
         let path = unix_padded(fx, 103);
-        let l, err = io.listen(path[..], k.tag(0));
+        let l, err = io.listen(path[..]);
         k.expect(goose_io::is_listener(l) && !goose_io::failed(err), "listen on a path of 103 bytes failed");
         k.l = l;
         k.dial_to(io, path[..], 0, 0);
@@ -457,7 +455,7 @@ fn c_unix_url_spelling<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) 
         k.expect(fx.unix.len > 0, "the fixture supplied no unix path");
         let plain = unix_address(k, fx, "");
         let url = unix_url_address(k, fx, "");
-        let l, err = io.listen(plain[..], k.tag(0));
+        let l, err = io.listen(plain[..]);
         k.expect(goose_io::is_listener(l) && !goose_io::failed(err), "listen on a path failed");
         k.l = l;
         k.dial_to(io, url[..], 0, 0);
@@ -480,9 +478,9 @@ fn c_unix_alias_held<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
         k.expect(fx.unix.len > 0, "the fixture supplied no unix path");
         let plain = unix_address(k, fx, "");
         let url = unix_url_address(k, fx, "");
-        let l, err = io.listen(plain[..], k.tag(0));
+        let l, err = io.listen(plain[..]);
         k.expect(goose_io::is_listener(l) && !goose_io::failed(err), "listen on a path failed");
-        let again, again_err = io.listen(url[..], k.tag(0));
+        let again, again_err = io.listen(url[..]);
         k.expect(!goose_io::is_listener(again), "a listen in the URL spelling on a held path returned a listener");
         k.expect(again_err.kind == goose_io::ListenErrorKind.AddressInUse, "a listen in the URL spelling on a held path did not return AddressInUse");
         k.within(io, 600);

@@ -13,7 +13,7 @@ for being listed as conforming; the table that says where each requirement is pr
 ## What an event loop must supply
 
 The **core**, which every event loop supplies: the operations `listen`, `listener_port`, `dial`, `send`,
-`max_send`, `pause_reading`, `close`, `set_user`, `now_ms`, `tick_by`, `serve`, `stop` and `draining`, and the
+`max_send`, `pause_reading`, `close`, `now_ms`, `tick_by`, `serve`, `stop` and `draining`, and the
 events `Opened`, `Data`, `Writable`, `Closed` and `Tick`, with the types of `goose_io.goose`, as functions that a
 library calls by method syntax on the event loop's type.
 
@@ -24,7 +24,7 @@ And any of six **groups**, which it may supply or leave out (`docs/contract.md`,
 | half-close | `shutdown_write`, `set_keep_open_on_eof` | `PeerEof` |
 | sizing | `send_room`, `send2` | |
 | abort | `reset` | |
-| inspection | `peer_address`, `stop_listening`, `user` | |
+| inspection | `peer_address`, `stop_listening` | |
 | batching | | `PassEnd` |
 | unix | the address form `unix:/path`, no operation | |
 
@@ -200,16 +200,16 @@ fails when this table, that file, the suite and the specification disagree.
 | The contract exposes no operating-system primitives | A zone identifier is rejected | check `dial_bad_address` | 0 | `BadAddressAsRefused` |
 | The contract exposes no operating-system primitives | An event loop without descriptors conforms | inspection: the in-memory event loop has no descriptors and passes `tests/conformance/run.sh` | - | - |
 | The contract states its version | A library reads the version | build: `tests/unit/types_test.goose` reads `VERSION_MAJOR` and `VERSION_MINOR` | - | - |
-| Links are generation-checked handles | A stale handle cannot reach a reused slot | check `handles_stale_reuse`, `handles_stale_reset`, `handles_stale_send_room`, `handles_stale_user` | 0 | `StaleHandleAccepted`, `StaleHandleAccepted`, `StaleHandleAccepted`, `StaleHandleAccepted` |
+| Links are generation-checked handles | A stale handle cannot reach a reused slot | check `handles_stale_reuse`, `handles_stale_reset`, `handles_stale_send_room`, `handles_stale_peer_address` | 0 | `StaleHandleAccepted`, `StaleHandleAccepted`, `StaleHandleAccepted`, `StaleHandleAccepted` |
 | Links are generation-checked handles | The handle is still valid while Closed is handled | check `handles_valid_in_closed` | 0 | `ClosedHandleStaleEarly` |
 | Links are generation-checked handles | An unset handle is recognisably invalid | check `handles_unset`, `handles_unset_reset`, `handles_unset_shutdown_write`, `handles_unset_sizing`, `handles_unset_inspection` | 0 | `UnsetHandleAccepted`, `UnsetHandleAccepted`, `UnsetHandleAccepted`, `UnsetLinkHasRoom`, `UnsetHandleAccepted` |
 | Events are delivered to one handler, one at a time | A close does not re-enter the handler | check `events_not_reentrant` | 0 | none (see below) |
 | Events are delivered to one handler, one at a time | A send that closes the link does not re-enter the handler | check `events_not_reentrant_after_reset` | 0 | none (see below) |
 | Link events follow a fixed order | An accepted link | check `order_accepted_link` | 0 | `PeerCloseDropsData` |
 | Link events follow a fixed order | A link that never opens | check `order_failed_dial` | 0 | `OpenedBeforeFailure` |
-| Every link event names its owner | Two libraries share one loop | check `owner_tags` | 0 | `WrongTag` |
-| Every link event names its owner | The user value comes back | check `owner_user_value` | 0 | `UserLostInData` |
-| Every link event names its owner | The user value survives an immediate dial failure | check `owner_user_after_failed_dial` | 0 | `UserReadAtDial` |
+| Every link event names its owner | Two libraries share one loop | removed with the tag in 0.3; see *Scenarios added by the link-keyed state*, below | - | - |
+| Every link event names its owner | The user value comes back | removed with the user value in 0.3 | - | - |
+| Every link event names its owner | The user value survives an immediate dial failure | removed with the user value in 0.3: the `Closed` of a dial that fails at once carries the link `dial` returned | - | - |
 | Listening | A connection is accepted | check `listen_accepts` | 0 | `OpenedWithoutListener` |
 | Listening | The address is taken | check `listen_held_address` | 0 | `HeldIgnored` |
 | Listening | A system-chosen port can be discovered | check `listen_port_zero` | 0 | `PortZeroReportsZero` |
@@ -332,10 +332,28 @@ The change that added the unix group (the address forms `unix:/path` and `unix:/
 | A check that reaches into another group | `tests/conformance/groups_check.sh` |
 | A loop that does not supply the group | `tests/conformance/run.sh --core-only` runs no unix part |
 
+### Scenarios added by the link-keyed state
+
+The change that removed the tag and the user value from the events (`link-keyed-state`, contract 0.3) added these
+scenarios. A library finds its state from the link of an event; the event loop passes nothing in.
+
+| Scenario | Proved by | Fault |
+|---|---|---|
+| An accepted link names its listener | check `owner_listener_named` | `WrongListenerNamed` |
+| A dial that fails at once is found by its link | check `owner_dial_found_by_link` | `DialClosedLost` |
+| Slots are reused before new ones are issued, A reused slot has a new generation | check `slots_dense` | `SlotsNeverReused` |
+| A slot is not reused while Closed is handled | check `slot_kept_during_closed` | `ClosedHandleStaleEarly` |
+| No event inside the dial | check `dial_no_event_inside` | none (see below) |
+| The bound is the loop's peak | `tests/unit/memory_links_test.goose` (slots) |  |
+| A stale link finds nothing, A foreign link finds nothing, Growing does not move values, Dropping touches one entry, A dropped value is gone, A put over a stale entry replaces it | `tests/unit/link_map_test.goose`, one body of laws that any table with `put`, `find`, `has` and `drop` can be run through |  |
+| One map for each loop | stated in `docs/libraries.md`; nothing to run |  |
+| Two libraries share one loop, Another library's Closed is not handled, Two instances of one library on one loop, A dialled link's Opened does not replace its state | `tests/examples/lineserver_test.goose`, `tests/examples/gateway_test.goose` and `tests/examples/lineclient_test.goose`: a library reports an event of a link it does not own as not handled |  |
+| An operation that was removed | `tests/unit/removed_set_user_mustfail.goose`, `tests/unit/removed_tag_mustfail.goose` |  |
+
 ### What cannot be shown by a fault
 
-`events_not_reentrant` (*A close does not re-enter the handler*) and `events_not_reentrant_after_reset` (*A send that closes
-the link does not re-enter the handler*, in the abort group) have no fault in the in-memory event loop. An operation of a queue-based event loop has no handler to call, so
+`events_not_reentrant` (*A close does not re-enter the handler*), `events_not_reentrant_after_reset` (*A send that closes
+the link does not re-enter the handler*, in the abort group) and `dial_no_event_inside` (*No event inside the dial*) have no fault in the in-memory event loop. An operation of a queue-based event loop has no handler to call, so
 it cannot be made to deliver an event from inside itself. The check is the driver's own guard: every check runs
 under a counter of handler nesting, and the check fails if an event arrives while another is being handled. The
 guard is shown to work by `tests/conformance/reentry_test.goose`, which tells the driver that a handler is already

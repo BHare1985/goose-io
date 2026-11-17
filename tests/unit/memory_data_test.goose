@@ -303,7 +303,7 @@ fn no_writable_after_shutdown_write() {
     var io = goose_io_memory::Loop { .. };
     small_buffers(io);
     var k = WriteShut { .. };
-    let l, err = io.listen("10.0.0.1:80", 1);
+    let l, err = io.listen("10.0.0.1:80");
     let p = io.add_peer();
     io.peer_connect(p, "10.0.0.1:80", 0);
     io.peer_stop_reading(p, 0);
@@ -326,7 +326,7 @@ fn shutdown_straight_after_full() {
     io.peer_accept(p, "10.0.0.2:80");
     io.peer_stop_reading(p, 0);
     io.peer_resume_reading(p, 50);
-    let link = io.dial("10.0.0.2:80", 1, 0);
+    let link = io.dial("10.0.0.2:80", 0);
     io.serve() { io, ev =>
         match ev {
             Opened e => { fill_then_refuse(io, e.link); io.shutdown_write(e.link); closed_status = io.send(e.link, "z"); },
@@ -361,7 +361,7 @@ fn full_when_the_peer_closes() {
     io.peer_accept(p, "10.0.0.3:80");
     io.peer_stop_reading(p, 0);
     io.peer_close(p, 200);
-    io.dial("10.0.0.3:80", 1, 0);
+    io.dial("10.0.0.3:80", 0);
     io.serve() { io, ev => vanish_event(k, io, ev); };
     kit::check(k.refused && k.eof == 1, "fixture: the library was refused, then the peer closed");
     let resolved = k.writables == 1 || (k.closed && k.why != goose_io::CloseReason.Shutdown);
@@ -382,7 +382,7 @@ fn default_link_closes_when_the_peer_closes() {
     io.peer_accept(p, "10.0.0.5:80");
     io.peer_stop_reading(p, 0);
     io.peer_close(p, 200);
-    io.dial("10.0.0.5:80", 1, 0);
+    io.dial("10.0.0.5:80", 0);
     io.serve() { io, ev =>
         match ev {
             Opened e => { fill_then_refuse(io, e.link); },
@@ -402,7 +402,7 @@ fn library_closes_while_the_peer_is_refused() {
     var io = goose_io_memory::Loop { .. };
     small_buffers(io);
     var b = Blocked { .. };
-    let l, err = io.listen("10.0.0.4:80", 1);
+    let l, err = io.listen("10.0.0.4:80");
     let p = io.add_peer();
     io.peer_connect(p, "10.0.0.4:80", 0);
     io.peer_send(p, 0, pattern(10000));

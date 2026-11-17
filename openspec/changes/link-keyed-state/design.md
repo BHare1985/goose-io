@@ -8,7 +8,7 @@ See `proposal.md` for why. What exists on main:
 - Every link event also carries `tag: u16` and `user: u32`. `listen` and `dial` take the tag; `set_user` (core) and `user` (inspection) set and read the value. `tag_of` and `user_of` are five-arm matches.
 - Both examples keep their connections in a table, set the user value to the table index, and call `_conn_of(user, link)`, which bounds-checks the index and compares `same(table[user].link, link)`.
 - The in-memory loop picks the first free slot (`memory.goose`, around line 411), so its slots are already dense. The contract does not say so.
-- Goose has generics, grow-only arrays (`T[>..]`, whose elements never move so references stay valid), optional references (`T&?`), and `root struct` for a type with several resizable fields. The table below was built and measured with `goose v2026.4` (a generic `root struct` with grow-only arrays and a `find` returning `T&?`): `bench/link_map_bench.goose` holds it, and a reference from `find` stayed valid across 5,000 later `put`s.
+- Goose has generics, grow-only arrays (`T[>..]`, whose elements never move so references stay valid), optional references (`T&?`), and `root struct` for a type with several resizable fields (which cannot itself be a field of another struct). The table below was built and measured with `goose v2026.4` (a generic struct with one grow-only array and a `find` returning `T&?`): `bench/link_map_bench.goose` holds it, and a reference from `find` stayed valid across 5,000 later `put`s.
 - `lifecycle-guarantees` (open) is written against the contract as this change leaves it, and owns the rules that a generation is not issued twice and that a slot is not reissued before its `Closed` is delivered.
 
 ## Goals / Non-Goals
@@ -28,12 +28,12 @@ See `proposal.md` for why. What exists on main:
 
 **The link is the key; the event loop does not pass an index.** The loop already assigns `link.slot` when it creates a link; that is all it contributes, and it contributes it today. What a loop owes is one new promise: slots are dense, so a table indexed by slot is no bigger than the **loop's** peak of links (every library's links together). It is not bounded by one library's own peak: slots are handed out for the whole loop, so a library with two links can hold one whose slot is 100,000 while another library holds the rest, and its table then has 100,001 entries. The library, not the loop, owns the table. Answer to "does the event-loop author pass the loop's index": no, nothing is passed, there is only the guarantee on how slots are chosen. Rejected: `listen` and `dial` returning a loop-chosen small id that is not the slot (a second number for the same thing); and a loop-owned table of library state, which makes the loop generic over every library's record type and ties their lifetimes together.
 
-**`LinkMap<T>` is the library's side of that, in the contract package.** A generic `root struct` with a grow-only array of generations and one of values, indexed by slot:
+**`LinkMap<T>` is the library's side of that, in the contract package.** A generic ordinary struct with one grow-only array of entries (a generation and a value), indexed by slot:
 
 ```goose
-root struct LinkMap<T> {
-    gens: u32[>..] = [],      // gens[slot] is the generation of the link the value belongs to; 0 means empty
-    vals: T[>..]   = [],
+struct LinkEntry<T> { gen: u32 = 0, v: T = T { .. } }     // gen 0 means empty
+struct LinkMap<T> {
+    entries: LinkEntry<T>[>..] = [],      // entries[slot] belongs to the link of that slot and generation
 }
 fn put<T>(m: LinkMap<T>&, link: Link, v: T)        // grows to link.slot + 1; overwrites a stale entry
 fn find<T>(m: LinkMap<T>&, link: Link) -> T&?      // null for an invalid, stale, foreign or removed link
@@ -41,20 +41,25 @@ fn has<T>(m: LinkMap<T>&, link: Link) -> bool
 fn drop<T>(m: LinkMap<T>&, link: Link)             // empties the entry; the value's slot is kept for reuse
 ```
 
-What the language gives: grow-only arrays mean a reference returned by `find` stays valid while the handler pushes more entries (no rehash, no invalidated pointer), a `root struct` lets two arrays grow independently, and `T&?` makes "not mine" a value the compiler makes the caller handle, where the old `_conn_of` returned `-1` and trusted the caller to look. The generation is stored inside the map, so the check the examples did by hand (`same(table[i].link, link)`) cannot be forgotten. The cost is 4 bytes per slot beside the value, and `T { .. }` filler for slots the library never used, so the table holds the loop's peak slot count times the size of the library's state. It does no allocation in `find`, `has` or `drop`, and `put` only pushes (a pointer bump) when the table grows.
+What the language gives: grow-only arrays mean a reference returned by `find` stays valid while the handler pushes more entries (no rehash, no invalidated pointer), one array of entries keeps the whole table a single resizable field, so a library can hold it in its own `root struct`, and `T&?` makes "not mine" a value the compiler makes the caller handle, where the old `_conn_of` returned `-1` and trusted the caller to look. The generation is stored inside the map, so the check the examples did by hand (`same(table[i].link, link)`) cannot be forgotten. The cost is a generation (4 bytes, padded to the value's alignment) per slot beside the value, and `T { .. }` filler for slots the library never used, so the table holds the loop's peak slot count times the size of the library's state. It does no allocation in `find`, `has` or `drop`, and `put` only pushes (a pointer bump) when the table grows.
 
-*Measured* (`bench/link_map_bench.goose`, goose v2026.4, `-O2`, one pinned core; the small timings vary by a nanosecond or two from run to run, so treat a close gap as a tie and re-run on the target machine):
+*Measured* with the contract package's own `LinkMap` (`bench/link_map_bench.goose`, goose v2026.4, `-O2`, one pinned core, median of three runs, 2026-11-17; the full table, the individual runs and how to read them are in `bench/README.md`). The small timings vary by a nanosecond or two from run to run (the same code moved between 1.4 and 4.4 ns, in both arms), so a gap that small is a tie. "By-index" is the table a library wrote by hand before this change (one array of generation and value, indexed by slot); "overhead" is `LinkMap` minus by-index.
 
-| state | loop peak / library's own links | flat: find, memory | compact: find, memory |
-|---|---|---|---|
-| 32 B | 1,024 / 16 | 1.5 ns, 0 KiB | 1.8 ns, 0 KiB |
-| 32 B | 100,000 / 16 | 1.5 ns, 3.4 MiB | 1.8 ns, 0.8 MiB |
-| 128 B | 100,000 / 1,024 | 4.8 ns, 12.6 MiB | 9.9 ns, 0.9 MiB |
-| 512 B | 100,000 / 16 | 1.7 ns, 49 MiB | 5.5 ns, 0.8 MiB |
-| 512 B | 100,000 / 1,024 | 2.4 ns, 49 MiB | 10.3 ns, 1.3 MiB |
-| 32 B | 100,000 / 100,000 | 13.5 ns, 3.4 MiB | 29.4 ns, 3.8 MiB |
+| state | loop slots / library's own links | by-index find | `LinkMap` find | overhead | `LinkMap` memory | compact: find, memory |
+|---|---|---|---|---|---|---|
+| 32 B | 1,024 / 16 | 1.4 ns | 1.4 ns | 0.0 | 0 KiB | 1.8 ns, 0 KiB |
+| 32 B | 100,000 / 16 | 1.4 ns | 1.4 ns | 0.0 | 3.8 MiB | 1.8 ns, 0.8 MiB |
+| 128 B | 100,000 / 1,024 | 5.2 ns | 3.2 ns | -2.0 (noise) | 13 MiB | 9.8 ns, 0.9 MiB |
+| 512 B | 100,000 / 16 | 4.5 ns | 4.1 ns | -0.4 | 50 MiB | 1.8 ns, 0.8 MiB |
+| 32 B | 100,000 / 100,000 | 15.4 ns | 16.0 ns | +0.6 | 3.8 MiB | 18.9 ns, 3.8 MiB |
+| 128 B | 100,000 / 100,000 | 18.6 ns | 18.8 ns | +0.2 | 13 MiB | 34.5 ns, 13 MiB |
+| 512 B | 100,000 / 100,000 | 19.9 ns | 19.8 ns | -0.1 | 50 MiB | 39.4 ns, 50 MiB |
 
-The *compact* layout keeps 8 bytes of metadata for each slot (generation and a cell index in one `u64`) and one value cell for each link the library owns, with a free list of cells. It saves memory only when the loop's slot count is large and the library's own links are few and its state is large; it costs a second dependent load for each lookup (2 to 10 ns here, twice as slow when the library owns every slot), a free list and a reserved cell, and it hands a dropped cell to a different connection, so a reference kept past `drop` is more dangerous than with the flat layout. A drop plus a put costs the same in both (it is dominated by copying the state). With 1,024 slots even 512-byte state reserves about 0.5 MiB flat, so **the flat layout is the one the contract package provides**. A library that needs the compact one (or any other layout) writes its own table with the same four functions: the contract guarantees the identity and the lifetime of a `Link`, which is all such a table relies on, and `LinkMap` is a helper and not a requirement. `bench/link_map_bench.goose` holds a compact table that can be copied, and takes any type with `put`, `find` and `drop`, so a table written elsewhere can be measured the same way. Rejected: shipping both layouts in the contract package (two things to keep identical, with a cost that is only worth paying for a library that has not been written); and a build-time or runtime switch (Goose has no per-library build flag, and one global setting cannot suit a library with large state next to one with small).
+`LinkMap` costs what the hand-written table costs, including at its largest use (the library owns all 100,000 slots): +0.6, +0.2 and -0.1 ns for 32, 128 and 512 bytes of state, memory is the same, and a drop plus a put is equal. What a lookup does cost, 16 to 20 ns when the table no longer fits in the cache, is the price of any table indexed by slot at that size, once per event, where an event includes at least one system call. No operation does any allocation but `put` growing the table (a pointer bump).
+
+*Why one array.* The first version kept generations and values in two arrays (a `root struct`). It measured the same except in the largest case with 512-byte state, where it was 10 ns slower (two cache lines for each lookup), and Goose does not allow a `root struct` to be a field of another struct, so a library, which is itself a `root struct`, could not have held it in its own state. `LinkMap` is therefore an ordinary struct with one grow-only array of `{generation, value}`, which a library can hold as one of its fields (an ordinary struct with a single resizable field may sit in a `root struct` beside other resizable fields; a prototype held a reference across later pushes).
+
+The *compact* layout keeps 8 bytes of metadata for each slot (generation and a cell index in one `u64`) and one value cell for each link the library owns, with a free list of cells. It saves memory only when the loop's slot count is large and the library's own links are few and its state is large; it costs a second dependent load for each lookup (2 to 5 ns here, and slower when the library owns many slots), a free list and a reserved cell, and it hands a dropped cell to a different connection, so a reference kept past `drop` is more dangerous than with the flat layout. A drop plus a put costs the same in both (it is dominated by copying the state). With 1,024 slots even 512-byte state reserves about 0.5 MiB flat, so **the flat layout is the one the contract package provides**. A library that needs the compact one (or any other layout) writes its own table with the same four functions: the contract guarantees the identity and the lifetime of a `Link`, which is all such a table relies on, and `LinkMap` is a helper and not a requirement. `bench/link_map_bench.goose` holds a compact table that can be copied, and takes any type with `put`, `find` and `drop`, so a table written elsewhere can be measured the same way. Rejected: shipping both layouts in the contract package (two things to keep identical, with a cost that is only worth paying for a library that has not been written); and a build-time or runtime switch (Goose has no per-library build flag, and one global setting cannot suit a library with large state next to one with small).
 
 Rejected: a dictionary keyed by `Link`, which hashes and probes where an array indexes, and cannot hand out a stable reference; and a `slot_pool<T>` the library allocates from, which gives the library a second index to carry in the event, which is the user value again.
 

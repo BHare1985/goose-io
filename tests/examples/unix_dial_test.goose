@@ -22,7 +22,7 @@ fn dials_a_path<Io>(io: Io&) {
     let db = io.add_peer();
     io.peer_accept(db, "unix:/var/run/postgresql/.s.PGSQL.5432");
     io.peer_send(db, 5, "ready");
-    let link = io.dial("unix:/var/run/postgresql/.s.PGSQL.5432", 1, 0);
+    let link = io.dial("unix:/var/run/postgresql/.s.PGSQL.5432", 0);
     io.serve() { io, ev => on_event(log, io, ev); };
     kit::check(kit::data_of(log, link) == "ready", "the peer at the path answers");
     kit::check(io.peer_received(db) == "hello", "and reads what the library sent");

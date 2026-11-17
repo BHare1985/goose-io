@@ -6,7 +6,7 @@
 handles_stale_reuse	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	core
 handles_stale_reset	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	abort
 handles_stale_send_room	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	sizing
-handles_stale_user	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	inspection
+handles_stale_peer_address	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	inspection
 handles_unset	0	Links are generation-checked handles	An unset handle is recognisably invalid	UnsetHandleAccepted	core
 handles_unset_reset	0	Links are generation-checked handles	An unset handle is recognisably invalid	UnsetHandleAccepted	abort
 handles_unset_shutdown_write	0	Links are generation-checked handles	An unset handle is recognisably invalid	UnsetHandleAccepted	half-close
@@ -15,11 +15,13 @@ handles_unset_inspection	0	Links are generation-checked handles	An unset handle 
 handles_valid_in_closed	0	Links are generation-checked handles	The handle is still valid while Closed is handled	ClosedHandleStaleEarly	inspection
 events_not_reentrant	0	Events are delivered to one handler, one at a time	A close does not re-enter the handler	-	core
 events_not_reentrant_after_reset	0	Events are delivered to one handler, one at a time	A send that closes the link does not re-enter the handler	-	abort
+owner_listener_named	0	A link event is recognised by what the library holds	An accepted link names its listener	WrongListenerNamed	core
+owner_dial_found_by_link	0	A link event is recognised by what the library holds	A dial that fails at once is found by its link	DialClosedLost	core
+slots_dense	0	Slot numbers are dense	Slots are reused before new ones are issued | A reused slot has a new generation	SlotsNeverReused	core
+slot_kept_during_closed	0	A slot is freed when its Closed has been handled	A slot is not reused while Closed is handled	ClosedHandleStaleEarly	core
+dial_no_event_inside	0	Dialling never blocks and always ends in one event	No event inside the dial	-	core
 order_accepted_link	0	Link events follow a fixed order	An accepted link	PeerCloseDropsData	core
 order_failed_dial	0	Link events follow a fixed order	A link that never opens	OpenedBeforeFailure	core
-owner_tags	0	Every link event names its owner	Two libraries share one loop	WrongTag	core
-owner_user_value	0	Every link event names its owner	The user value comes back	UserLostInData	core
-owner_user_after_failed_dial	0	Every link event names its owner	The user value survives an immediate dial failure	UserReadAtDial	core
 listen_accepts	0	Listening	A connection is accepted	OpenedWithoutListener	core
 listen_held_address	0	Listening	The address is taken	HeldIgnored	core
 listen_port_zero	0	Listening	A system-chosen port can be discovered	PortZeroReportsZero	core

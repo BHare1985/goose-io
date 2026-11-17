@@ -19,7 +19,7 @@ fn on_event<Io>(e: echo::Echo&, log: kit::Log&, io: Io&, ev: goose_io::Event, st
 fn echoes<Io>(io: Io&) {
     var e = echo::Echo { .. };
     var log = kit::Log { .. };
-    kit::check(e.start(io, "127.0.0.1:7000", 1), "the echo server listens");
+    kit::check(e.start(io, "127.0.0.1:7000"), "the echo server listens");
     let p = io.add_peer();
     io.peer_connect(p, "127.0.0.1:7000", 0);
     io.peer_send(p, 5, "hello ");
@@ -32,7 +32,7 @@ fn echoes<Io>(io: Io&) {
 fn two_peers<Io>(io: Io&) {
     var e = echo::Echo { .. };
     var log = kit::Log { .. };
-    e.start(io, "127.0.0.1:7001", 1);
+    e.start(io, "127.0.0.1:7001");
     let a = io.add_peer();
     let b = io.add_peer();
     io.peer_connect(a, "127.0.0.1:7001", 0);
@@ -49,7 +49,7 @@ fn slow_reader<Io>(io: Io&) {
     io.cfg.max_send = 4096;
     var e = echo::Echo { .. };
     var log = kit::Log { .. };
-    e.start(io, "127.0.0.1:7002", 1);
+    e.start(io, "127.0.0.1:7002");
     let p = io.add_peer();
     io.peer_connect(p, "127.0.0.1:7002", 0);
     io.peer_stop_reading(p, 0);
@@ -80,7 +80,7 @@ fn on_event_then_stop<Io>(e: echo::Echo&, log: kit::Log&, io: Io&, ev: goose_io:
 fn stopping<Io>(io: Io&) {
     var e = echo::Echo { .. };
     var log = kit::Log { .. };
-    e.start(io, "127.0.0.1:7003", 1);
+    e.start(io, "127.0.0.1:7003");
     let p = io.add_peer();
     io.peer_connect(p, "127.0.0.1:7003", 0);
     io.peer_send(p, 5, "x");

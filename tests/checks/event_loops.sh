@@ -6,7 +6,7 @@
 set -u
 cd "$(dirname "$0")/../.."
 
-items="listen listener_port stop_listening dial peer_address send send2 send_room max_send pause_reading set_keep_open_on_eof shutdown_write close reset set_user user now_ms tick_by serve stop draining Opened Data Writable PeerEof Closed Tick PassEnd"
+items="listen listener_port stop_listening dial peer_address send send2 send_room max_send pause_reading set_keep_open_on_eof shutdown_write close reset now_ms tick_by serve stop draining Opened Data Writable PeerEof Closed Tick PassEnd"
 bad=0
 docs=0
 for f in docs/event-loops/*.md; do
@@ -32,11 +32,11 @@ for f in docs/event-loops/*.md; do
             [ "$g" = "### $group" ] || { echo "BAD   $f has $i under \"$g\" and not under \"### $group\""; bad=$((bad + 1)); }
         done
     }
-    check_group Core listen listener_port dial send max_send pause_reading close set_user now_ms tick_by serve stop draining Opened Data Writable Closed Tick
+    check_group Core listen listener_port dial send max_send pause_reading close now_ms tick_by serve stop draining Opened Data Writable Closed Tick
     check_group Half-close set_keep_open_on_eof shutdown_write PeerEof
     check_group Sizing send_room send2
     check_group Abort reset
-    check_group Inspection peer_address stop_listening user
+    check_group Inspection peer_address stop_listening
     check_group Batching PassEnd
 done
 # five event loop documents in all: tcprouter-engine, usockets, io-uring, libuv, libevent

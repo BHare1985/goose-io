@@ -76,13 +76,12 @@ fn c_data_slice_stable_in_handler<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     } else if k.step == 2 {
         match ev {
             Data d => {
-                if k.owns(d.tag) && goose_io::same(d.link, k.link[1]) && k.flag == false {
+                if goose_io::same(d.link, k.link[1]) && k.flag == false {
                     // while this handler runs, make the event loop busy with the same link and others
                     var copy: u8[>..] = [];
                     copy.append(d.bytes);
                     io.send(k.link[1], "reply while handling");
                     io.send(k.link[0], pattern(500)[..]);
-                    io.set_user(k.link[1], 5);
                     var same = d.bytes.len == copy.len;
                     if same { for i in copy.len { if d.bytes[i] != copy[i] { same = false; } } }
                     k.expect(same, "the bytes of a Data event changed while its handler was running");

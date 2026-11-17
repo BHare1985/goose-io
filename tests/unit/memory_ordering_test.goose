@@ -69,7 +69,7 @@ fn four_event(f: Four&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io
     kit::note(log, io, ev);
     match ev {
         Opened e => {
-            if e.tag == 2 { if !goose_io::is_valid(f.c1) { f.c1 = e.link; } else { f.c2 = e.link; } }
+            if !goose_io::is_listener(e.listener) { if !goose_io::is_valid(f.c1) { f.c1 = e.link; } else { f.c2 = e.link; } }
             else { if !goose_io::is_valid(f.a1) { f.a1 = e.link; } else { f.a2 = e.link; } }
             f.opened++;
             if f.opened == 4 { arrange(f, io); }
@@ -98,9 +98,9 @@ fn run_four(mode: i64, act: bool, log: kit::Log&) -> Four {
     var io = goose_io_memory::Loop { .. };
     small(io);
     var f = Four { mode: mode, act: act, .. };
-    let l, err = io.listen("127.0.0.1:9001", 1);
-    io.dial("127.0.0.1:9001", 2, 0);
-    io.dial("127.0.0.1:9001", 2, 0);
+    let l, err = io.listen("127.0.0.1:9001");
+    io.dial("127.0.0.1:9001", 0);
+    io.dial("127.0.0.1:9001", 0);
     io.serve() { io, ev => four_event(f, log, io, ev); };
     return f;
 }
@@ -174,7 +174,6 @@ fn own_closed_event(o: Own&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goo
                 io.shutdown_write(c.link);
                 io.pause_reading(c.link, false);
                 io.set_keep_open_on_eof(c.link, true);
-                io.set_user(c.link, 7);
                 io.reset(c.link);
                 io.close(c.link);
             }
@@ -204,19 +203,19 @@ fn closed_before_opened() {
     var io = goose_io_memory::Loop { .. };
     var log = kit::Log { .. };
     var e = Early { .. };
-    let l, err = io.listen("127.0.0.1:9003", 1);
-    e.c = io.dial("127.0.0.1:9003", 2, 0);
+    let l, err = io.listen("127.0.0.1:9003");
+    e.c = io.dial("127.0.0.1:9003", 0);
     io.serve() { io, ev =>
         kit::note(log, io, ev);
         match ev {
-            Opened o => { if o.tag == 1 { io.close(e.c); } },     // the accepted end opens first
+            Opened o => { if goose_io::is_listener(o.listener) { io.close(e.c); } },     // the accepted end opens first
             _ => {},
         }
         kit::stop_after(io, ev, 200);
     };
     kit::check(kit::kinds_of(log, e.c) == "C" && kit::closed_once(log, e.c, goose_io::CloseReason.Local), "a dialled end closed by the other's Opened handler gets one Closed and no Opened");
     var accepted = goose_io::Link { .. };
-    for en in log.entries { if en.kind == kit::OPENED && en.tag == 1 { accepted = en.link; } }
+    for en in log.entries { if en.kind == kit::OPENED && goose_io::is_listener(en.listener) { accepted = en.link; } }
     kit::check(kit::kinds_of(log, accepted) == "OC" && kit::closed_once(log, accepted, goose_io::CloseReason.PeerClosed), "and the accepted end sees a clean end");
 }
 

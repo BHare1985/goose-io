@@ -93,7 +93,7 @@ fn code(o: lineclient::Outcome) -> u8 {
 }
 
 fn begin<Io>(c: lineclient::LineClient&, io: Io&, address: const u8[:], pool: i64, backoff_ms: i64) {
-    kit::check(c.start(io, address, 7, pool, backoff_ms), "the client starts");
+    kit::check(c.start(io, address, pool, backoff_ms), "the client starts");
 }
 
 // --- the pool fills to its size ---------------------------------------------------------------------

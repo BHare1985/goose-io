@@ -24,7 +24,7 @@ In the in-memory event loop, `listen` SHALL fail with `AddressInUse` when an act
 ## ADDED Requirements
 
 ### Requirement: The suite checks how events find their owner
-The suite SHALL have a check for each scenario of *A link event is recognised by what the library holds* that is about the event loop (an accepted link names its listener, a dial that fails at once is found by its link), for each scenario of *Slot numbers are dense* and *A slot is freed when its Closed has been handled*, and for the no-event-inside-`dial` scenario of *Dialling never blocks and always ends in one event*, each with a recorded fault of the in-memory event loop.
+The suite SHALL have a check for each scenario about the event loop of *A link event is recognised by what the library holds*, *Slot numbers are dense*, *A slot is freed when its Closed has been handled* and *Dialling never blocks and always ends in one event*, each with a recorded fault of the in-memory event loop, or a note in `docs/event-loops.md` saying why none is possible (no event can be delivered from inside `dial` of a queue-based loop).
 
 #### Scenario: A loop that names the wrong listener fails
 - **WHEN** the in-memory loop is made to put the first listener's handle on every `Opened`
@@ -37,10 +37,6 @@ The suite SHALL have a check for each scenario of *A link event is recognised by
 #### Scenario: A loop that reuses a slot while Closed is handled fails
 - **WHEN** the in-memory loop is made to give a freed slot to a new link before the handlers of its `Closed` have returned
 - **THEN** the check that a slot is not reused while `Closed` is handled fails
-
-#### Scenario: A loop that delivers inside dial fails
-- **WHEN** the in-memory loop is made to deliver the `Closed` of a failed dial before `dial` returns
-- **THEN** the no-event-inside-dial check fails
 
 #### Scenario: A map that ignores generations fails its unit test
 - **WHEN** `LinkMap.find` is made to compare slots only

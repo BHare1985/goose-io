@@ -15,7 +15,6 @@ Unverified (declaration read, behaviour not):
 - `peer_address`: not examined (the callback of `evconnlistener` receives the address of an accepted socket).
 - `Tick`, `tick_by`, `now_ms`, `PassEnd`: timers (`event_new` with `evtimer`) and `event_base_gettimeofday_cached` were
   not read beyond the declaration of `event_base_loop` flags; no per-iteration hook was examined.
-- `set_user`, `user`: the callback argument (`cbarg`) is the usual place; not read.
 
 Changing behaviour (checked in source or header):
 
@@ -43,7 +42,6 @@ Every event loop supplies these.
 | `max_send` | None. | n/a | A configuration value of at least 4096. |
 | `pause_reading` | `bufferevent_disable(bev, EV_READ)` and `bufferevent_enable(bev, EV_READ)` | checked: header | Unread bytes stay in the kernel. |
 | `close` | `bufferevent_free` after the output drains (`BEV_OPT_CLOSE_ON_FREE`) | unverified | See *Closing*. |
-| `set_user` | The callback argument | unverified | A per-link record. |
 | `now_ms` | `event_base_gettimeofday_cached` | unverified | Monotonic: use `CLOCK_MONOTONIC`, or `event_base_update_cache_time`. |
 | `tick_by` | An `evtimer` | unverified | One timer, the regular 100 ms `Tick` moved earlier by `tick_by`. |
 | `serve` | `event_base_loop(base, EVLOOP_ONCE)` runs until events are active and returns (`event.h`) | checked: flag declared | The adapter drives the loop one step at a time from Goose and delivers the queued events after each. |
@@ -90,7 +88,6 @@ Only a loop that supplies the inspection group needs these.
 |---|---|---|---|
 | `peer_address` | `getpeername` on `bufferevent_getfd` | unverified | Format as the contract's text. |
 | `stop_listening` | `evconnlistener_disable` or free | unverified | Accepted links stay. |
-| `user` | As above | unverified | The record outlives the free until `Closed` has been delivered. |
 
 ### Batching
 
@@ -103,7 +100,7 @@ Only a loop that supplies the batching group needs this.
 
 ## What a loop with only the core costs
 
-An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address`, `stop_listening` or `user`, and no `PassEnd`. Each group is a separate, later addition.
+An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each group is a separate, later addition.
 
 - `listen`: Validate the text with the contract's grammar and build the `sockaddr` directly; `AddressInUse` from the `EADDRINUSE` the creation leaves in `errno`.
 - `listener_port`: Read it back after binding port 0.
@@ -112,7 +109,6 @@ An event loop on this substrate that supplies only the core does the adapter wor
 - `max_send`: A configuration value of at least 4096.
 - `pause_reading`: Unread bytes stay in the kernel.
 - `close`: See *Closing*.
-- `set_user`: A per-link record.
 - `now_ms`: Monotonic: use `CLOCK_MONOTONIC`, or `event_base_update_cache_time`.
 - `tick_by`: One timer, the regular 100 ms `Tick` moved earlier by `tick_by`.
 - `serve`: The adapter drives the loop one step at a time from Goose and delivers the queued events after each.
@@ -122,6 +118,7 @@ An event loop on this substrate that supplies only the core does the adapter wor
 - `Data`: In the read callback queue the event holding the slice; drain the `evbuffer` only after the handler has returned; `bufferevent_disable(EV_READ)` meanwhile so there is one pending `Data`.
 - `Writable`: Queue `Writable` once the room that the largest refused send needs is free.
 - `Closed`: Reason from the adapter's state; `EVUTIL_SOCKET_ERROR()` after `BEV_EVENT_ERROR` gives `PeerReset` (`ECONNRESET`) or `Error`.
+- Slots: the adapter keeps one record for each link in a table indexed by the `Link` slot and takes a freed slot (from a free list) before it extends the table, so slots are dense (*Slot numbers are dense*); a slot is freed only after the `Closed` handlers return.
 - `Tick`: The first event of a pass.
 - The peer's end of stream: the core still closes the link with `PeerClosed` once what was accepted is out, which is the default of the `set_keep_open_on_eof` row, without the switch to turn it off.
 

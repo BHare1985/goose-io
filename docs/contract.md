@@ -1,6 +1,6 @@
 # The goose-io contract
 
-Version 0.2. The declarations are in [`goose_io.goose`](../goose_io.goose); this document is the meaning. The normative requirements, each with test scenarios, are in the OpenSpec capability `io-contract`. Requirement names from it are quoted in *italics* below so that every rule here can be traced to its tests.
+Version 0.3. The declarations are in [`goose_io.goose`](../goose_io.goose); this document is the meaning. The normative requirements, each with test scenarios, are in the OpenSpec capability `io-contract`. Requirement names from it are quoted in *italics* below so that every rule here can be traced to its tests.
 
 **In plain words.** An *event loop* moves the bytes (epoll, io_uring, libuv, or the in-memory one used for tests). A
 *library* speaks a protocol (a server, a client). The contract is the small set of operations and events between them,
@@ -22,21 +22,21 @@ No role stores a callback, allocates from a heap, or calls through a function po
 
 The contract is per loop. One loop runs on one thread. Every event is delivered on that thread and every operation is called on it: from a handler, or by the application before `serve`. Calling an operation from another thread is not supported, and the contract has no operation that crosses threads. A link or a listener is used only on the loop that created it. Starting several loops is the event loop's business.
 
-**Who calls what.** A library calls the link operations only on its own links, the ones carrying its tag, and the listener operations only on its own listeners. `serve` and `stop` belong to the application. `tick_by` is shared by design (section 5). Nothing a library can call changes what another library sees.
+**Who calls what.** A library calls the link operations only on its own links (the ones it dialled and the ones its own listeners accepted), and the listener operations only on its own listeners. `serve` and `stop` belong to the application. `tick_by` is shared by design (section 5). Nothing a library can call changes what another library sees.
 
 ## 2. A core and groups of extras
 
-(*The contract is a core and groups of extras*, *The core is thirteen operations and five events*, *Each group is named and checked on its own*)
+(*The contract is a core and groups of extras*, *The core is twelve operations and five events*, *Each group is named and checked on its own*)
 
-An event loop has to supply **the core**: 13 operations and 5 events, enough for a client, and for a server that answers as the bytes arrive. A server that answers after the peer has finished sending needs the half-close group (the line server does; the line client does not). Everything else is in one of six **groups** that an event loop may supply or leave out. A library uses what it needs and says so in its header; built against a loop that lacks something it calls, it fails to compile, and the error names the operation.
+An event loop has to supply **the core**: 12 operations and 5 events, enough for a client, and for a server that answers as the bytes arrive. A server that answers after the peer has finished sending needs the half-close group (the line server does; the line client does not). Everything else is in one of six **groups** that an event loop may supply or leave out. A library uses what it needs and says so in its header; built against a loop that lacks something it calls, it fails to compile, and the error names the operation.
 
 | | Operations | Events |
 |---|---|---|
-| **Core** | `listen`, `listener_port`, `dial`, `send`, `max_send`, `pause_reading`, `close`, `set_user`, `now_ms`, `tick_by`, `serve`, `stop`, `draining` | `Opened`, `Data`, `Writable`, `Closed`, `Tick` |
+| **Core** | `listen`, `listener_port`, `dial`, `send`, `max_send`, `pause_reading`, `close`, `now_ms`, `tick_by`, `serve`, `stop`, `draining` | `Opened`, `Data`, `Writable`, `Closed`, `Tick` |
 | **Half-close** | `shutdown_write`, `set_keep_open_on_eof` | `PeerEof` |
 | **Sizing** | `send_room`, `send2` | |
 | **Abort** | `reset` | |
-| **Inspection** | `peer_address`, `stop_listening`, `user` | |
+| **Inspection** | `peer_address`, `stop_listening` | |
 | **Batching** | | `PassEnd` |
 | **Unix** | the address forms `unix:/path` and `unix:///path`; no operation | |
 
@@ -65,9 +65,11 @@ All are fixed-size values.
 
 **Addresses** are numeric text: `ip:port` for IPv4 and `[ip]:port` for IPv6, the same on every event loop, with IPv6 as hexadecimal groups. An event loop may accept more text than that (`inet_pton` takes `::ffff:192.0.2.1`), and a portable library passes only this form; the in-memory event loop treats an IPv4 tail as malformed. An event loop never resolves a host name, so there is no lookup to block the loop or to count against `connect_ms`; a host name given to `dial` fails with `ConnectFailed`. An IPv6 zone identifier (`%eth0`) is not part of an address and makes it malformed. An event loop that supplies the unix group (section 6) also takes `unix:/path` and its URL spelling `unix:///path`. Protocol URLs (`postgres://`, `redis://`, `mysql://`) are not addresses: a library resolves them to a path or a `host:port` before it calls `dial`, and text that is neither is `BadAddress`.
 
-**Handles.** A link handle is valid from the `dial` or `Opened` that produced it until the handler of its `Closed` event returns; during that handler `user` and `peer_address` (where the loop supplies them) still work. After that it is stale and every operation on it does nothing. The generation is a guard against mistakes, not a licence to keep a handle: a slot's generation repeats after it has been used 2^32 times, so a library drops a handle when it sees its `Closed`. A listener handle is never reused at all (*Listener handles are never reused*); a loop that has issued every handle it can fails `listen` with `NoResources` and never starts again from an old one.
+**Handles.** A link handle is valid from the `dial` or `Opened` that produced it until the handler of its `Closed` event returns; during that handler `peer_address` (where the loop supplies it) still works. After that it is stale and every operation on it does nothing. The generation is a guard against mistakes, not a licence to keep a handle: a slot's generation repeats after it has been used 2^32 times, so a library drops a handle when it sees its `Closed`. A listener handle is never reused at all (*Listener handles are never reused*); a loop that has issued every handle it can fails `listen` with `NoResources` and never starts again from an old one.
 
-**Tags and user values.** A tag is 16 bits, chosen by the application, one per library; it is given to `dial` and `listen` and comes back in every event of the links they create. A user value is 32 bits, chosen by the library, set with `set_user`; it comes back in every later event of that link and is zero until set. A library uses the tag to recognise its events and the user value to find its own connection record without a lookup. The core has no operation that reads the value back (`user(link)` is inspection): a library keeps it in its own record.
+**How an event finds its state** (*A link event is recognised by what the library holds*, *Slot numbers are dense*, *A slot is freed when its Closed has been handled*, *A link map finds state by link*). Nothing is attached to a link or a listener: an event carries its link, and a library keeps its own state keyed by that link. A dialled link is the one `dial` returned to the library; an accepted link is one whose `Opened` names a listener the library started (the library compares it with its own listeners); every later event is one whose link the library has state for. The library reports an event as handled only for a link it owns and as not handled for any other, so that the application can offer it to the next library; a library that does not know the link of a `Data`, `Writable`, `PeerEof` or `Closed` does none of its handling for it.
+
+The contract package offers `LinkMap<T>` for this: a table keyed by link in which `put` stores a value for a link, `find` returns a reference to it (or nothing for a link that is invalid, stale, foreign or dropped), `has` asks, and `drop` empties one entry. It is a helper, not a requirement: a library may keep its state any other way. It is flat, one entry for each slot up to the highest the library has used, so its memory is **the event loop's peak slot count times the size of an entry**, not the library's own peak. The event loop makes that bound hold by one rule: slots are dense, a freed slot is given to a new link before a slot never used is, and a slot is freed only when every handler of its `Closed` has returned (so a slot number is below the greatest number of links valid at once on that loop). A map belongs to one event loop: two loops can issue equal slot and generation pairs. A library whose state is large (a connection with kilobytes of buffers) keeps its records in a compact table of its own and puts only an index in the map, as the example servers do (`LinkMap<Ref>`); `bench/README.md` has the measurements.
 
 ## 4. The core
 
@@ -79,14 +81,13 @@ An operation on a link whose handle is invalid or stale (its `Closed` has been d
 
 | Operation | Result | Effect | Stale or unknown handle |
 |---|---|---|---|
-| `listen(address, tag)` | `Listener, ListenError` | Starts accepting TCP connections. Each accepted connection produces `Opened` carrying `tag` and this listener. On failure the listener is "none", the error says why, and no events follow. (*Listening*) | n/a |
+| `listen(address)` | `Listener, ListenError` | Starts accepting TCP connections. Each accepted connection produces `Opened` carrying this listener. On failure the listener is "none", the error says why, and no events follow. (*Listening*) | n/a |
 | `listener_port(listener)` | `u16` | The bound port, including one the system chose for port 0. | 0 |
-| `dial(address, tag, connect_ms)` | `Link` | Starts an outbound connection and returns a valid link at once. Never blocks. `connect_ms` of 0 means the event loop's default. | n/a |
+| `dial(address, connect_ms)` | `Link` | Starts an outbound connection and returns a valid link at once. Never blocks. `connect_ms` of 0 means the event loop's default. | n/a |
 | `send(link, bytes)` | `SendStatus` | Takes every byte, or none. See below. | `Closed` |
 | `max_send()` | `i64` | The largest single send this event loop can ever accept. At least 4096. One value for every link of the loop, and it does not change while the loop runs. | n/a |
 | `pause_reading(link, paused)` | none | While paused, no `Data` is delivered and the event loop does not read, so the peer is held back. | no effect |
 | `close(link)` | none | Sends what was accepted, then ends the connection cleanly. On a link that has not opened, cancels the dial. | no effect |
-| `set_user(link, user)` | none | Sets the user value carried by every later event of the link. Works as soon as `dial` has returned. | no effect |
 | `now_ms()` | `i64` | The loop's clock in milliseconds. Monotonic; never goes backwards. Not wall-clock time. | n/a |
 | `tick_by(at_ms)` | none | Asks for a `Tick` at or after `at_ms`. An event loop keeps only the earliest outstanding request, and the first such `Tick` satisfies it, so a library asks again while handling a `Tick` if it still has a deadline. | n/a |
 | `serve() { io, ev => ... }` | returns when stopped | Runs the loop on the calling thread and calls the block once per event. | n/a |
@@ -101,10 +102,10 @@ The application supplies one handler. An event loop delivers every event of the 
 
 | Event | Carries | When |
 |---|---|---|
-| `Opened` | link, tag, user, listener | The link is open. `listener` is "none" for a dialled link. |
-| `Data` | link, tag, user, bytes | Bytes from the peer, in order. |
-| `Writable` | link, tag, user | One or more sends were refused with `Full` and each of them would now fit. Once, however many were refused. |
-| `Closed` | link, tag, user, why | The link is gone. |
+| `Opened` | link, listener | The link is open. `listener` is "none" for a dialled link. |
+| `Data` | link, bytes | Bytes from the peer, in order. |
+| `Writable` | link | One or more sends were refused with `Full` and each of them would now fit. Once, however many were refused. |
+| `Closed` | link, why | The link is gone. |
 | `Tick` | now_ms | At least every 100 ms of the loop's clock, and at or after a time asked for with `tick_by`. |
 
 **Order for one link** (*Link events follow a fixed order*):
@@ -120,7 +121,7 @@ The application supplies one handler. An event loop delivers every event of the 
 
 With half-close, the peer's end of stream may add one `PeerEof` after every `Data` (section 6).
 
-**Ownership** (*Every link event names its owner*): every link event carries its tag and user value. A library treats a link event whose tag is not its own as not handled. `Tick` carries no tag and is offered to every library, and so is `PassEnd` where the loop supplies batching.
+**Ownership** (*A link event is recognised by what the library holds*, *A library claims only the events of links it owns*): every link event carries its link, and `Opened` the listener that accepted it. A library treats a link event for a link it does not own as not handled. `Tick` carries no link and is offered to every library, and so is `PassEnd` where the loop supplies batching.
 
 **`Data` bytes are lent** (*Received bytes are lent for the duration of the event*): the slice belongs to the event loop and is valid only until the handler returns. A library copies what it must keep, for example the unfinished tail of a message. An event loop has at most one undelivered `Data` per link and reads no more from that link until the handler has returned.
 
@@ -179,7 +180,7 @@ To hold a peer back in the other direction, a library calls `pause_reading(link,
 
 `BadAddress`, `TimedOut` on `connect_ms`, and `NoResources` for the event loop's own links are always exact, because the event loop decides them itself. The kind is for reporting and for choosing how to retry: a library has a rule for the kinds it cares about and treats every other kind as it treats `Other`.
 
-**Dialling** (*Dialling never blocks and always ends in one event*): `dial` returns a valid link immediately. The outcome is `Opened`, or exactly one `Closed` with reason `ConnectFailed` when the address is malformed or a host name, the connection is refused or unreachable, the event loop is out of resources, or the connect time passes. `send` before `Opened` returns `NotOpen`. `set_user` right after `dial` takes effect for every event of the link, including the `Closed` of a dial that failed at once. `dial` never returns an invalid link: an event loop that is out of link slots still returns a handle and reports the failure as that link's `Closed`, and it reads the user value when it delivers the event, not when `dial` was called.
+**Dialling** (*Dialling never blocks and always ends in one event*): `dial` returns a valid link immediately. The outcome is `Opened`, or exactly one `Closed` with reason `ConnectFailed` when the address is malformed or a host name, the connection is refused or unreachable, the event loop is out of resources, or the connect time passes. `send` before `Opened` returns `NotOpen`. Every event of the link is delivered after the handler that called `dial` has returned, so a library that stored the link `dial` returned finds its state for the event, including the `Closed` of a dial that failed at once, which carries that same link. `dial` never returns an invalid link: an event loop that is out of link slots still returns a handle and reports the failure as that link's `Closed`.
 
 **Closing** (*Closing*). `close` sends the bytes already accepted and then ends the connection cleanly, without waiting for the peer to finish. After it, `send` returns `Closed`, and the only event the link still gets is its one `Closed` with reason `Local`: no `Data` for bytes that had arrived, no `Writable` that was owed, no `PeerEof`. It is delivered after the handler that made the call has returned, when the event loop has finished with the connection, which may be later than the same pass if accepted bytes are still going out. `stop` counts such a link as still present, so `serve` does not return while a reply is on its way.
 
@@ -281,17 +282,15 @@ Without sizing a library joins the two parts itself into a buffer of its own, an
 
 ### Inspection
 
-(*A link reports its peer's address*, *Listening*) Operations `peer_address(link)`, `stop_listening(listener)` and `user(link)`.
+(*A link reports its peer's address*, *Listening*) Operations `peer_address(link)` and `stop_listening(listener)`.
 
 - `peer_address` is the remote endpoint as numeric text in the form `dial` accepts, available from the link's `Opened` until its `Closed` has been delivered, and empty for a link that is not open. IPv6 is written in lower case with the longest run of two or more zero groups as `::`.
 - `stop_listening` accepts no new connections on that listener. Links already accepted stay open, and the handle is never given to a later listener.
-- `user` is the value last given to `set_user`, 0 for a stale handle.
 
 | Operation | Result | Stale or unknown handle |
 |---|---|---|
 | `peer_address(link)` | `Address` | empty |
 | `stop_listening(listener)` | none | no effect |
-| `user(link)` | `u32` | 0 |
 
 ### Batching
 
@@ -329,7 +328,7 @@ The contract covers TCP byte streams over IPv4 and IPv6, stream sockets at a pat
 
 `goose_io::VERSION_MAJOR` and `goose_io::VERSION_MINOR`. While the major number is 0, a minor increase may change or remove behaviour. From major version 1, a minor increase only adds. An event loop states the contract version it conforms to, the core and the groups it supplies.
 
-The version of this document is **0.2** (`VERSION_MAJOR` 0, `VERSION_MINOR` 2 in `goose_io.goose`). Version 0.1 was the first release; 0.2 adds the unix group. No event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
+The version of this document is **0.3** (`VERSION_MAJOR` 0, `VERSION_MINOR` 3 in `goose_io.goose`). Version 0.1 was the first release; 0.2 adds the unix group; 0.3 removes the tag and the user value from the events and the operations (`set_user`, `user`), takes the tag out of `listen` and `dial`, adds `LinkMap` and the rule that slots are dense. No event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
 
 ## 10. Known gaps
 

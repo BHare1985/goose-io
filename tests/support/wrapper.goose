@@ -24,8 +24,6 @@ var inner: goose_io_memory::Loop = goose_io_memory::Loop { .. };
 struct Held {
     kind:     u8                    = 0,        // 'O' 'D' 'W' 'E' 'C'
     link:     goose_io::Link        = goose_io::Link { .. },
-    tag:      u16                   = 0,
-    user:     u32                   = 0,
     listener: goose_io::Listener    = goose_io::Listener { .. },
     why:      goose_io::CloseReason = goose_io::CloseReason.Error,
     pass:     i64                   = 0,
@@ -80,10 +78,10 @@ fn _plain(bytes: const u8[:]) -> u8[>..] {
 
 // --- the contract: operations, given to the inner event loop ----------------------------------------------
 
-fn listen(w: Layer&, address: const u8[:], tag: u16) -> goose_io::Listener, goose_io::ListenError { w._prepare(); return inner.listen(address, tag); }
+fn listen(w: Layer&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError { w._prepare(); return inner.listen(address); }
 fn listener_port(w: Layer&, l: goose_io::Listener) -> u16 { w._prepare(); return inner.listener_port(l); }
 fn stop_listening(w: Layer&, l: goose_io::Listener) { w._prepare(); inner.stop_listening(l); }
-fn dial(w: Layer&, address: const u8[:], tag: u16, connect_ms: i64) -> goose_io::Link { w._prepare(); return inner.dial(address, tag, connect_ms); }
+fn dial(w: Layer&, address: const u8[:], connect_ms: i64) -> goose_io::Link { w._prepare(); return inner.dial(address, connect_ms); }
 fn peer_address(w: Layer&, link: goose_io::Link) -> goose_io::Address { w._prepare(); return inner.peer_address(link); }
 fn send_room(w: Layer&, link: goose_io::Link) -> i64 { w._prepare(); return inner.send_room(link); }
 fn max_send(w: Layer&) -> i64 { w._prepare(); return inner.max_send(); }
@@ -99,19 +97,6 @@ fn set_keep_open_on_eof(w: Layer&, link: goose_io::Link, keep: bool) {
     if m >= 0 { w.modes[m].keep = keep; }
 }
 fn shutdown_write(w: Layer&, link: goose_io::Link) { w._prepare(); inner.shutdown_write(link); }
-// The user value is read when an event is given, so an event the wrapper holds (or has queued) for the link takes the
-// new value too: every event given after `set_user` carries it.
-fn set_user(w: Layer&, link: goose_io::Link, user: u32) {
-    w._prepare();
-    inner.set_user(link, user);
-    for i in w.held.len {
-        if i >= w.held_off && goose_io::same(w.held[i].link, link) { w.held[i].user = user; }
-    }
-    for i in w.out.len {
-        if w.out[i].kind == 'L' && goose_io::same(w.out[i].h.link, link) { w.out[i].h.user = user; }
-    }
-}
-fn user(w: Layer&, link: goose_io::Link) -> u32 { w._prepare(); return inner.user(link); }
 fn now_ms(w: Layer&) -> i64 { w._prepare(); return inner.now_ms(); }
 fn tick_by(w: Layer&, at_ms: i64) { w._prepare(); inner.tick_by(at_ms); }
 fn stop(w: Layer&, grace_ms: i64) { w._prepare(); inner.stop(grace_ms); }
@@ -210,20 +195,20 @@ fn _on_event(w: Layer&, ev: goose_io::Event) {
         Opened e => {
             inner.set_keep_open_on_eof(e.link, true);
             w.modes.push(Mode { link: e.link, live: true, .. });
-            w._hold(Held { kind: 'O', link: e.link, tag: e.tag, user: e.user, listener: e.listener, pass: w.pass, .. });
+            w._hold(Held { kind: 'O', link: e.link, listener: e.listener, pass: w.pass, .. });
         },
         Data e => {
             let off = w.bytes.len;
             for b in e.bytes { w.bytes.push(b ^ KEY); }
-            let h = Held { kind: 'D', link: e.link, tag: e.tag, user: e.user, pass: w.pass, off: off, len: e.bytes.len, .. };
+            let h = Held { kind: 'D', link: e.link, pass: w.pass, off: off, len: e.bytes.len, .. };
             if w._holds(e.link) { w._hold(h); } else { w._give(h); }
         },
         Writable e => {
-            let h = Held { kind: 'W', link: e.link, tag: e.tag, user: e.user, pass: w.pass, .. };
+            let h = Held { kind: 'W', link: e.link, pass: w.pass, .. };
             if w._holds(e.link) { w._hold(h); } else { w._give(h); }
         },
         PeerEof e => {
-            let h = Held { kind: 'E', link: e.link, tag: e.tag, user: e.user, pass: w.pass, .. };
+            let h = Held { kind: 'E', link: e.link, pass: w.pass, .. };
             if w._holds(e.link) { w._hold(h); } else { w._give(h); }
         },
         Closed e => {
@@ -233,7 +218,7 @@ fn _on_event(w: Layer&, ev: goose_io::Event) {
                 if w.modes[m].eof_close && !w.modes[m].lib_closed && why == goose_io::CloseReason.Local { why = goose_io::CloseReason.PeerClosed; }
                 w.modes[m].live = false;
             }
-            let h = Held { kind: 'C', link: e.link, tag: e.tag, user: e.user, why: why, pass: w.pass, .. };
+            let h = Held { kind: 'C', link: e.link, why: why, pass: w.pass, .. };
             if w._holds(e.link) { w._hold(h); } else { w._give(h); }
         },
     }
@@ -260,11 +245,11 @@ fn _event_of(w: Layer&, o: Out) -> goose_io::Event {
     let h = o.h;
     if o.kind == 'T' { return goose_io::Event.Tick { now_ms: h.pass }; }
     if o.kind == 'P' { return goose_io::Event.PassEnd {}; }
-    if h.kind == 'O' { return goose_io::Event.Opened { link: h.link, tag: h.tag, user: h.user, listener: h.listener }; }
-    if h.kind == 'D' { return goose_io::Event.Data { link: h.link, tag: h.tag, user: h.user, bytes: w.bytes[h.off..h.off + h.len] }; }
-    if h.kind == 'W' { return goose_io::Event.Writable { link: h.link, tag: h.tag, user: h.user }; }
-    if h.kind == 'E' { return goose_io::Event.PeerEof { link: h.link, tag: h.tag, user: h.user }; }
-    return goose_io::Event.Closed { link: h.link, tag: h.tag, user: h.user, why: h.why };
+    if h.kind == 'O' { return goose_io::Event.Opened { link: h.link, listener: h.listener }; }
+    if h.kind == 'D' { return goose_io::Event.Data { link: h.link, bytes: w.bytes[h.off..h.off + h.len] }; }
+    if h.kind == 'W' { return goose_io::Event.Writable { link: h.link }; }
+    if h.kind == 'E' { return goose_io::Event.PeerEof { link: h.link }; }
+    return goose_io::Event.Closed { link: h.link, why: h.why };
 }
 
 // Runs the inner event loop's loop and gives the application its events. A held event is given the pass after the one

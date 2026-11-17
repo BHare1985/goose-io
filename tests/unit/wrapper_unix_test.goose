@@ -19,9 +19,9 @@ fn main() {
     var io = wrapper::Layer { .. };
     var log = kit::Log { .. };
     var p = kit::Pair { .. };
-    let l, err = io.listen(PATH, 1);
+    let l, err = io.listen(PATH);
     kit::check(goose_io::is_listener(l) && !goose_io::failed(err), "listen on a path through the wrapper");
-    p.client = io.dial(PATH, 2, 0);
+    p.client = io.dial(PATH, 0);
     io.serve() { io, ev => event(p, log, io, ev); };
     kit::check(kit::data_of(log, p.server) == "ping" && kit::data_of(log, p.client) == "pong", "bytes cross a path link through the wrapper unchanged");
     kit::finish();

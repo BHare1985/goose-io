@@ -186,7 +186,7 @@ fn c_stop_with_nothing_open<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         k.t = io.now_ms();
         io.stop(5000);
         k.expect(io.draining(), "draining was false after stop");
-        let l, err = io.listen("127.0.0.1:0", k.tag(0));
+        let l, err = io.listen("127.0.0.1:0");
         k.expect(!goose_io::is_listener(l) && goose_io::failed(err), "listen succeeded after stop");
         k.step = 1;
     }
@@ -250,7 +250,7 @@ fn c_listen_while_draining<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         k.step = 1;
     } else if k.step == 1 && k.pair_open(0) {
         io.stop(1000);
-        let l, err = io.listen("127.0.0.1:0", k.tag(2));
+        let l, err = io.listen("127.0.0.1:0");
         k.expect(!goose_io::is_listener(l), "listen after stop returned a listener");
         k.expect(goose_io::failed(err), "listen after stop did not return an error");
         k.step = 2;

@@ -34,8 +34,6 @@ let PASS_END = 7;
 struct Entry {
     kind:     u8                    = 0,
     link:     goose_io::Link        = goose_io::Link { .. },
-    tag:      u16                   = 0,
-    user:     u32                   = 0,
     listener: goose_io::Listener    = goose_io::Listener { .. },
     why:      goose_io::CloseReason = goose_io::CloseReason.Error,
     at_ms:    i64                   = 0,
@@ -53,15 +51,15 @@ root struct Log {
 fn note<Io>(log: Log&, io: Io&, ev: goose_io::Event) {
     let now = io.now_ms();
     match ev {
-        Opened e => { log.entries.push(Entry { kind: OPENED, link: e.link, tag: e.tag, user: e.user, listener: e.listener, at_ms: now, .. }); },
+        Opened e => { log.entries.push(Entry { kind: OPENED, link: e.link, listener: e.listener, at_ms: now, .. }); },
         Data e => {
             let off = log.bytes.len;
             log.bytes.append(e.bytes);
-            log.entries.push(Entry { kind: DATA, link: e.link, tag: e.tag, user: e.user, at_ms: now, off: off, len: e.bytes.len, .. });
+            log.entries.push(Entry { kind: DATA, link: e.link, at_ms: now, off: off, len: e.bytes.len, .. });
         },
-        Writable e => { log.entries.push(Entry { kind: WRITABLE, link: e.link, tag: e.tag, user: e.user, at_ms: now, .. }); },
-        PeerEof e => { log.entries.push(Entry { kind: PEER_EOF, link: e.link, tag: e.tag, user: e.user, at_ms: now, .. }); },
-        Closed e => { log.entries.push(Entry { kind: CLOSED, link: e.link, tag: e.tag, user: e.user, why: e.why, at_ms: now, .. }); },
+        Writable e => { log.entries.push(Entry { kind: WRITABLE, link: e.link, at_ms: now, .. }); },
+        PeerEof e => { log.entries.push(Entry { kind: PEER_EOF, link: e.link, at_ms: now, .. }); },
+        Closed e => { log.entries.push(Entry { kind: CLOSED, link: e.link, why: e.why, at_ms: now, .. }); },
         Tick t => { if log.ticks { log.entries.push(Entry { kind: TICK, at_ms: t.now_ms, .. }); } },
         PassEnd => { log.entries.push(Entry { kind: PASS_END, at_ms: now, .. }); },
     }
@@ -121,7 +119,7 @@ fn text(log: Log&) -> u8[>..] {
     for e in log.entries {
         format(out, "t=", e.at_ms, " ");
         out.push(_letter(e.kind));
-        format(out, " link=", e.link.slot, ".", e.link.gen, " tag=", e.tag, " user=", e.user, " n=", e.len);
+        format(out, " link=", e.link.slot, ".", e.link.gen, " n=", e.len);
         if e.kind == CLOSED { format(out, " why=", reason_name(e.why)); }
         out.push('\n');
     }
@@ -172,7 +170,7 @@ fn reason_name(why: goose_io::CloseReason) -> const u8[:] {
 
 // --- one link with both ends on the same loop ----------------------------------------------------
 
-// Tag 1 is the accepted end ("server"), tag 2 the dialled end ("client").
+// The accepted end ("server") is the one whose Opened names a listener, the dialled end ("client") is the link `dial` returned.
 struct Pair {
     client:    goose_io::Link = goose_io::Link { .. },
     server:    goose_io::Link = goose_io::Link { .. },
@@ -182,9 +180,9 @@ struct Pair {
 }
 
 fn connect<Io>(io: Io&, p: Pair&, address: const u8[:]) {
-    let l, err = io.listen(address, 1);
+    let l, err = io.listen(address);
     check(goose_io::is_listener(l), "fixture: listen");
-    p.client = io.dial(address, 2, 0);
+    p.client = io.dial(address, 0);
 }
 
 // Records the event and keeps the pair up to date; true when both ends have just become open.
@@ -192,7 +190,7 @@ fn track<Io>(p: Pair&, log: Log&, io: Io&, ev: goose_io::Event) -> bool {
     note(log, io, ev);
     match ev {
         Opened e => {
-            if e.tag == 1 { p.server = e.link; }
+            if goose_io::is_listener(e.listener) { p.server = e.link; }
             p.open++;
             return p.open == 2;
         },
