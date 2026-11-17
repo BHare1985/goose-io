@@ -157,7 +157,7 @@ On one host and method, a keep-alive HTTP server on the loop SHALL make the same
 - **THEN** the change is not accepted until the cause is found and removed
 
 ### Requirement: The loop attaches nothing to a link
-The epoll event loop SHALL offer the operations and deliver the events of contract 0.3 only: `listen(address)`, `dial(address, connect_ms)`, and events that carry the link (and, for `Opened`, the listener that accepted it), with no tag, no user value and no operation that sets or reads one. A library SHALL find its state from the link of an event.
+The epoll event loop SHALL offer the operations and deliver the events of contract 0.2 only: `listen(address)`, `dial(address, connect_ms)`, and events that carry the link (and, for `Opened`, the listener that accepted it), with no tag, no user value and no operation that sets or reads one. A library SHALL find its state from the link of an event.
 
 #### Scenario: A library on the loop uses no tag
 - **WHEN** the example line server and line client run on the loop with no tag assigned by the application

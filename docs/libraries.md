@@ -529,9 +529,9 @@ as a host name is, since the contract does no name resolution.
 What the system reports for a path that fails (no file, nobody listening, no permission) arrives as the kinds the
 contract already has, `Refused`, `Denied`, `NoResources` or `Other`. There is no kind for a Unix socket.
 
-### Moving from 0.2
+### Moving from 0.1
 
-Version 0.3 removes the tag and the user value. A library or an event loop moves in these steps; each is a compile error
+Version 0.2 removes the tag and the user value. A library or an event loop moves in these steps; each is a compile error
 until done, and the error names the operation.
 
 1. **Event loop:** stop taking `tag` in `listen` and `dial`; drop `tag` and `user` from the five link events; drop `set_user` and

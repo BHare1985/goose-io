@@ -207,9 +207,9 @@ fails when this table, that file, the suite and the specification disagree.
 | Events are delivered to one handler, one at a time | A send that closes the link does not re-enter the handler | check `events_not_reentrant_after_reset` | 0 | none (see below) |
 | Link events follow a fixed order | An accepted link | check `order_accepted_link` | 0 | `PeerCloseDropsData` |
 | Link events follow a fixed order | A link that never opens | check `order_failed_dial` | 0 | `OpenedBeforeFailure` |
-| Every link event names its owner | Two libraries share one loop | removed with the tag in 0.3; see *Scenarios added by the link-keyed state*, below | - | - |
-| Every link event names its owner | The user value comes back | removed with the user value in 0.3 | - | - |
-| Every link event names its owner | The user value survives an immediate dial failure | removed with the user value in 0.3: the `Closed` of a dial that fails at once carries the link `dial` returned | - | - |
+| Every link event names its owner | Two libraries share one loop | removed with the tag in 0.2; see *Scenarios added by the link-keyed state*, below | - | - |
+| Every link event names its owner | The user value comes back | removed with the user value in 0.2 | - | - |
+| Every link event names its owner | The user value survives an immediate dial failure | removed with the user value in 0.2: the `Closed` of a dial that fails at once carries the link `dial` returned | - | - |
 | Listening | A connection is accepted | check `listen_accepts` | 0 | `OpenedWithoutListener` |
 | Listening | The address is taken | check `listen_held_address` | 0 | `HeldIgnored` |
 | Listening | A system-chosen port can be discovered | check `listen_port_zero` | 0 | `PortZeroReportsZero` |
@@ -334,7 +334,7 @@ The change that added the unix group (the address forms `unix:/path` and `unix:/
 
 ### Scenarios added by the link-keyed state
 
-The change that removed the tag and the user value from the events (`link-keyed-state`, contract 0.3) added these
+The change that removed the tag and the user value from the events (`link-keyed-state`, contract 0.2) added these
 scenarios. A library finds its state from the link of an event; the event loop passes nothing in.
 
 | Scenario | Proved by | Fault |
@@ -352,7 +352,7 @@ scenarios. A library finds its state from the link of an event; the event loop p
 
 ### Scenarios added by the lifecycle guarantees
 
-The change `lifecycle-guarantees` (contract 0.3) states the life of a link and of a loop: the states, the result of every
+The change `lifecycle-guarantees` (contract 0.2) states the life of a link and of a loop: the states, the result of every
 operation in each state, the keep-open window, the handles and the loop's own states. Its scenarios are proved here, as
 each group of them lands.
 
@@ -380,7 +380,7 @@ each group of them lands.
 
 ### What the lifecycle guarantees added
 
-An event loop that conforms to contract 0.3 keeps these obligations, each shown above:
+An event loop that conforms to contract 0.2 keeps these obligations, each shown above:
 
 - **the reserved invalid link**: the default `Link` (generation 0) is the one invalid link, and no loop issues a link with generation 0;
 - **retirement**: a slot whose generations are used up is retired and never issued again, so no slot and generation pair is issued twice;

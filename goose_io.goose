@@ -20,7 +20,7 @@ import std;
 
 // While the major number is 0 a minor increase may change or remove behaviour.
 let VERSION_MAJOR = 0;
-let VERSION_MINOR = 3;
+let VERSION_MINOR = 2;
 
 // --- handles -------------------------------------------------------------------------------------
 

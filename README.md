@@ -169,14 +169,14 @@ few in detail. They show how much one contract could unify.
 
 ## Where it stands
 
-Version 0.3 of the contract, built and tested on linux-x64, macos-x64, macos-arm64 and windows-x64. Nothing here opens
+Version 0.2 of the contract, built and tested on linux-x64, macos-x64, macos-arm64 and windows-x64. Nothing here opens
 a socket or builds C: the package is Goose source and links nothing.
 
 | Event loop | Contract | Core | Groups | Where |
 |---|---|---|---|---|
-| in-memory (`memory.goose`) | 0.3 | yes | half-close, sizing, abort, inspection, batching, unix | this repository |
-| wrapper over it (`tests/support/wrapper.goose`) | 0.3 | yes | half-close, sizing, abort, inspection, batching, unix | this repository |
-| core only (`tests/support/core_only.goose`) | 0.3 | yes | none | this repository |
+| in-memory (`memory.goose`) | 0.2 | yes | half-close, sizing, abort, inspection, batching, unix | this repository |
+| wrapper over it (`tests/support/wrapper.goose`) | 0.2 | yes | half-close, sizing, abort, inspection, batching, unix | this repository |
+| core only (`tests/support/core_only.goose`) | 0.2 | yes | none | this repository |
 
 **Honestly:** the one working event loop today is the in-memory one, which is for tests. An event loop on real sockets
 (an optimized epoll loop) is planned as its own change (`openspec/changes/epoll-event-loop/`), and so are
