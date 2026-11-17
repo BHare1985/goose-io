@@ -12,6 +12,10 @@ an HTTP server, a proxy. The contract between the two is a small set of types, o
 with the rules that make them mean the same on every event loop. A library written against it does not
 know which event loop is underneath, and an event loop does not know which libraries run on it.
 
+Here, *event loop* means whatever drives connections and time under the contract: an operating-system poller such as
+epoll, a completion ring such as io_uring, a userspace network stack, an in-memory simulator for tests, or a layer
+(logging, TLS, a test shim) over another event loop.
+
 ### Write network code once, run it on any event loop
 
 - **Library authors** write a server or a client once, and it runs on every event loop that meets the contract.
@@ -19,8 +23,8 @@ know which event loop is underneath, and an event loop does not know which libra
 - **Flexible by design.** The core is what most networking code needs from a stream connection: listen, dial, send,
   receive, close and timers. It fits servers, clients, proxies, pooled connections and request/response or streaming
   protocols alike. It does not care how the event loop gets its events (epoll, io_uring, libuv, uSockets, or
-  nothing at all, as in the in-memory loop used for tests), and event loops can be layered over one another. What
-  goes beyond the core (half-close, sizing, abort, inspection, batching) is an optional group that a library asks
+  no operating-system sockets at all, as in the in-memory loop used for tests), and a layer can sit over an event loop
+  with the same contract on both sides: a logging layer, a test shim, in time a TLS layer. What goes beyond the core (half-close, sizing, abort, inspection, batching) is an optional group that a library asks
   for by name and an event loop supplies if it can.
 - **Not covered:** name resolution, TLS, UDP and Unix sockets (see `docs/contract.md`, "What the contract does not
   cover").
@@ -35,7 +39,8 @@ know which event loop is underneath, and an event loop does not know which libra
 
 ## I am writing something that talks over the network
 
-A library handles five events (`Opened`, `Data`, `Writable`, `Closed`, `Tick`) and calls a handful of operations
+A library handles five core events (`Opened`, `Data`, `Writable`, `Closed`, `Tick`; `PeerEof` and `PassEnd` belong to
+optional groups) and calls a handful of operations
 (`send`, `close`, `dial`, `listen`, ...). That is its whole interface to the network: no sockets, file descriptors,
 poll masks or registered callbacks.
 
@@ -52,7 +57,7 @@ poll masks or registered callbacks.
 The smallest library there is: every byte a peer sends comes back. The part that matters is below (the whole library is
 [`examples/echo/echo.goose`](examples/echo/echo.goose), about 130 lines). It sends what arrived; if the event loop
 says `Full` because the peer is not reading, it keeps the bytes, stops reading from that peer with `pause_reading`,
-and carries on when the event loop says `Writable`. A slow peer cannot make the server grow.
+and carries on when the event loop says `Writable`. A slow peer cannot make the server's memory grow without bound.
 
 <!-- excerpt: examples/echo/echo.goose#on_data -->
 ```goose
@@ -69,8 +74,9 @@ fn _on_data<Io>(e: Echo&, io: Io&, c: Conn&, bytes: const u8[:]) {
 }
 ```
 
-An application runs it by handing each event to the library. This is the test that runs on every change, and it
-plays the peer for you:
+An application runs it by handing each event to the library. This is the test that runs on every change. It runs on
+the in-memory loop and uses that loop's scripted-peer helpers (`add_peer`, `peer_send`, `peer_received`, which are
+not part of the contract) to play a client:
 
 <!-- excerpt: tests/examples/echo_test.goose#echoes -->
 ```goose
@@ -87,7 +93,7 @@ fn echoes<Io>(io: Io&) {
 }
 ```
 
-Run it, and the same test on an event loop that changes every byte and one that supplies nothing but the core:
+Run it, and the same test on a test layer that scrambles every byte in transit (and delays `Opened` by a pass), and on an event loop that supplies nothing but the core:
 
 ```bash
 goose run tests/examples/echo_test.goose
@@ -107,15 +113,15 @@ every library written for it runs on yours, and you wrote none of them.
   batching) is an optional group: supply it when you can, leave it out when you cannot. Libraries that need a
   group you lack fail to build and say which operation is missing.
 - **You know when you are done.** The conformance suite checks the core and each group on its own, with both ends of
-  every link on your loop. When it passes, you are listed.
-- **Keep your design.** The contract exposes no file descriptor, socket address or poll mask. An event loop built on
-  nothing at all (the in-memory one) conforms, so can one built on io_uring.
+  every link on your loop. When it passes, you can list your event loop in the table below.
+- **Keep your design.** The contract exposes no file descriptor, socket address or poll mask. An in-memory loop with no
+  operating-system sockets conforms, and so can a completion loop built on io_uring.
 
 ### The example: the smallest event loop
 
 [`tests/support/core_only.goose`](tests/support/core_only.goose) supplies the 13 operations of the core and nothing
 else. It sits over the in-memory loop, so it is the shape of an event loop and not a real socket one: copy its list of
-operations, and put your sockets where it calls `inner`. The suite runs on it:
+operations, and replace its calls to `inner` with your own socket and polling code. The suite runs on it:
 
 ```bash
 tests/conformance/run.sh --core-only           # the core of the suite, on a loop that supplies nothing else
@@ -125,6 +131,41 @@ tests/conformance/run.sh                       # the core and every group, on th
 **Next:** [docs/event-loops.md](docs/event-loops.md) says what to supply, shows the program that runs the suite on
 your loop and how to read a failure. [docs/event-loops/](docs/event-loops/) maps candidate event loops (an epoll loop, uSockets,
 io_uring, libuv, libevent) onto the contract.
+
+## What could run on it
+
+These are candidates, not claims: today only the in-memory event loop exists, and `docs/event-loops/` maps the first
+few in detail. They show how much one contract could unify.
+
+**Under it (event loops).** Anything that can deliver the five core events and perform the 13 operations.
+
+- Pollers and reactors: [uSockets](https://github.com/uNetworking/uSockets), [libuv](https://github.com/libuv/libuv),
+  [libevent](https://github.com/libevent/libevent), [libev](http://software.schmorp.de/pkg/libev.html),
+  [libhv](https://github.com/ithewei/libhv), [picoev](https://github.com/kazuho/picoev), the loop of
+  [Redis](https://github.com/redis/redis) (`src/ae.c`), the socket layer of [H2O](https://github.com/h2o/h2o)
+- Completion rings and thread-per-core engines: [liburing](https://github.com/axboe/liburing),
+  [libxev](https://github.com/mitchellh/libxev), [UCall](https://github.com/unum-cloud/UCall),
+  [Seastar](https://github.com/scylladb/seastar)
+- Userspace network stacks, with no operating-system sockets: [F-Stack](https://github.com/F-Stack/f-stack) (FreeBSD's
+  stack over DPDK), [lwIP](https://savannah.nongnu.org/projects/lwip/) (embedded), [mTCP](https://github.com/mtcp-stack/mtcp),
+  [smoltcp](https://github.com/smoltcp-rs/smoltcp), [gVisor's netstack](https://github.com/google/gvisor)
+- Layers over another event loop, which have no loop of their own: TLS ([BearSSL](https://www.bearssl.org/),
+  [s2n-tls](https://github.com/aws/s2n-tls), [Mbed TLS](https://github.com/Mbed-TLS/mbedtls),
+  [wolfSSL](https://github.com/wolfSSL/wolfssl)), and engines that present streams as links
+  ([MsQuic](https://github.com/microsoft/msquic), [LSQUIC](https://github.com/litespeedtech/lsquic),
+  [quiche](https://github.com/cloudflare/quiche)); also metering, rate limiting and fault injection
+- Simulators and fuzzers, for tests with a virtual clock and no network: the in-memory loop here,
+  [libEpollFuzzer](https://github.com/uNetworking/libEpollFuzzer) and [turmoil](https://github.com/tokio-rs/turmoil)
+  as the same idea elsewhere; [NNG](https://github.com/nanomsg/nng) is worth reading for how it separates transports,
+  listeners and dialers
+
+**On it (libraries).** Each is written once and runs on every event loop above.
+
+- Servers: HTTP/1.1 and HTTP/2, WebSocket, gRPC, MQTT, SSH, SMTP and IMAP
+- Clients: Postgres, MySQL, Redis, Memcached, NATS, Kafka
+- Infrastructure: reverse proxies, load balancers, connection pools, SOCKS5 and HTTP `CONNECT` forwarders, ACME clients
+- Distributed systems: Raft, gossip and other replication, tested on the in-memory loop with a virtual clock, so a
+  timeout, a slow peer or a silent one is a few lines of test and not a lab
 
 ## Where it stands
 
@@ -141,9 +182,9 @@ a socket or builds C: the package is Goose source and links nothing.
 (an optimized epoll loop) is planned as its own change (`openspec/changes/epoll-event-loop/`), and so are
 uSockets and io_uring. A library written now runs on them when they land.
 
-**What it is not.** Not an event loop (those are separate; they are mapped here, not built). Not a protocol library:
-no HTTP, TLS, SQL, Redis, routing or pooling. Not name resolution, TLS, UDP or Unix sockets (`docs/contract.md`,
-"What the contract does not cover").
+**What it is not.** Not an event loop (those are separate; they are mapped here, not built), and not a protocol
+library: no HTTP, SQL, Redis, routing or pooling. The limits of the contract (name resolution, TLS, UDP, Unix sockets)
+are in `docs/contract.md`, "What the contract does not cover".
 
 ## Try it
 
