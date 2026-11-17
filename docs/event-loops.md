@@ -1,7 +1,7 @@
 # Writing an event loop and running the conformance suite
 
 **In short:** you write the engine, and every library written for the contract runs on it. The job is the 13
-operations and 5 events of the core, and as many of the five optional groups as you like; the conformance suite tells
+operations and 5 events of the core, and as many of the six optional groups as you like; the conformance suite tells
 you when you are done. [`tests/support/core_only.goose`](../tests/support/core_only.goose) is the smallest example of
 the shape (it sits over the in-memory loop, where yours would sit over your sockets).
 
@@ -17,7 +17,7 @@ The **core**, which every event loop supplies: the operations `listen`, `listene
 events `Opened`, `Data`, `Writable`, `Closed` and `Tick`, with the types of `goose_io.goose`, as functions that a
 library calls by method syntax on the event loop's type.
 
-And any of five **groups**, which it may supply or leave out (`docs/contract.md`, section 2):
+And any of six **groups**, which it may supply or leave out (`docs/contract.md`, section 2):
 
 | Group | Operations | Events |
 |---|---|---|
@@ -26,9 +26,10 @@ And any of five **groups**, which it may supply or leave out (`docs/contract.md`
 | abort | `reset` | |
 | inspection | `peer_address`, `stop_listening`, `user` | |
 | batching | | `PassEnd` |
+| unix | the address form `unix:/path`, no operation | |
 
 Call `goose_io::require_core(io)` once from the event loop's root program, and the check of each group it supplies
-(`require_half_close`, `require_sizing`, `require_abort`, `require_inspection`). Each names every operation of its
+(`require_half_close`, `require_sizing`, `require_abort`, `require_inspection`; batching and unix have no operation and so no check). Each names every operation of its
 part with the contract's argument and result types and never runs, so a missing or mistyped operation is a compile
 error at that one line, naming the operation, and not deep inside a library. An event loop with nothing more than
 the core conforms; anything it adds (name resolution, TLS, other transports) is not part of the contract and no
@@ -43,13 +44,13 @@ a check listens on the loopback with port 0 and dials the port it was given, and
 contract calls (`close`, `pause_reading`, not sending; a check of a group also uses that group's operations). It therefore runs unchanged on any
 event loop, over IPv4 and IPv6 loopback.
 
-An event loop's root program constructs its loop, builds a fixture and calls the entry point of the core and of each group it supplies (`conformance_core_part`, `conformance_half_close_part`, `conformance_sizing_part`, `conformance_abort_part`, `conformance_inspection_part`, `conformance_batching_part`) with a part number.
+An event loop's root program constructs its loop, builds a fixture and calls the entry point of the core and of each group it supplies (`conformance_core_part`, `conformance_half_close_part`, `conformance_sizing_part`, `conformance_abort_part`, `conformance_inspection_part`, `conformance_batching_part`, `conformance_unix_part`) with a part number.
 This is the program that runs the in-memory event loop, whose suite results the tests of this repository rely on:
 
 <!-- source: tests/conformance/memory_conformance.goose -->
 ```goose
 // Runs one part of the conformance suite against the in-memory event loop: `goose run tests/conformance/memory_conformance.goose -- 3 core`.
-// The part is the first argument (default 0) and the group the second (core, half-close, sizing, abort, inspection or batching; default core).
+// The part is the first argument (default 0) and the group the second (core, half-close, sizing, abort, inspection, batching or unix; default core).
 // The environment variable GOOSE_IO_FAULT, when set, switches the in-memory event loop to one of its named faults
 // (see tests/conformance/faults.sh).
 import std;
@@ -75,12 +76,13 @@ fn main() {
     io.hold("127.0.0.1:9999");
     let up = io.add_peer();
     io.peer_accept(up, "10.255.0.2:80");
-    let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80" };
+    let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80", unix: "/run/goose-io-test.sock" };
     if group == "half-close" { exit(goose_io_conformance::conformance_half_close_part(io, fixture, part)); }
     if group == "sizing" { exit(goose_io_conformance::conformance_sizing_part(io, fixture, part)); }
     if group == "abort" { exit(goose_io_conformance::conformance_abort_part(io, fixture, part)); }
     if group == "inspection" { exit(goose_io_conformance::conformance_inspection_part(io, fixture, part)); }
     if group == "batching" { exit(goose_io_conformance::conformance_batching_part(io, fixture, part)); }
+    if group == "unix" { exit(goose_io_conformance::conformance_unix_part(io, fixture, part)); }
     exit(goose_io_conformance::conformance_core_part(io, fixture, part));
 }
 ```
@@ -308,6 +310,26 @@ checks of the table above, now run by group). `tests/conformance/run.sh --core-o
 | Reset | check `reset_aborts_the_peer` (abort group) |
 | An accepted link names its peer, A dialled link names its target, A closed link has no peer address | check `peer_address_names_peer` (inspection group) |
 
+### Scenarios added by the unix group
+
+The change that added the unix group (the address form `unix:/path`) added these scenarios. The group's checks need
+`Fixture.unix`, an absolute path at which the loop may create a socket, and run by their own entry point,
+`conformance_unix_part`, against a loop that supplies the core and the group (`tests/conformance/run.sh --group unix`).
+
+| Scenario | Proved by | Fault |
+|---|---|---|
+| A listener and a dial on a path | check `unix_listen_dial` (unix group) | `UnixListenerIgnored` |
+| The path is held | check `unix_held_path` (unix group) | `UnixOverlapIgnored` |
+| Nothing listens on the path | check `unix_nothing_listens` (unix group) | `UnixRefusedAsBadAddress` |
+| No port | check `unix_no_port` (unix group) | `UnixPortInvented` |
+| Malformed paths | check `unix_malformed_paths` (unix group) | `UnixRelativeAccepted` |
+| The longest path | check `unix_longest_path` (unix group) | `UnixLongestRefused` |
+| A loop without the group | `tests/unit/core_only_unix_test.goose` (the core-only loop) and `tests/unit/memory_unix_test.goose` (the in-memory loop configured with `unix_paths` off): `BadAddress` for `listen` and `dial`; the suite does not check it, since a loop that supplies the group accepts the text |
+| No peer text | `tests/unit/memory_unix_test.goose`: `peer_address` is empty on both ends of a path link; no check of the suite can say so, since it needs the inspection group and the unix group |
+| A scripted peer at a path, Paths conflict only when equal | `tests/unit/memory_unix_test.goose` |
+| A check that reaches into another group | `tests/conformance/groups_check.sh` |
+| A loop that does not supply the group | `tests/conformance/run.sh --core-only` runs no unix part |
+
 ### What cannot be shown by a fault
 
 `events_not_reentrant` (*A close does not re-enter the handler*) and `events_not_reentrant_after_reset` (*A send that closes
@@ -320,6 +342,10 @@ running. An event loop that delivers an event from inside an operation fails the
 A few scenarios depend on a limit a socket event loop cannot be asked to reach (*Handles run out and do not wrap*,
 *An event loop out of links*). They are tested on the in-memory event loop and, for a socket event loop, answered in its
 mapping document under `docs/event-loops/`.
+
+The unix group's checks share one loop, so each derives its own paths from `Fixture.unix` (a suffix of the check's number),
+and the group's malformed-path check needs no file system. The loop creates and removes the socket file, and the suite
+stops its listeners before it ends.
 
 `dial_while_draining` is complete only when the fixture supplies an address that still answers after `stop`
 (`Fixture.answers`): every listener of the loop has stopped by then, so no call can make one. Without it the check

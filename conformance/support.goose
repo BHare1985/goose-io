@@ -30,6 +30,9 @@ struct Fixture {
     // stopped by then, so calls cannot make one). Without it the dial-while-draining part proves only that
     // the dial still ends in exactly one event.
     answers: const u8[:] = "",
+    // The unix group only: an absolute path at which the loop may create a socket (without `unix:`); the checks derive
+    // every other path from it. The loop creates and removes the file; the suite stops its listeners before it ends.
+    unix: const u8[:] = "",
 }
 
 // One recorded link event.
@@ -46,6 +49,7 @@ let GROUP_SIZING = 2;
 let GROUP_ABORT = 3;
 let GROUP_INSPECTION = 4;
 let GROUP_BATCHING = 5;
+let GROUP_UNIX = 6;
 let GROUP_NONE = 9;
 
 struct CoreGroup { n: i64 = 0 }
@@ -54,6 +58,7 @@ struct SizingGroup { n: i64 = 0 }
 struct HalfCloseGroup { n: i64 = 0 }
 struct InspectionGroup { n: i64 = 0 }
 struct AbortGroup { n: i64 = 0 }
+struct UnixGroup { n: i64 = 0 }
 
 struct Rec {
     role:     i64                   = 0,

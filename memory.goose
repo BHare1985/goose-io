@@ -33,15 +33,21 @@ struct Config {
     time_limit_ms:      i64  = 600000,  // a serve that runs this long in loop time has hung: fail
     exit_on_time_limit: bool = true,    // false: serve returns instead and hit_time_limit() is true
     passes_per_ms:      i64  = 64,      // busy passes at one instant before the clock moves 1 ms
+    unix_paths:         bool = true,    // supply the unix group; false: unix:/path is refused with BadAddress, as by a loop without it
 }
 
 // --- internals: addresses ------------------------------------------------------------------------
 
-struct _Addr { ok: bool = false, v6: bool = false, ip: u8[16] = [0; 16], port: u16 = 0 }
+// A numeric endpoint, or, with `unix` set, the path of a Unix socket (the unix group): then ip, port and v6 are unused.
+struct _Addr { ok: bool = false, v6: bool = false, ip: u8[16] = [0; 16], port: u16 = 0, unix: bool = false, path: u8[..103] = [] }
 
-fn _same_endpoint(a: _Addr, b: _Addr) -> bool { a.v6 == b.v6 && a.port == b.port && a.ip == b.ip }
+fn _same_endpoint(a: _Addr, b: _Addr) -> bool {
+    if a.unix || b.unix { return a.unix && b.unix && a.path[..] == b.path[..]; }
+    return a.v6 == b.v6 && a.port == b.port && a.ip == b.ip;
+}
 
 fn _is_any(a: _Addr) -> bool {
+    if a.unix { return false; }
     for b in a.ip { if b != 0 { return false; } }
     return true;
 }
@@ -49,12 +55,14 @@ fn _is_any(a: _Addr) -> bool {
 // Two bindings overlap when one connection could be meant for both: the same family and port, and
 // either address is the wildcard or they are equal. Overlapping listeners cannot coexist.
 fn _overlaps(a: _Addr, b: _Addr) -> bool {
-    a.v6 == b.v6 && a.port == b.port && (_is_any(a) || _is_any(b) || a.ip == b.ip)
+    if a.unix || b.unix { return _same_endpoint(a, b); }
+    return a.v6 == b.v6 && a.port == b.port && (_is_any(a) || _is_any(b) || a.ip == b.ip);
 }
 
 // A listener on the wildcard address takes a dial to any address of its family.
 fn _listener_takes(l: _Addr, target: _Addr) -> bool {
-    l.v6 == target.v6 && l.port == target.port && (l.ip == target.ip || _is_any(l))
+    if l.unix || target.unix { return _same_endpoint(l, target); }
+    return l.v6 == target.v6 && l.port == target.port && (l.ip == target.ip || _is_any(l));
 }
 
 fn _parse_number(s: const u8[:], limit: i64) -> i64, bool {
@@ -139,10 +147,20 @@ fn _parse_v6(s: const u8[:], a: _Addr&) -> bool {
     return true;
 }
 
-// "ip:port" or "[ip]:port", numeric only. A host name does not parse.
+// "ip:port" or "[ip]:port", numeric only, or "unix:/path": an absolute path of at most 103 bytes with no NUL byte
+// (and so no leading "@"). A host name does not parse.
 fn _parse_address(text: const u8[:]) -> _Addr {
     var a = _Addr { .. };
     guard text.len > 0 else { return a; }
+    if starts_with(text, "unix:") {
+        let path = text[5..];
+        guard path.len > 0 && path.len <= 103 && path[0] == '/' else { return a; }
+        for c in path { if c == 0 { return a; } }
+        a.unix = true;
+        a.path.append(path);
+        a.ok = true;
+        return a;
+    }
     var port_at = 0;
     if text[0] == '[' {
         var close = -1;
@@ -192,7 +210,7 @@ fn _push_hex(out: u8[..56]&, v: i64) {
 
 fn _format_address(a: _Addr) -> goose_io::Address {
     var out = goose_io::Address { .. };
-    guard a.ok else { return out; }
+    guard a.ok && !a.unix else { return out; }
     if a.v6 {
         var groups: i64[8] = [0; 8];
         for k in 8 { groups[k] = ((a.ip[k * 2] as i64) << 8) | a.ip[k * 2 + 1]; }
@@ -469,7 +487,7 @@ fn listen(io: Loop&, address: const u8[:], tag: u16) -> goose_io::Listener, goos
     guard !io._draining || io._fault == 51 else { return goose_io::Listener { .. }, goose_io::ListenError { kind: goose_io::ListenErrorKind.Other, code: 108 }; }
     // A handle is never issued twice, so there are only so many: fail, never wrap.
     guard io._listeners.len < io.cfg.max_listeners && io._listeners.len < 0xfffffffe else { return goose_io::Listener { .. }, goose_io::ListenError { kind: goose_io::ListenErrorKind.NoResources, code: 24 }; }
-    if a.port == 0 {
+    if a.port == 0 && !a.unix {
         // One lap of the ephemeral range at most, skipping ports that are in use.
         var found = false;
         for _ in _EPHEMERAL_PORTS {
@@ -497,11 +515,18 @@ fn listen(io: Loop&, address: const u8[:], tag: u16) -> goose_io::Listener, goos
 fn _addr(io: Loop&, text: const u8[:]) -> _Addr {
     var a = _parse_address(text);
     if io._fault == 19 && a.v6 { a = _Addr { .. }; }
+    if !io.cfg.unix_paths && a.unix { a = _Addr { .. }; }
+    if io._fault == 60 && !a.ok && starts_with(text, "unix:") && text.len > 5 && text[5] != '/' && text[5] != '@' && text.len <= 108 {      // fault UnixRelativeAccepted
+        a = _Addr { ok: true, unix: true, .. };
+        a.path.append(text[5..]);
+    }
+    if io._fault == 61 && a.unix && a.path.len > 100 { a = _Addr { .. }; }      // fault UnixLongestRefused: a long path is refused
     return a;
 }
 
 fn _binding_free(io: Loop&, a: _Addr) -> bool {
     if io._fault != 10 { for h in io._held { if _overlaps(h, a) { return false; } } }     // fault HeldIgnored
+    if io._fault == 57 && a.unix { return true; }      // fault UnixOverlapIgnored: a path can be listened on twice
     for l in io._listeners { if l.active && _overlaps(l.addr, a) { return false; } }
     return true;
 }
@@ -523,7 +548,7 @@ fn _listener_index(io: Loop&, l: goose_io::Listener) -> i64 {
 
 fn listener_port(io: Loop&, l: goose_io::Listener) -> u16 {
     let i = io._listener_index(l);
-    if i < 0 || io._fault == 11 { 0 } else { io._listeners[i].addr.port }
+    if i < 0 || io._fault == 11 { 0 } else if io._fault == 59 && io._listeners[i].addr.unix { 4242 } else { io._listeners[i].addr.port }      // fault UnixPortInvented
 }
 
 fn stop_listening(io: Loop&, l: goose_io::Listener) {
@@ -766,7 +791,7 @@ fn _connect(io: Loop&, i: i64) {
     let target = io._slots[i].target;
     var found = -1;
     for l, k in io._listeners {
-        if l.active && _listener_takes(l.addr, target) { found = k; break; }
+        if l.active && _listener_takes(l.addr, target) && !(io._fault == 56 && l.addr.unix) { found = k; break; }      // fault UnixListenerIgnored: a dial to a path never reaches its listener
     }
     for f in io._failing {
         if _same_endpoint(f.addr, target) { io._close(i, _failed(f.kind), false); return; }
@@ -789,7 +814,7 @@ fn _connect(io: Loop&, i: i64) {
         if k >= 0 { io._scripts[k].taken = true; }
         if k < 0 || io._scripts[k].refuse {
             if k >= 0 { io._scripts[k].closed = true; }
-            io._close(i, _failed(if io._fault == 16 { goose_io::ConnectFailure.Unreachable } else { goose_io::ConnectFailure.Refused }), false);
+            io._close(i, _failed(if io._fault == 16 { goose_io::ConnectFailure.Unreachable } else if io._fault == 58 && target.unix { goose_io::ConnectFailure.BadAddress } else { goose_io::ConnectFailure.Refused }), false);      // fault UnixRefusedAsBadAddress
             return;
         }
         j = io._new_slot(k);
@@ -798,7 +823,8 @@ fn _connect(io: Loop&, i: i64) {
     let accepted .= io._slots[j];
     accepted.state = _OPENING;
     accepted.peer = i;
-    accepted.remote = _Addr { ok: true, v6: target.v6, ip: target.ip, port: io._take_port() as u16 };
+    // the accepted end of a Unix link has no name: its remote formats as the empty value
+    accepted.remote = if target.unix { target } else { _Addr { ok: true, v6: target.v6, ip: target.ip, port: io._take_port() as u16 } };
     let dialled .= io._slots[i];
     dialled.state = _OPENING;
     dialled.peer = j;
@@ -1271,6 +1297,8 @@ fn _fault_named(name: const u8[:]) -> i64 {
         "ClosedNeverDelivered", "EofIgnoresDefault", "PeerEofBeforeData", "TickEvery250", "TickByIgnored",
         "TickByKeepsLatest", "NoPassEnd", "IdlePassEnd", "StopWaitsForGrace", "ShutdownEarly",
         "ListenAfterStop", "DialFailsWhileDraining", "StopLatestWins", "UnsetHandleAccepted", "SendAfterShutdownAccepted",
+        "UnixListenerIgnored", "UnixOverlapIgnored", "UnixRefusedAsBadAddress", "UnixPortInvented", "UnixRelativeAccepted",
+        "UnixLongestRefused",
     ];
     for n, i in names { if n == name { return i + 1; } }
     return 0;

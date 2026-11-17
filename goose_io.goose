@@ -4,12 +4,12 @@
 // owns the thread and the sockets, delivers events and performs operations; a library handles events and
 // calls operations; the application runs the loop and passes each event to its libraries.
 //
-// The contract is a core, which every event loop supplies, and five groups of extras it may add:
-// half-close, sizing, abort, inspection and batching. A library uses what it needs, and fails to compile
-// on a loop that lacks it.
+// The contract is a core, which every event loop supplies, and six groups of extras it may add:
+// half-close, sizing, abort, inspection, batching and unix (the address form `unix:/path`). A library uses what
+// it needs, and fails to compile on a loop that lacks an operation; a loop without unix answers BadAddress.
 //
 // This file is the whole contract surface: the shared types, pure helpers over them, the version, and
-// the compile-time checks (require_core and one for each group) that name every operation of a part.
+// the compile-time checks (require_core and one for each group that has operations) that name every operation of a part.
 // The rules (ordering, ownership, backpressure) are in docs/contract.md.
 //
 // Pure Goose: no C, no extern. Importing this links nothing.
@@ -20,7 +20,7 @@ import std;
 
 // While the major number is 0 a minor increase may change or remove behaviour.
 let VERSION_MAJOR = 0;
-let VERSION_MINOR = 1;
+let VERSION_MINOR = 2;
 
 // --- handles -------------------------------------------------------------------------------------
 
@@ -40,7 +40,8 @@ struct Listener { id: u32 = 0 }
 fn is_listener(l: Listener) -> bool { l.id != 0 }
 fn same(a: Listener, b: Listener) -> bool { a.id == b.id }
 
-// A numeric endpoint as text: "ip:port" for IPv4, "[ip]:port" for IPv6. Empty when unknown.
+// A numeric endpoint as text: "ip:port" for IPv4, "[ip]:port" for IPv6. Empty when unknown, and for a link made
+// on a `unix:/path` address (a path does not fit in 56 bytes).
 // 56 bytes hold the longest form ("[" + 45 + "]:" + 5).
 struct Address { text: u8[..56] = [] }
 
@@ -66,7 +67,7 @@ enum ConnectFailure {
     Unreachable,    // no route to the address, its network or its machine
     Denied,         // the system does not allow this connection
     NoResources,    // the event loop or the system is out of links, descriptors, ports or memory
-    BadAddress,     // the text is not a numeric address: malformed, a host name, a zone identifier
+    BadAddress,     // the text is not an address the loop accepts: malformed, a host name, a zone identifier, a unix path without the unix group
     Other,          // any other failure, and any the event loop cannot classify
 }
 
@@ -182,11 +183,11 @@ fn link_of(ev: Event) -> Link {
 
 // --- what an event loop must supply ---------------------------------------------------------------
 
-// The contract is a core and five groups (docs/contract.md). Each check below names every operation of its part
+// The contract is a core and six groups (docs/contract.md). Each check below names every operation of its part
 // once, with the contract's argument and result types, and never runs anything. An event loop's root program calls
 // require_core and the check of each group it supplies, so that a missing or mistyped operation is a compile error
 // here, naming the operation, and not somewhere inside a library. The batching group has no operation, only the
-// event PassEnd, so it has no check: the conformance suite is what shows that a loop delivers it as the contract says.
+// event PassEnd, and the unix group only an address form, so neither has a check: the conformance suite is what shows that a loop delivers it as the contract says.
 //
 // Each operation is a function whose first parameter is the event loop.
 //

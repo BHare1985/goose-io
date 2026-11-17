@@ -58,6 +58,7 @@ fn group_of(name: const u8[:]) -> i64 {
     if name == "reset_aborts_the_peer" || name == "handles_stale_reset" || name == "handles_unset_reset" || name == "events_not_reentrant_after_reset" { return GROUP_ABORT; }
     if name == "listen_stop_keeps_links" || name == "listener_handle_never_reused" || name == "peer_address_names_peer" || name == "peer_address_ipv6" || name == "handles_valid_in_closed" || name == "handles_stale_user" || name == "handles_unset_inspection" { return GROUP_INSPECTION; }
     if name == "pass_end_follows_link_events" || name == "pass_end_not_on_idle_pass" { return GROUP_BATCHING; }
+    if name == "unix_listen_dial" || name == "unix_held_path" || name == "unix_nothing_listens" || name == "unix_no_port" || name == "unix_malformed_paths" || name == "unix_longest_path" { return GROUP_UNIX; }
     return GROUP_NONE;
 }
 
@@ -75,6 +76,11 @@ fn step<Io>(g: CoreGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) 
 
 fn step<Io>(g: BatchingGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if time_batching_step(k, fx, io, ev) { return; }
+    k.fail("the check is not known to the driver");
+}
+
+fn step<Io>(g: UnixGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if net_unix_step(k, fx, io, ev) { return; }
     k.fail("the check is not known to the driver");
 }
 
@@ -109,6 +115,7 @@ fn takes(g: SizingGroup&, i: Info) -> bool { i.group == GROUP_SIZING }
 fn takes(g: HalfCloseGroup&, i: Info) -> bool { i.group == GROUP_HALF_CLOSE }
 fn takes(g: InspectionGroup&, i: Info) -> bool { i.group == GROUP_INSPECTION }
 fn takes(g: AbortGroup&, i: Info) -> bool { i.group == GROUP_ABORT }
+fn takes(g: UnixGroup&, i: Info) -> bool { i.group == GROUP_UNIX }
 
 struct Driver {
     part:     i64      = 0,
@@ -230,5 +237,11 @@ fn conformance_abort_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
 // The checks of the inspection group: `peer_address`, `stop_listening` and `user`.
 fn conformance_inspection_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     var g = InspectionGroup { .. };
+    return _run_part(g, io, fx, part);
+}
+
+// The checks of the unix group: the address form `unix:/path`. The fixture's `unix` is a path the loop may use.
+fn conformance_unix_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    var g = UnixGroup { .. };
     return _run_part(g, io, fx, part);
 }

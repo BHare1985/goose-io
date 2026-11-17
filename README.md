@@ -24,9 +24,9 @@ epoll, a completion ring such as io_uring, a userspace network stack, an in-memo
   receive, close and timers. It fits servers, clients, proxies, pooled connections and request/response or streaming
   protocols alike. It does not care how the event loop gets its events (epoll, io_uring, libuv, uSockets, or
   no operating-system sockets at all, as in the in-memory loop used for tests), and a layer can sit over an event loop
-  with the same contract on both sides: a logging layer, a test shim, in time a TLS layer. What goes beyond the core (half-close, sizing, abort, inspection, batching) is an optional group that a library asks
+  with the same contract on both sides: a logging layer, a test shim, in time a TLS layer. What goes beyond the core (half-close, sizing, abort, inspection, batching, unix) is an optional group that a library asks
   for by name and an event loop supplies if it can.
-- **Not covered:** name resolution, TLS, UDP and Unix sockets (see `docs/contract.md`, "What the contract does not
+- **Not covered:** name resolution, TLS and UDP (see `docs/contract.md`, "What the contract does not
   cover").
 
 **Which of these are you?**
@@ -110,7 +110,7 @@ An event loop owns the thread and the sockets. If yours supplies the contract,
 every library written for it runs on yours, and you wrote none of them.
 
 - **A bounded job.** The core is 13 operations and 5 events. Anything else (half-close, sizing, abort, inspection,
-  batching) is an optional group: supply it when you can, leave it out when you cannot. Libraries that need a
+  batching, unix) is an optional group: supply it when you can, leave it out when you cannot. Libraries that need a
   group you lack fail to build and say which operation is missing.
 - **You know when you are done.** The conformance suite checks the core and each group on its own, with both ends of
   every link on your loop. When it passes, you can list your event loop in the table below.
@@ -169,21 +169,21 @@ few in detail. They show how much one contract could unify.
 
 ## Where it stands
 
-Version 0.1 of the contract, built and tested on linux-x64, macos-x64, macos-arm64 and windows-x64. Nothing here opens
+Version 0.2 of the contract, built and tested on linux-x64, macos-x64, macos-arm64 and windows-x64. Nothing here opens
 a socket or builds C: the package is Goose source and links nothing.
 
 | Event loop | Contract | Core | Groups | Where |
 |---|---|---|---|---|
-| in-memory (`memory.goose`) | 0.1 | yes | half-close, sizing, abort, inspection, batching | this repository |
-| wrapper over it (`tests/support/wrapper.goose`) | 0.1 | yes | half-close, sizing, abort, inspection, batching | this repository |
-| core only (`tests/support/core_only.goose`) | 0.1 | yes | none | this repository |
+| in-memory (`memory.goose`) | 0.2 | yes | half-close, sizing, abort, inspection, batching, unix | this repository |
+| wrapper over it (`tests/support/wrapper.goose`) | 0.2 | yes | half-close, sizing, abort, inspection, batching, unix | this repository |
+| core only (`tests/support/core_only.goose`) | 0.2 | yes | none | this repository |
 
 **Honestly:** the one working event loop today is the in-memory one, which is for tests. An event loop on real sockets
 (an optimized epoll loop) is planned as its own change (`openspec/changes/epoll-event-loop/`), and so are
 uSockets and io_uring. A library written now runs on them when they land.
 
 **What it is not.** Not an event loop (those are separate; they are mapped here, not built), and not a protocol
-library: no HTTP, SQL, Redis, routing or pooling. The limits of the contract (name resolution, TLS, UDP, Unix sockets)
+library: no HTTP, SQL, Redis, routing or pooling. The limits of the contract (name resolution, TLS, UDP)
 are in `docs/contract.md`, "What the contract does not cover".
 
 ## Try it

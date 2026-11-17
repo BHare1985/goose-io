@@ -429,6 +429,28 @@ stream, so after `serve` returns `peer_received` holds the whole reply and `peer
 wait for a peer's later steps or for a peer told to stop reading, so a test that needs a peer to
 read more than that adds the step and a deadline for it, and does not stop the loop before then.
 
+### A path as an address
+
+A library that wants a Unix socket passes `unix:/path` where it would pass a numeric address, to `dial` or `listen`, and
+nothing else changes. The in-memory loop supplies the unix group: a path is the name of an endpoint, a listener holds
+it, a dial reaches it, and a scripted peer can wait at it as it waits at an address. A path has no port
+(`listener_port` is 0) and no peer address text. Set `io.cfg.unix_paths = false` to see a library meet a loop without
+the group: every path is `BadAddress`.
+
+<!-- excerpt: tests/examples/unix_dial_test.goose#unix_peer -->
+```goose
+fn dials_a_path<Io>(io: Io&) {
+    var log = kit::Log { .. };
+    let db = io.add_peer();
+    io.peer_accept(db, "unix:/var/run/postgresql/.s.PGSQL.5432");
+    io.peer_send(db, 5, "ready");
+    let link = io.dial("unix:/var/run/postgresql/.s.PGSQL.5432", 1, 0);
+    io.serve() { io, ev => on_event(log, io, ev); };
+    kit::check(kit::data_of(log, link) == "ready", "the peer at the path answers");
+    kit::check(io.peer_received(db) == "hello", "and reads what the library sent");
+}
+```
+
 ### The clock
 
 `now_ms` starts at 0. The loop delivers everything that is due and then moves the clock straight
@@ -457,6 +479,7 @@ Set these on `io.cfg` before the first `listen`, `dial`, `add_peer` or `serve`.
 | `time_limit_ms` | 600000 | See "Limits". |
 | `exit_on_time_limit` | true | See "Limits". |
 | `passes_per_ms` | 64 | See "The clock". A value below 1 is raised to 1. |
+| `unix_paths` | true | Supply the unix group. With false, `unix:/path` is refused with `BadAddress`, as by a loop without the group. |
 
 A setting that would stop the loop making progress is raised to the smallest value that does not
 (`tick_ms`, `passes_per_ms`, `max_send`, `link_buffer`, `read_chunk`); the other settings only make

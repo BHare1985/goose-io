@@ -22,6 +22,7 @@ fn _prepare(io: Core&) {
     if !io.ready {
         io.ready = true;
         inner.cfg = io.cfg;
+        inner.cfg.unix_paths = false;     // the unix group is not part of the core
     }
 }
 

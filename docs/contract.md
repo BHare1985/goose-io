@@ -1,6 +1,6 @@
 # The goose-io contract
 
-Version 0.1. The declarations are in [`goose_io.goose`](../goose_io.goose); this document is the meaning. The normative requirements, each with test scenarios, are in the OpenSpec capability `io-contract`. Requirement names from it are quoted in *italics* below so that every rule here can be traced to its tests.
+Version 0.2. The declarations are in [`goose_io.goose`](../goose_io.goose); this document is the meaning. The normative requirements, each with test scenarios, are in the OpenSpec capability `io-contract`. Requirement names from it are quoted in *italics* below so that every rule here can be traced to its tests.
 
 **In plain words.** An *event loop* moves the bytes (epoll, io_uring, libuv, or the in-memory one used for tests). A
 *library* speaks a protocol (a server, a client). The contract is the small set of operations and events between them,
@@ -28,7 +28,7 @@ The contract is per loop. One loop runs on one thread. Every event is delivered 
 
 (*The contract is a core and groups of extras*, *The core is thirteen operations and five events*, *Each group is named and checked on its own*)
 
-An event loop has to supply **the core**: 13 operations and 5 events, enough for a client, and for a server that answers as the bytes arrive. A server that answers after the peer has finished sending needs the half-close group (the line server does; the line client does not). Everything else is in one of five **groups** that an event loop may supply or leave out. A library uses what it needs and says so in its header; built against a loop that lacks something it calls, it fails to compile, and the error names the operation.
+An event loop has to supply **the core**: 13 operations and 5 events, enough for a client, and for a server that answers as the bytes arrive. A server that answers after the peer has finished sending needs the half-close group (the line server does; the line client does not). Everything else is in one of six **groups** that an event loop may supply or leave out. A library uses what it needs and says so in its header; built against a loop that lacks something it calls, it fails to compile, and the error names the operation.
 
 | | Operations | Events |
 |---|---|---|
@@ -38,14 +38,15 @@ An event loop has to supply **the core**: 13 operations and 5 events, enough for
 | **Abort** | `reset` | |
 | **Inspection** | `peer_address`, `stop_listening`, `user` | |
 | **Batching** | | `PassEnd` |
+| **Unix** | the address form `unix:/path`; no operation | |
 
 A rule that belongs to a group binds only an event loop that supplies the group, and no rule of the core depends on a group. A loop that supplies only the core conforms to the core, and a library that uses only the core runs on it unchanged.
 
 `listener_port` and `pause_reading` are in the core although they look like extras: a suite that runs both ends of every link on one loop cannot otherwise reach a system-chosen port or make a peer that does not read.
 
-**Checking at compile time.** The contract package has one check for the core, `require_core(io)`, and one for each group that has operations: `require_half_close`, `require_sizing`, `require_abort` and `require_inspection`. Each names every operation of its part once, with the contract's types, and never runs. An event loop's root program calls the check of the core and of each group it supplies, so that a missing or mistyped operation is an error at that one line. A library's test calls the checks for what the library's header says it needs. Batching has only an event and so no check; the conformance suite shows that a loop delivers `PassEnd` as it must.
+**Checking at compile time.** The contract package has one check for the core, `require_core(io)`, and one for each group that has operations: `require_half_close`, `require_sizing`, `require_abort` and `require_inspection`. Each names every operation of its part once, with the contract's types, and never runs. An event loop's root program calls the check of the core and of each group it supplies, so that a missing or mistyped operation is an error at that one line. A library's test calls the checks for what the library's header says it needs. Batching has only an event, and unix only an address form, so neither has a check; the conformance suite shows that a loop delivers `PassEnd` as it must and takes a path as it must.
 
-**What an event loop that lacks a group does.** It never delivers that group's events: without half-close there is no `PeerEof`, since nothing could ask for it, and without batching no `PassEnd`. A library's handling of an event its loop never delivers is simply never run.
+**What an event loop that lacks a group does.** It never delivers that group's events: without half-close there is no `PeerEof`, since nothing could ask for it, and without batching no `PassEnd`. Without unix, `unix:/path` is an address like any other it does not accept: `BadAddress`. A library's handling of an event its loop never delivers is simply never run.
 
 ## 3. Types
 
@@ -62,7 +63,7 @@ All are fixed-size values.
 | `ListenError` | `{ kind: ListenErrorKind, code: i32 }` with kind `None`, `AddressInUse`, `BadAddress`, `Denied`, `NoResources`, `Other` | Result of `listen`. `failed(e)`. |
 | `Event` | see sections 4 and 6 | What the application's handler receives. At most 32 bytes. |
 
-**Addresses** are numeric text: `ip:port` for IPv4 and `[ip]:port` for IPv6, the same on every event loop, with IPv6 as hexadecimal groups. An event loop may accept more text than that (`inet_pton` takes `::ffff:192.0.2.1`), and a portable library passes only this form; the in-memory event loop treats an IPv4 tail as malformed. An event loop never resolves a host name, so there is no lookup to block the loop or to count against `connect_ms`; a host name given to `dial` fails with `ConnectFailed`. An IPv6 zone identifier (`%eth0`) is not part of an address and makes it malformed.
+**Addresses** are numeric text: `ip:port` for IPv4 and `[ip]:port` for IPv6, the same on every event loop, with IPv6 as hexadecimal groups. An event loop may accept more text than that (`inet_pton` takes `::ffff:192.0.2.1`), and a portable library passes only this form; the in-memory event loop treats an IPv4 tail as malformed. An event loop never resolves a host name, so there is no lookup to block the loop or to count against `connect_ms`; a host name given to `dial` fails with `ConnectFailed`. An IPv6 zone identifier (`%eth0`) is not part of an address and makes it malformed. An event loop that supplies the unix group (section 6) also takes `unix:/path`.
 
 **Handles.** A link handle is valid from the `dial` or `Opened` that produced it until the handler of its `Closed` event returns; during that handler `user` and `peer_address` (where the loop supplies them) still work. After that it is stale and every operation on it does nothing. The generation is a guard against mistakes, not a licence to keep a handle: a slot's generation repeats after it has been used 2^32 times, so a library drops a handle when it sees its `Closed`. A listener handle is never reused at all (*Listener handles are never reused*); a loop that has issued every handle it can fails `listen` with `NoResources` and never starts again from an old one.
 
@@ -173,7 +174,7 @@ To hold a peer back in the other direction, a library calls `pause_reading(link,
 | `Unreachable` | No route to the address, its network or its machine. | the system reports it |
 | `Denied` | The system does not allow the connection. | the system reports it |
 | `NoResources` | Out of links, descriptors, ports or memory. | the event loop has no link left, or the system reports exhaustion |
-| `BadAddress` | The text is not a numeric address. | it is malformed, a host name, or has a zone identifier |
+| `BadAddress` | The text is not an address the loop accepts. | it is malformed, a host name, has a zone identifier, or is a `unix:` path on a loop without the unix group |
 | `Other` | Anything else. | no kind above fits, or the event loop cannot tell |
 
 `BadAddress`, `TimedOut` on `connect_ms`, and `NoResources` for the event loop's own links are always exact, because the event loop decides them itself. The kind is for reporting and for choosing how to retry: a library has a rule for the kinds it cares about and treats every other kind as it treats `Other`.
@@ -296,6 +297,20 @@ Without sizing a library joins the two parts itself into a buffer of its own, an
 
 (*End-of-pass notification*) Event `PassEnd`, no operation. It is the last event of every pass that delivered at least one link event; it lets a library batch: handle ten requests, then send ten replies at once. It is never delivered for a pass that delivered only a `Tick` or nothing. Calls made while handling it behave as anywhere else; the events they cause do not produce a second `PassEnd` for the same pass. It is the last event of its pass: no link event and no `Tick` of that pass comes after it, so what a library sends while handling it covers everything the pass did. It is always delivered by a loop that supplies the group: there is nothing to ask for and nothing to turn off, so one library cannot take it away from another. The application offers it to every library once; a library that does not batch ignores it.
 
+### Unix
+
+(*The unix group is the address form unix:/path*, *A Unix socket path is absolute and bounded*, *A Unix path is held by one listener and has no port*, *A Unix link has no peer address text*)
+
+An event loop that supplies this group accepts `unix:/path` wherever it accepts a numeric address, in `listen` and in `dial`, for a connection-oriented stream socket at that path. It adds no operation, event or type: the operations, events, results and rules are those of the core, so a library changes only the string it passes. A loop without the group answers `BadAddress`, as for any text it does not accept, which a library already handles.
+
+- **The path** is absolute, at most 103 bytes (the smallest limit among the common systems, less the terminator), with no NUL byte and no leading `@`. An abstract name, a relative path and an empty path are malformed, and so is `unix:` alone. A loop does not resolve or normalise a path: `unix:/a/../b` is the path as written. A system whose limit is smaller than 103 reports `BadAddress` for a path over its own.
+- **A path is held by one listener.** A second `listen` on a path an active listener holds gives `AddressInUse`; the path is free again once its listener is stopped. A path never conflicts with a numeric address. A dial to a path nothing listens on ends with `ConnectFailed` of kind `Refused`, whether the system reports a missing file or a refusal.
+- **No port.** `listener_port` returns 0 for a listener on a path.
+- **No peer text.** `peer_address` returns the empty value for a link made on a path, since `Address` holds at most 56 bytes and the peer of an accepted connection has no name. The rule binds a loop that supplies both this group and the inspection group.
+- **The file** is the loop's: it creates and removes it as its system requires, and the contract says nothing of permissions.
+
+Abstract-namespace sockets, other socket types, the peer's credentials and passing descriptors are not part of the group.
+
 ## 7. Layering
 
 (*Event loops can be layered*)
@@ -306,7 +321,7 @@ An event loop may wrap another: TLS, compression, a recorder. The wrapper presen
 
 (*What the contract covers*)
 
-The contract covers TCP byte streams over IPv4 and IPv6, ticks and deadlines, and running and stopping one loop, and nothing else. An event loop that implements exactly the core conforms to it; nothing in a group is required of an event loop that does not supply the group.
+The contract covers TCP byte streams over IPv4 and IPv6, stream sockets at a path in the unix group, ticks and deadlines, and running and stopping one loop, and nothing else. An event loop that implements exactly the core conforms to it; nothing in a group is required of an event loop that does not supply the group.
 
 ## 9. Versioning
 
@@ -314,7 +329,7 @@ The contract covers TCP byte streams over IPv4 and IPv6, ticks and deadlines, an
 
 `goose_io::VERSION_MAJOR` and `goose_io::VERSION_MINOR`. While the major number is 0, a minor increase may change or remove behaviour. From major version 1, a minor increase only adds. An event loop states the contract version it conforms to, the core and the groups it supplies.
 
-The version of this document is **0.1** (`VERSION_MAJOR` 0, `VERSION_MINOR` 1 in `goose_io.goose`), the first release. No event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
+The version of this document is **0.2** (`VERSION_MAJOR` 0, `VERSION_MINOR` 2 in `goose_io.goose`). Version 0.1 was the first release; 0.2 adds the unix group. No event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
 
 ## 10. Known gaps
 
@@ -338,7 +353,6 @@ Three behaviours that every adapter has to supply, found by the reading and wort
 | TLS | inside uSockets; separate in libuv | A wrapping event loop (*Event loops can be layered*; `tests/support/wrapper.goose` shows the layering). |
 | Hosting existing C clients (libpq, hiredis, libcurl, c-ares) | They need "tell me when this descriptor is readable"; every readiness substrate offers it | Cannot be in the contract: an in-memory or completion-only event loop has no descriptors. A later optional capability. |
 | Wake from another thread | `us_wakeup_loop`, `uv_async_send`, ring `MSG_RING`, tcprouter's message pipes | A later optional capability. |
-| Unix sockets | uSockets, libuv | An address form (`unix:/path`) can be added without changing any operation. |
 | Socket options | all | Event loop configuration. Event loops are advised to disable Nagle's algorithm, as tcprouter does. |
 | Writing into received bytes in place (WebSocket unmasking) | uSockets, io_uring buffers | `Data` lends read-only bytes. Can be relaxed later. |
 
