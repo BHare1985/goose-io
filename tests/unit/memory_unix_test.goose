@@ -184,7 +184,102 @@ fn refusing() {
     kit::check(goose_io::is_listener(l), "and a numeric address is untouched");
 }
 
+// --- the URL spelling unix:///path (task group 6) --------------------------------------------------------------
+
+// `unix://` and a path of `n` bytes: "/" and n - 1 letters.
+fn url_of(n: i64) -> u8[>..] {
+    var out: u8[>..] = [];
+    out.append("unix://");
+    out.push('/');
+    for i in n - 1 { out.push('x'); }
+    return out;
+}
+
+fn url_dials(from: const u8[:], to: const u8[:], what: const u8[:]) {
+    var io = goose_io_memory::Loop { .. };
+    var log = kit::Log { .. };
+    let l, err = io.listen(from, 1);
+    kit::check(goose_io::is_listener(l) && io.listener_port(l) == 0, what);
+    let link = io.dial(to, 2, 0);
+    run(io, log, 100);
+    kit::check(kit::count(log, kit::OPENED) == 2, what);
+}
+
+fn url_spelling() {
+    url_dials("unix:/run/u.sock", "unix:///run/u.sock", "a listener on unix:/p is reached by a dial to unix:///p");
+    url_dials("unix:///run/u.sock", "unix:/run/u.sock", "a listener on unix:///p is reached by a dial to unix:/p");
+    var io = goose_io_memory::Loop { .. };
+    let a, a_err = io.listen("unix:/run/a.sock", 1);
+    let b, b_err = io.listen("unix:///run/a.sock", 1);
+    kit::check(!goose_io::is_listener(b) && b_err.kind == goose_io::ListenErrorKind.AddressInUse, "a path held under one spelling is held under the other");
+    io.stop_listening(a);
+    let c, c_err = io.listen("unix:///run/a.sock", 1);
+    kit::check(goose_io::is_listener(c), "and free again once its listener is stopped");
+    let d, d_err = io.listen("unix:/run/a.sock", 1);
+    kit::check(!goose_io::is_listener(d) && d_err.kind == goose_io::ListenErrorKind.AddressInUse, "and held the other way round");
+    io.hold("unix:///run/held.sock");
+    let h, h_err = io.listen("unix:/run/held.sock", 1);
+    kit::check(!goose_io::is_listener(h) && h_err.kind == goose_io::ListenErrorKind.AddressInUse, "hold under one spelling holds the other");
+}
+
+fn url_malformed() {
+    var io = goose_io_memory::Loop { .. };
+    var log = kit::Log { .. };
+    let long = url_of(104);
+    let texts: const u8[:][5] = ["unix://host/x.sock", "unix://x.sock", "unix:////x.sock", "unix://", long[..]];
+    var links: goose_io::Link[5] = [goose_io::Link { .. }; 5];
+    for i in 5 { links[i] = io.dial(texts[i], 2, 0); }
+    for i in 5 { bad_address_listen(io, texts[i], "listen on an authority, a doubled slash, an empty or a long URL path: BadAddress"); }
+    run(io, log, 100);
+    for i in 5 {
+        kit::check(kit::kinds_of(log, links[i]) == "C" && kit::failed_with(log, links[i], goose_io::ConnectFailure.BadAddress), "such a dial ends with one Closed of kind BadAddress");
+    }
+}
+
+fn url_literal() {
+    var io = goose_io_memory::Loop { .. };
+    var log = kit::Log { .. };
+    let l, err = io.listen("unix:///run/a%20b.sock", 1);
+    kit::check(goose_io::is_listener(l), "fixture: a path with % listens");
+    let same = io.dial("unix:/run/a%20b.sock", 2, 0);
+    let decoded = io.dial("unix:/run/a b.sock", 2, 0);
+    let q, q_err = io.listen("unix:///run/q?x#y.sock", 1);
+    kit::check(goose_io::is_listener(q), "? and # are ordinary path bytes");
+    let q2, q2_err = io.listen("unix:/run/q?x#y.sock", 1);
+    kit::check(!goose_io::is_listener(q2) && q2_err.kind == goose_io::ListenErrorKind.AddressInUse, "and the two spellings of that path are one endpoint");
+    run(io, log, 100);
+    kit::check(kit::first_for(log, kit::OPENED, same) >= 0, "%20 is three literal bytes, the same under both spellings");
+    kit::check(kit::failed_with(log, decoded, goose_io::ConnectFailure.Refused), "and is not decoded to a space");
+}
+
+fn url_longest() {
+    var io = goose_io_memory::Loop { .. };
+    var log = kit::Log { .. };
+    let text = url_of(103);
+    let l, err = io.listen(text[..], 1);
+    kit::check(goose_io::is_listener(l), "a URL-spelled path of 103 bytes listens");
+    let link = io.dial(path_of(103)[..], 2, 0);
+    run(io, log, 100);
+    kit::check(kit::count(log, kit::OPENED) == 2, "and the plain spelling of it reaches the listener");
+}
+
+fn url_refused_by() {
+    var io = goose_io_memory::Loop { .. };
+    io.cfg.unix_paths = false;
+    var log = kit::Log { .. };
+    let l, err = io.listen("unix:///run/a.sock", 1);
+    kit::check(!goose_io::is_listener(l) && err.kind == goose_io::ListenErrorKind.BadAddress, "a loop configured to refuse the form refuses the URL spelling to listen");
+    let link = io.dial("unix:///run/a.sock", 2, 0);
+    run(io, log, 100);
+    kit::check(kit::failed_with(log, link, goose_io::ConnectFailure.BadAddress), "and to dial");
+}
+
 fn main() {
+    url_spelling();
+    url_malformed();
+    url_literal();
+    url_longest();
+    url_refused_by();
     joined();
     held();
     refused();

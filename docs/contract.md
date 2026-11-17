@@ -38,7 +38,7 @@ An event loop has to supply **the core**: 13 operations and 5 events, enough for
 | **Abort** | `reset` | |
 | **Inspection** | `peer_address`, `stop_listening`, `user` | |
 | **Batching** | | `PassEnd` |
-| **Unix** | the address form `unix:/path`; no operation | |
+| **Unix** | the address forms `unix:/path` and `unix:///path`; no operation | |
 
 A rule that belongs to a group binds only an event loop that supplies the group, and no rule of the core depends on a group. A loop that supplies only the core conforms to the core, and a library that uses only the core runs on it unchanged.
 
@@ -46,7 +46,7 @@ A rule that belongs to a group binds only an event loop that supplies the group,
 
 **Checking at compile time.** The contract package has one check for the core, `require_core(io)`, and one for each group that has operations: `require_half_close`, `require_sizing`, `require_abort` and `require_inspection`. Each names every operation of its part once, with the contract's types, and never runs. An event loop's root program calls the check of the core and of each group it supplies, so that a missing or mistyped operation is an error at that one line. A library's test calls the checks for what the library's header says it needs. Batching has only an event, and unix only an address form, so neither has a check; the conformance suite shows that a loop delivers `PassEnd` as it must and takes a path as it must.
 
-**What an event loop that lacks a group does.** It never delivers that group's events: without half-close there is no `PeerEof`, since nothing could ask for it, and without batching no `PassEnd`. Without unix, `unix:/path` is an address like any other it does not accept: `BadAddress`. A library's handling of an event its loop never delivers is simply never run.
+**What an event loop that lacks a group does.** It never delivers that group's events: without half-close there is no `PeerEof`, since nothing could ask for it, and without batching no `PassEnd`. Without unix, `unix:/path` and `unix:///path` are an address like any other it does not accept: `BadAddress`. A library's handling of an event its loop never delivers is simply never run.
 
 ## 3. Types
 
@@ -63,7 +63,7 @@ All are fixed-size values.
 | `ListenError` | `{ kind: ListenErrorKind, code: i32 }` with kind `None`, `AddressInUse`, `BadAddress`, `Denied`, `NoResources`, `Other` | Result of `listen`. `failed(e)`. |
 | `Event` | see sections 4 and 6 | What the application's handler receives. At most 32 bytes. |
 
-**Addresses** are numeric text: `ip:port` for IPv4 and `[ip]:port` for IPv6, the same on every event loop, with IPv6 as hexadecimal groups. An event loop may accept more text than that (`inet_pton` takes `::ffff:192.0.2.1`), and a portable library passes only this form; the in-memory event loop treats an IPv4 tail as malformed. An event loop never resolves a host name, so there is no lookup to block the loop or to count against `connect_ms`; a host name given to `dial` fails with `ConnectFailed`. An IPv6 zone identifier (`%eth0`) is not part of an address and makes it malformed. An event loop that supplies the unix group (section 6) also takes `unix:/path`.
+**Addresses** are numeric text: `ip:port` for IPv4 and `[ip]:port` for IPv6, the same on every event loop, with IPv6 as hexadecimal groups. An event loop may accept more text than that (`inet_pton` takes `::ffff:192.0.2.1`), and a portable library passes only this form; the in-memory event loop treats an IPv4 tail as malformed. An event loop never resolves a host name, so there is no lookup to block the loop or to count against `connect_ms`; a host name given to `dial` fails with `ConnectFailed`. An IPv6 zone identifier (`%eth0`) is not part of an address and makes it malformed. An event loop that supplies the unix group (section 6) also takes `unix:/path` and its URL spelling `unix:///path`. Protocol URLs (`postgres://`, `redis://`, `mysql://`) are not addresses: a library resolves them to a path or a `host:port` before it calls `dial`, and text that is neither is `BadAddress`.
 
 **Handles.** A link handle is valid from the `dial` or `Opened` that produced it until the handler of its `Closed` event returns; during that handler `user` and `peer_address` (where the loop supplies them) still work. After that it is stale and every operation on it does nothing. The generation is a guard against mistakes, not a licence to keep a handle: a slot's generation repeats after it has been used 2^32 times, so a library drops a handle when it sees its `Closed`. A listener handle is never reused at all (*Listener handles are never reused*); a loop that has issued every handle it can fails `listen` with `NoResources` and never starts again from an old one.
 
@@ -299,11 +299,11 @@ Without sizing a library joins the two parts itself into a buffer of its own, an
 
 ### Unix
 
-(*The unix group is the address form unix:/path*, *A Unix socket path is absolute and bounded*, *A Unix path is held by one listener and has no port*, *A Unix link has no peer address text*)
+(*The unix group is the address form unix:/path*, *A Unix socket path is absolute and bounded*, *unix:///path is a spelling of unix:/path*, *A Unix path is held by one listener and has no port*, *A Unix link has no peer address text*)
 
-An event loop that supplies this group accepts `unix:/path` wherever it accepts a numeric address, in `listen` and in `dial`, for a connection-oriented stream socket at that path. It adds no operation, event or type: the operations, events, results and rules are those of the core, so a library changes only the string it passes. A loop without the group answers `BadAddress`, as for any text it does not accept, which a library already handles.
+An event loop that supplies this group accepts `unix:/path`, or `unix:///path` for the same path, wherever it accepts a numeric address, in `listen` and in `dial`, for a connection-oriented stream socket at that path. It adds no operation, event or type: the operations, events, results and rules are those of the core, so a library changes only the string it passes. A loop without the group answers `BadAddress`, as for any text it does not accept, which a library already handles.
 
-- **The path** is absolute, at most 103 bytes (the smallest limit among the common systems, less the terminator), with no NUL byte and no leading `@`. An abstract name, a relative path and an empty path are malformed, and so is `unix:` alone. A loop does not resolve or normalise a path: `unix:/a/../b` is the path as written. A system whose limit is smaller than 103 reports `BadAddress` for a path over its own.
+- **The path** is absolute, at most 103 bytes (the smallest limit among the common systems, less the terminator), with no NUL byte and no leading `@`. An abstract name, a relative path and an empty path are malformed, and so is `unix:` alone. The limit is on the path after the prefix. In the URL spelling the path follows `unix://` and begins with a single `/`: an authority (`unix://host/x`, `unix://x`) and a doubled slash (`unix:////x`) are malformed, and nothing is decoded or split, so `%`, `?` and `#` are bytes of the path. A loop does not resolve or normalise a path: `unix:/a/../b` is the path as written, and `unix:/a` and `unix:///a` are one endpoint. The failures the system reports for a well-formed path use the kinds the contract already has (`Refused`, `Denied`, `NoResources`, `Other`); the group adds none. A system whose limit is smaller than 103 reports `BadAddress` for a path over its own.
 - **A path is held by one listener.** A second `listen` on a path an active listener holds gives `AddressInUse`; the path is free again once its listener is stopped. A path never conflicts with a numeric address. A dial to a path nothing listens on ends with `ConnectFailed` of kind `Refused`, whether the system reports a missing file or a refusal.
 - **No port.** `listener_port` returns 0 for a listener on a path.
 - **No peer text.** `peer_address` returns the empty value for a link made on a path, since `Address` holds at most 56 bytes and the peer of an accepted connection has no name. The rule binds a loop that supplies both this group and the inspection group.

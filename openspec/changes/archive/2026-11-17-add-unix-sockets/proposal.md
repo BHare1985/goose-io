@@ -8,16 +8,19 @@ The contract is now a core plus optional groups, and a group is the place for so
 
 ## What Changes
 
-- Add a sixth group of extras, **unix**: an event loop that supplies it accepts `unix:/absolute/path` in `listen` and `dial`, naming a connection-oriented stream socket, with the operations, events and rules the core already has. The group adds no operation, event or type, so, like batching, it has no compile-time check.
+- Add a sixth group of extras, **unix**: an event loop that supplies it accepts `unix:/absolute/path`, or its URL spelling `unix:///absolute/path` (the same path), in `listen` and `dial`, naming a connection-oriented stream socket, with the operations, events and rules the core already has. The group adds no operation, event or type, so, like batching, it has no compile-time check.
 - A loop that does not supply the group answers `BadAddress` to the text, as it does to any address it does not accept, and a library already handles that.
-- The path is absolute, at most 103 bytes (the smallest `sun_path` of the common systems, less the terminator), with no NUL byte and no leading `@`. Abstract names and relative paths are malformed.
+- The path is absolute, at most 103 bytes (the smallest `sun_path` of the common systems, less the terminator), with no NUL byte and no leading `@`. Abstract names and relative paths are malformed. The limit is on the path after the prefix, and the two spellings name the same endpoint. These rules are goose-io's own, so that no operating system's behaviour for odd paths leaks into a library's logic.
+- The URL spelling is only a spelling: no authority (`unix://host/path`, `unix://path` and `unix:////path` are malformed), no percent-decoding (`%20` is three literal bytes), no query and no fragment.
+- Protocol URLs (`postgres://`, `redis://`, `mysql://`) are not address forms. A library resolves them to `unix:/path` or `host:port` before it calls `dial`; the contract has no name resolution, so such text is already `BadAddress`. No requirement is added for it.
+- Failures of a path that the system reports (a missing file, a refusing or denying socket) use the contract's existing kinds; no kind is added.
 - A listener on a path has no port: `listener_port` returns 0. A path is held by one listener and `AddressInUse` follows a second `listen`; a dial to a path nothing listens on is `Refused`.
 - `peer_address` returns the empty value for a link made on a path (`Address` holds 56 bytes, and the peer of an accepted Unix connection has no name). This rule binds a loop that supplies both the unix and inspection groups.
 - The in-memory event loop supplies the group, treating a path as the name of an endpoint, and can be configured to refuse the form; the core-only loop of the tests refuses it.
 - The conformance suite gets a unix entry point and its checks, each with a recorded fault, and the fixture gains one field: a path the loop may use.
 - Raise the contract's minor version to 0.2, and update `docs/contract.md`, `docs/event-loops.md` and `README.md`: six groups, and Unix sockets no longer listed as not covered.
 
-Out of scope: abstract-namespace sockets, relative paths, other socket types, peer credentials, descriptor passing, and any socket-backed event loop (the reference epoll loop is the separate change `epoll-event-loop`, which may add the group when it is applied). The mapping documents of candidate loops (`docs/event-loops/`) get no row, since the group has no operation or event. Changes to libraries are separate.
+Out of scope: abstract-namespace sockets, relative paths, URL authorities, percent-decoding, queries, protocol URLs, other socket types, peer credentials, descriptor passing, and any socket-backed event loop (the reference epoll loop is the separate change `epoll-event-loop`, which may add the group when it is applied). The mapping documents of candidate loops (`docs/event-loops/`) get no row, since the group has no operation or event. Changes to libraries are separate.
 
 ## Capabilities
 

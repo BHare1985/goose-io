@@ -431,7 +431,7 @@ read more than that adds the step and a deadline for it, and does not stop the l
 
 ### A path as an address
 
-A library that wants a Unix socket passes `unix:/path` where it would pass a numeric address, to `dial` or `listen`, and
+A library that wants a Unix socket passes `unix:/path` (or `unix:///path`, the same path, as Docker, gRPC and Redis configuration write it) where it would pass a numeric address, to `dial` or `listen`, and
 nothing else changes. The in-memory loop supplies the unix group: a path is the name of an endpoint, a listener holds
 it, a dial reaches it, and a scripted peer can wait at it as it waits at an address. A path has no port
 (`listener_port` is 0) and no peer address text. Set `io.cfg.unix_paths = false` to see a library meet a loop without
@@ -450,6 +450,24 @@ fn dials_a_path<Io>(io: Io&) {
     kit::check(io.peer_received(db) == "hello", "and reads what the library sent");
 }
 ```
+
+### Protocol URLs are the library's
+
+`postgres://`, `mysql://` and `redis://` are not addresses. They carry credentials, a database name, a TLS choice and
+rules for where a socket is, none of which an event loop knows. A library reads its own URL and passes `dial` an
+address: `unix:/path`, `unix:///path` (the same path) or a numeric `ip:port`. Text that is none of these is `BadAddress`,
+as a host name is, since the contract does no name resolution.
+
+| The library is given | It passes to `dial` |
+|---|---|
+| a PostgreSQL host setting of `/run/postgresql`, port 5432 | `unix:/run/postgresql/.s.PGSQL.5432` |
+| `redis+unix:///run/redis.sock` | `unix:///run/redis.sock` |
+| a MySQL `socket=/run/mysqld/mysqld.sock` | `unix:/run/mysqld/mysqld.sock` |
+| `redis://10.0.0.5:6379` | `10.0.0.5:6379` |
+| `redis://cache.internal:6379` | its own lookup first; the event loop never resolves a name |
+
+What the system reports for a path that fails (no file, nobody listening, no permission) arrives as the kinds the
+contract already has, `Refused`, `Denied`, `NoResources` or `Other`. There is no kind for a Unix socket.
 
 ### The clock
 

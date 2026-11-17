@@ -1,7 +1,7 @@
 // goose-io conformance suite, group 4.4: listening, dialling, peer addresses, IPv6.
 // Requirements: Listening; Listener handles are never reused; A link reports its peer's address;
 // Dialling never blocks and always ends in one event; A failed dial says why; Scope of the base contract;
-// and, for the unix group, The unix group is the address form unix:/path; A Unix socket path is absolute and bounded;
+// and, for the unix group, The unix group is the address form unix:/path; A Unix socket path is absolute and bounded; unix:///path is a spelling of unix:/path;
 // A Unix path is held by one listener and has no port.
 namespace goose_io_conformance;
 import std;
@@ -27,6 +27,8 @@ fn net_info(id: i64) -> Info {
     if id == 215 { return Info { name: "unix_no_port", req: "A Unix path is held by one listener and has no port", part: 0 }; }
     if id == 216 { return Info { name: "unix_malformed_paths", req: "A Unix socket path is absolute and bounded", part: 0 }; }
     if id == 217 { return Info { name: "unix_longest_path", req: "A Unix socket path is absolute and bounded", part: 0 }; }
+    if id == 218 { return Info { name: "unix_url_spelling", req: "unix:///path is a spelling of unix:/path", part: 0 }; }
+    if id == 219 { return Info { name: "unix_alias_held", req: "unix:///path is a spelling of unix:/path", part: 0 }; }
     return Info { .. };
 }
 
@@ -272,7 +274,7 @@ fn c_peer_address_ipv6<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-// --- the unix group: 212 to 217 ------------------------------------------------------------------------------
+// --- the unix group: 212 to 219 ------------------------------------------------------------------------------
 // They call the core and nothing of another group (so not peer_address), and derive every path from fx.unix.
 
 // `unix:`, the fixture's path, a suffix of the check's own (the checks of a part share a loop, and a listener of one
@@ -292,6 +294,16 @@ fn unix_padded(fx: Fixture, n: i64) -> u8[>..] {
     out.append("unix:");
     out.append(fx.unix);
     while out.len < 5 + n { out.push('x'); }
+    return out;
+}
+
+// The same path as `unix_address` in the URL spelling: `unix://` and the path.
+fn unix_url_address(k: Case&, fx: Fixture, suffix: const u8[:]) -> u8[>..] {
+    var out: u8[>..] = [];
+    out.append("unix://");
+    out.append(fx.unix);
+    format(out, ".", k.id);
+    out.append(suffix);
     return out;
 }
 
@@ -390,6 +402,11 @@ fn c_unix_malformed_paths<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Even
         k.expect_bad_listen(io, "unix:@name");
         k.expect_bad_listen(io, nul[..]);
         k.expect_bad_listen(io, long[..]);
+        // an authority, a doubled slash and an empty URL path are malformed too, and nothing is decoded or split
+        k.expect_bad_listen(io, "unix://host/x.sock");
+        k.expect_bad_listen(io, "unix://x.sock");
+        k.expect_bad_listen(io, "unix:////x.sock");
+        k.expect_bad_listen(io, "unix://");
         // four dials, one for each of the four roles: the empty path, a relative one, an abstract name, and 104 bytes
         k.dial_to(io, "unix:", 0, 0);
         k.link[1] = io.dial("unix:run/x.sock", k.tag(0), 0);
@@ -433,6 +450,49 @@ fn c_unix_longest_path<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) 
     }
 }
 
+// --- 218: the URL spelling names the same path ---------------------------------------------------------------
+
+fn c_unix_url_spelling<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        k.expect(fx.unix.len > 0, "the fixture supplied no unix path");
+        let plain = unix_address(k, fx, "");
+        let url = unix_url_address(k, fx, "");
+        let l, err = io.listen(plain[..], k.tag(0));
+        k.expect(goose_io::is_listener(l) && !goose_io::failed(err), "listen on a path failed");
+        k.l = l;
+        k.dial_to(io, url[..], 0, 0);
+        k.step = 1;
+    } else if k.step == 1 && k.pair_open(0) {
+        io.send(k.link[0], "ping");
+        k.step = 2;
+    } else if k.step == 2 && k.received(1).len >= 4 {
+        k.expect(k.received(1) == "ping", "bytes sent over a dial in the URL spelling did not arrive");
+        io.close(k.link[0]);
+        k.step = 3;
+        k.finish();
+    }
+}
+
+// --- 219: a path is held under either spelling ---------------------------------------------------------------
+
+fn c_unix_alias_held<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        k.expect(fx.unix.len > 0, "the fixture supplied no unix path");
+        let plain = unix_address(k, fx, "");
+        let url = unix_url_address(k, fx, "");
+        let l, err = io.listen(plain[..], k.tag(0));
+        k.expect(goose_io::is_listener(l) && !goose_io::failed(err), "listen on a path failed");
+        let again, again_err = io.listen(url[..], k.tag(0));
+        k.expect(!goose_io::is_listener(again), "a listen in the URL spelling on a held path returned a listener");
+        k.expect(again_err.kind == goose_io::ListenErrorKind.AddressInUse, "a listen in the URL spelling on a held path did not return AddressInUse");
+        k.within(io, 600);
+        k.step = 1;
+    } else if k.step == 1 && io.now_ms() >= k.started + 250 {
+        k.expect(k.recs.len == 0, "events followed a failed listen on a path");
+        k.finish();
+    }
+}
+
 // Runs the checks of the unix group: true if the check is one of them.
 fn net_unix_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 212 { c_unix_listen_dial(k, fx, io, ev); return true; }
@@ -441,6 +501,8 @@ fn net_unix_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> boo
     if k.id == 215 { c_unix_no_port(k, fx, io, ev); return true; }
     if k.id == 216 { c_unix_malformed_paths(k, fx, io, ev); return true; }
     if k.id == 217 { c_unix_longest_path(k, fx, io, ev); return true; }
+    if k.id == 218 { c_unix_url_spelling(k, fx, io, ev); return true; }
+    if k.id == 219 { c_unix_alias_held(k, fx, io, ev); return true; }
     return false;
 }
 

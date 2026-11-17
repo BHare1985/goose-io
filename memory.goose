@@ -147,13 +147,18 @@ fn _parse_v6(s: const u8[:], a: _Addr&) -> bool {
     return true;
 }
 
-// "ip:port" or "[ip]:port", numeric only, or "unix:/path": an absolute path of at most 103 bytes with no NUL byte
-// (and so no leading "@"). A host name does not parse.
+// "ip:port" or "[ip]:port", numeric only, or "unix:/path" or "unix:///path" (the same path): an absolute path of at
+// most 103 bytes with no NUL byte (and so no leading "@"). After "unix://" the path must begin with a single "/", so an
+// authority and "unix:////x" do not parse; nothing is decoded or split. A host name does not parse.
 fn _parse_address(text: const u8[:]) -> _Addr {
     var a = _Addr { .. };
     guard text.len > 0 else { return a; }
     if starts_with(text, "unix:") {
-        let path = text[5..];
+        var path = text[5..];
+        if starts_with(path, "//") {
+            path = path[2..];
+            guard path.len > 0 && path[0] == '/' && !starts_with(path, "//") else { return a; }
+        }
         guard path.len > 0 && path.len <= 103 && path[0] == '/' else { return a; }
         for c in path { if c == 0 { return a; } }
         a.unix = true;
@@ -519,6 +524,13 @@ fn _addr(io: Loop&, text: const u8[:]) -> _Addr {
     if io._fault == 60 && !a.ok && starts_with(text, "unix:") && text.len > 5 && text[5] != '/' && text[5] != '@' && text.len <= 108 {      // fault UnixRelativeAccepted
         a = _Addr { ok: true, unix: true, .. };
         a.path.append(text[5..]);
+    }
+    if io._fault == 62 && starts_with(text, "unix://") { a = _Addr { .. }; }      // fault UnixTripleSlashRefused: the URL spelling is refused
+    if io._fault == 63 && a.unix && starts_with(text, "unix://") && a.path.len < 103 {      // fault UnixAliasNotHeld: the URL spelling is a different endpoint
+        var other: u8[..103] = [];
+        other.push('~');
+        other.append(a.path[..]);
+        a.path = other;
     }
     if io._fault == 61 && a.unix && a.path.len > 100 { a = _Addr { .. }; }      // fault UnixLongestRefused: a long path is refused
     return a;
@@ -1298,7 +1310,7 @@ fn _fault_named(name: const u8[:]) -> i64 {
         "TickByKeepsLatest", "NoPassEnd", "IdlePassEnd", "StopWaitsForGrace", "ShutdownEarly",
         "ListenAfterStop", "DialFailsWhileDraining", "StopLatestWins", "UnsetHandleAccepted", "SendAfterShutdownAccepted",
         "UnixListenerIgnored", "UnixOverlapIgnored", "UnixRefusedAsBadAddress", "UnixPortInvented", "UnixRelativeAccepted",
-        "UnixLongestRefused",
+        "UnixLongestRefused", "UnixTripleSlashRefused", "UnixAliasNotHeld",
     ];
     for n, i in names { if n == name { return i + 1; } }
     return 0;

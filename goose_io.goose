@@ -5,7 +5,7 @@
 // calls operations; the application runs the loop and passes each event to its libraries.
 //
 // The contract is a core, which every event loop supplies, and six groups of extras it may add:
-// half-close, sizing, abort, inspection, batching and unix (the address form `unix:/path`). A library uses what
+// half-close, sizing, abort, inspection, batching and unix (the address forms `unix:/path` and `unix:///path`). A library uses what
 // it needs, and fails to compile on a loop that lacks an operation; a loop without unix answers BadAddress.
 //
 // This file is the whole contract surface: the shared types, pure helpers over them, the version, and
@@ -41,7 +41,7 @@ fn is_listener(l: Listener) -> bool { l.id != 0 }
 fn same(a: Listener, b: Listener) -> bool { a.id == b.id }
 
 // A numeric endpoint as text: "ip:port" for IPv4, "[ip]:port" for IPv6. Empty when unknown, and for a link made
-// on a `unix:/path` address (a path does not fit in 56 bytes).
+// on a `unix:/path` or `unix:///path` address (a path does not fit in 56 bytes).
 // 56 bytes hold the longest form ("[" + 45 + "]:" + 5).
 struct Address { text: u8[..56] = [] }
 

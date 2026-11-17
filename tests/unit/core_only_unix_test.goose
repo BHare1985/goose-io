@@ -17,5 +17,11 @@ fn main() {
     let link = io.dial(PATH, 2, 0);
     io.serve() { io, ev => kit::note(log, io, ev); kit::stop_after(io, ev, 100); };
     kit::check(kit::kinds_of(log, link) == "C" && kit::failed_with(log, link, goose_io::ConnectFailure.BadAddress), "and for dial: one Closed of kind BadAddress");
+    let url_l, url_err = io.listen("unix:///run/goose-io-test.sock", 1);
+    kit::check(!goose_io::is_listener(url_l) && url_err.kind == goose_io::ListenErrorKind.BadAddress, "the core-only loop refuses the URL spelling too: BadAddress for listen");
+    let url_link = io.dial("unix:///run/goose-io-test.sock", 2, 0);
+    var log2 = kit::Log { .. };
+    io.serve() { io, ev => kit::note(log2, io, ev); kit::stop_after(io, ev, 100); };
+    kit::check(kit::failed_with(log2, url_link, goose_io::ConnectFailure.BadAddress), "and for dial");
     kit::finish();
 }

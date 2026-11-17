@@ -76,3 +76,5 @@ unix_nothing_listens	0	A Unix path is held by one listener and has no port	Nothi
 unix_no_port	0	A Unix path is held by one listener and has no port	No port	UnixPortInvented	unix
 unix_malformed_paths	0	A Unix socket path is absolute and bounded	Malformed paths	UnixRelativeAccepted	unix
 unix_longest_path	0	A Unix socket path is absolute and bounded	The longest path	UnixLongestRefused	unix
+unix_url_spelling	0	unix:///path is a spelling of unix:/path	The URL spelling names the same path	UnixTripleSlashRefused	unix
+unix_alias_held	0	unix:///path is a spelling of unix:/path	A held path is held under either spelling	UnixAliasNotHeld	unix

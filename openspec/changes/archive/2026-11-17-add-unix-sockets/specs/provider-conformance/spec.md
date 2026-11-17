@@ -18,14 +18,14 @@ The conformance suite SHALL have an entry point for the unix group, run against 
 - **THEN** it builds and passes the core suite, and the unix suite is not run against it
 
 ### Requirement: The unix suite checks the form's behaviour
-The unix suite SHALL check a listener and a dial on a path with data both ways, a path held by a listener, a dial to a path nothing listens on, `listener_port` of a path listener, malformed paths, and the longest path. Each check SHALL name its requirement and have a fault of the in-memory event loop that makes it fail.
+The unix suite SHALL check a listener and a dial on a path with data both ways, the URL spelling reaching the same listener, a path held by a listener under either spelling, a dial to a path nothing listens on, `listener_port` of a path listener, malformed paths (an authority and a doubled slash included), and the longest path. Each check SHALL name its requirement and have a fault of the in-memory event loop that makes it fail.
 
 #### Scenario: Each check has a fault
 - **WHEN** the unix group's checks are compared with the in-memory event loop's faults
 - **THEN** every check has at least one fault that makes it fail, recorded in the check table
 
 ### Requirement: The in-memory event loop supplies the unix group
-The in-memory event loop SHALL supply the unix group, treating a path as the name of an endpoint that a listener holds and a dial reaches. Two paths SHALL conflict only when they are equal, and a path SHALL never conflict with a numeric address. Scripted peers SHALL be able to wait at a path as they wait at an address.
+The in-memory event loop SHALL supply the unix group, treating a path as the name of an endpoint that a listener holds and a dial reaches. Two paths SHALL conflict only when they are equal, whichever of the two spellings each was written in, and a path SHALL never conflict with a numeric address. Scripted peers SHALL be able to wait at a path as they wait at an address.
 
 #### Scenario: A scripted peer at a path
 - **WHEN** a test scripts a peer to accept a dial at `unix:/run/db.sock` and a library dials that path
@@ -36,7 +36,7 @@ The in-memory event loop SHALL supply the unix group, treating a path as the nam
 - **THEN** every `listen` succeeds, and a second `listen` on `unix:/run/a.sock` returns `AddressInUse`
 
 ### Requirement: The in-memory event loop can refuse the unix form
-The in-memory event loop SHALL be configurable to refuse `unix:/path`, reporting `BadAddress` as an event loop that does not supply the group does, so that the refusal can be shown. The core-only event loop of the tests SHALL refuse it.
+The in-memory event loop SHALL be configurable to refuse `unix:/path` and `unix:///path`, reporting `BadAddress` as an event loop that does not supply the group does, so that the refusal can be shown. The core-only event loop of the tests SHALL refuse it.
 
 #### Scenario: A loop configured to refuse the form
 - **WHEN** the in-memory event loop is configured to refuse the form and a library dials `unix:/run/a.sock` and listens on it

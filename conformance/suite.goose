@@ -58,7 +58,7 @@ fn group_of(name: const u8[:]) -> i64 {
     if name == "reset_aborts_the_peer" || name == "handles_stale_reset" || name == "handles_unset_reset" || name == "events_not_reentrant_after_reset" { return GROUP_ABORT; }
     if name == "listen_stop_keeps_links" || name == "listener_handle_never_reused" || name == "peer_address_names_peer" || name == "peer_address_ipv6" || name == "handles_valid_in_closed" || name == "handles_stale_user" || name == "handles_unset_inspection" { return GROUP_INSPECTION; }
     if name == "pass_end_follows_link_events" || name == "pass_end_not_on_idle_pass" { return GROUP_BATCHING; }
-    if name == "unix_listen_dial" || name == "unix_held_path" || name == "unix_nothing_listens" || name == "unix_no_port" || name == "unix_malformed_paths" || name == "unix_longest_path" { return GROUP_UNIX; }
+    if name == "unix_listen_dial" || name == "unix_held_path" || name == "unix_nothing_listens" || name == "unix_no_port" || name == "unix_malformed_paths" || name == "unix_longest_path" || name == "unix_url_spelling" || name == "unix_alias_held" { return GROUP_UNIX; }
     return GROUP_NONE;
 }
 

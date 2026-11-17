@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The contract exposes no operating-system primitives
-Contract types and operations SHALL NOT expose file descriptors, socket address structures, poll masks, or any other operating-system or backend object. Addresses SHALL be text: numeric `ip:port` for IPv4 and `[ip]:port` for IPv6, and, for an event loop that supplies the unix group, `unix:/path`. An IPv6 zone identifier is not part of an address: text that contains one SHALL be treated as malformed.
+Contract types and operations SHALL NOT expose file descriptors, socket address structures, poll masks, or any other operating-system or backend object. Addresses SHALL be text: numeric `ip:port` for IPv4 and `[ip]:port` for IPv6, and, for an event loop that supplies the unix group, `unix:/path` or `unix:///path`. An IPv6 zone identifier is not part of an address: text that contains one SHALL be treated as malformed.
 
 #### Scenario: A zone identifier is rejected
 - **WHEN** a library dials `[fe80::1%eth0]:80`, and listens on it
@@ -14,7 +14,7 @@ Contract types and operations SHALL NOT expose file descriptors, socket address 
 - **THEN** every operation and event of the contract is expressible and the conformance suite runs against it
 
 ### Requirement: A failed dial says why
-A `ConnectFailed` reason SHALL carry a kind: `Refused`, `TimedOut`, `Unreachable`, `Denied`, `NoResources`, `BadAddress` or `Other`. An event loop SHALL report `BadAddress` for text that is not an address of a form it accepts (a numeric address, and `unix:/path` where it supplies the unix group), `TimedOut` when `connect_ms` elapses, and `NoResources` when it has no link left. For every other failure it SHALL translate what its system reports, and report `Other` when it cannot tell. No system error number is part of the reason.
+A `ConnectFailed` reason SHALL carry a kind: `Refused`, `TimedOut`, `Unreachable`, `Denied`, `NoResources`, `BadAddress` or `Other`. An event loop SHALL report `BadAddress` for text that is not an address of a form it accepts (a numeric address, and `unix:/path` or `unix:///path` where it supplies the unix group), `TimedOut` when `connect_ms` elapses, and `NoResources` when it has no link left. For every other failure it SHALL translate what its system reports, and report `Other` when it cannot tell. No system error number is part of the reason.
 
 #### Scenario: A malformed address or a host name
 - **WHEN** a library dials `not an address`, or `db.example.com:5432`
@@ -52,7 +52,7 @@ The contract SHALL be a core, which every event loop supplies, and six groups of
 - **THEN** it never delivers `PeerEof`, and a library's handling of `PeerEof` is never run
 
 ### Requirement: Each group is named and checked on its own
-The groups SHALL be half-close (`shutdown_write`, `set_keep_open_on_eof`, `PeerEof`), sizing (`send_room`, `send2`), abort (`reset`), inspection (`peer_address`, `stop_listening`, `user`), batching (`PassEnd`) and unix (the address form `unix:/path`). The contract package SHALL offer a compile-time check for the core and for each group that has operations, each naming every operation of its part. Batching has only an event, and unix has only an address form, and so neither has a check.
+The groups SHALL be half-close (`shutdown_write`, `set_keep_open_on_eof`, `PeerEof`), sizing (`send_room`, `send2`), abort (`reset`), inspection (`peer_address`, `stop_listening`, `user`), batching (`PassEnd`) and unix (the address forms `unix:/path` and `unix:///path`). The contract package SHALL offer a compile-time check for the core and for each group that has operations, each naming every operation of its part. Batching has only an event, and unix has only address forms, and so neither has a check.
 
 #### Scenario: The core check
 - **WHEN** an event loop's root program calls the core check
@@ -82,6 +82,10 @@ An event loop that supplies the unix group SHALL accept `unix:/path` in `listen`
 - **WHEN** a library on an event loop that supplies the unix group calls `listen("unix:/run/x.sock", tag)` and the same loop calls `dial("unix:/run/x.sock", tag2, 0)`
 - **THEN** the listen succeeds, both links receive `Opened` (the accepted one with the listener's tag and handle, the dialled one with no listener), and bytes sent on one arrive on the other in order
 
+#### Scenario: A failure the system reports uses an existing kind
+- **WHEN** a library dials a well-formed path that the system refuses (nothing listens, or access is denied)
+- **THEN** the `Closed` event's reason is `ConnectFailed` with the kind the contract already has for that failure (`Refused` or `Denied`, or `Other` when the event loop cannot tell), and no kind specific to Unix sockets exists
+
 #### Scenario: A loop without the group
 - **WHEN** a library calls `dial("unix:/run/x.sock", tag, 0)` or `listen("unix:/run/x.sock", tag)` on an event loop that does not supply the unix group
 - **THEN** the dial ends with exactly one `Closed` of reason `ConnectFailed` with kind `BadAddress` and no `Opened`, and `listen` returns an error of kind `BadAddress`
@@ -96,6 +100,25 @@ A Unix socket address SHALL be malformed, and so reported as `BadAddress`, when 
 #### Scenario: The longest path
 - **WHEN** a library on an event loop that supplies the unix group listens on a path of 103 bytes and dials it
 - **THEN** both links receive `Opened`
+
+### Requirement: unix:///path is a spelling of unix:/path
+An event loop that supplies the unix group SHALL also accept the URL spelling `unix:///path`, and it SHALL name the same path as `unix:/path`, so the two spellings are one endpoint. The path follows `unix://` and SHALL begin with a single `/`: an authority (`unix://host/x`, `unix://x`) and a doubled slash (`unix:////x`) are malformed. The spelling SHALL NOT be decoded or split: `%`, `?` and `#` are bytes of the path. The limit of 103 bytes is on the path.
+
+#### Scenario: The URL spelling names the same path
+- **WHEN** a library on an event loop that supplies the unix group calls `listen("unix:/run/x.sock", tag)` and the same loop calls `dial("unix:///run/x.sock", tag2, 0)`
+- **THEN** both links receive `Opened`, and a `listen` on `unix:///run/x.sock` returns an error of kind `AddressInUse`
+
+#### Scenario: An authority or a doubled slash
+- **WHEN** a library on an event loop that supplies the unix group dials `unix://host/x.sock`, `unix://x.sock`, `unix:////x.sock` and `unix://`
+- **THEN** each dial ends with exactly one `Closed` of reason `ConnectFailed` with kind `BadAddress`
+
+#### Scenario: Nothing is decoded
+- **WHEN** a library listens on `unix:///run/a%20b.sock` and dials `unix:/run/a%20b.sock`
+- **THEN** the dial opens, and a dial to `unix:/run/a b.sock` ends with `ConnectFailed` of kind `Refused`
+
+#### Scenario: A held path is held under either spelling
+- **WHEN** a library listens on `unix:/run/a.sock`, then on `unix:///run/a.sock`
+- **THEN** the second `listen` returns an error of kind `AddressInUse`
 
 ### Requirement: A Unix path is held by one listener and has no port
 `listen` on a Unix path that an active listener of the same event loop holds SHALL fail with `AddressInUse`, and the path SHALL be free again once its listener is stopped. `listener_port` SHALL return 0 for a listener on a Unix path. A dial to a path nothing listens on SHALL end with `ConnectFailed` of kind `Refused`.

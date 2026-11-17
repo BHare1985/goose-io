@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 # The words of the contract are "event loop" (what supplies the operations and events), "library" (what handles
-# events and calls operations) and "application" (what runs the loop). The old words "provider" and "host" must not
-# come back: this fails on either, in the documents, the code, the scripts and the specification, and lists the
+# events and calls operations) and "application" (what runs the loop). The old word "provider" must not
+# come back (and "host" no longer is checked: it is also a URL authority and libpq's host setting): this fails on it, in the documents, the code, the scripts and the specification, and lists the
 # files with the number of lines for each, most first, which is the order to sweep them in.
-# Allowed: tests/conformance/table_check.sh, which names the old words to translate them; the capability id `provider-conformance` (OpenSpec does not rename a capability: design D1), the word
-# "host" in "localhost" or in the host-name sense of an address, and the records of changes under
+# Allowed: tests/conformance/table_check.sh, which names the old words to translate them; the capability id `provider-conformance` (OpenSpec does not rename a capability: design D1), and the records of changes under
 # openspec/changes/ and docs/history.md, which say what was true when they were written.
 # Also checked: no file or directory name contains the old words (the capability directory excepted).
 # Usage: tests/checks/vocabulary.sh
 set -u
 cd "$(dirname "$0")/../.."
 
-words="(^|[^A-Za-z0-9_])(provider|host)(s|'s)?($|[^A-Za-z0-9_])"
-allowed="provider-conformance|localhost|host name|host-name|hostname|host part|host or"
+words="(^|[^A-Za-z0-9_])(provider)(s|'s)?($|[^A-Za-z0-9_])"
+allowed="provider-conformance"
 
 files=()
 while IFS= read -r f; do
@@ -33,10 +32,10 @@ for f in "${files[@]}"; do
     fi
 done
 
-names=$(printf '%s\n' "${files[@]}" | grep -iE "provider|host" | grep -v '^openspec/specs/provider-conformance/' || true)
+names=$(printf '%s\n' "${files[@]}" | grep -iE "provider" | grep -v '^openspec/specs/provider-conformance/' || true)
 
 if [ -s "$report" ] || [ -n "$names" ]; then
-    echo "old words found: $found lines (provider, host), in the files below, most first"
+    echo "old words found: $found lines (provider), in the files below, most first"
     sort -rn "$report" | sed 's/^/  /'
     if [ -n "$names" ]; then echo "file names that contain an old word:"; sed 's/^/  /' <<<"$names"; fi
     if [ "${VOCABULARY_LINES:-}" = 1 ]; then

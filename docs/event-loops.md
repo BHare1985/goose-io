@@ -312,7 +312,7 @@ checks of the table above, now run by group). `tests/conformance/run.sh --core-o
 
 ### Scenarios added by the unix group
 
-The change that added the unix group (the address form `unix:/path`) added these scenarios. The group's checks need
+The change that added the unix group (the address forms `unix:/path` and `unix:///path`) added these scenarios. The group's checks need
 `Fixture.unix`, an absolute path at which the loop may create a socket, and run by their own entry point,
 `conformance_unix_part`, against a loop that supplies the core and the group (`tests/conformance/run.sh --group unix`).
 
@@ -324,6 +324,8 @@ The change that added the unix group (the address form `unix:/path`) added these
 | No port | check `unix_no_port` (unix group) | `UnixPortInvented` |
 | Malformed paths | check `unix_malformed_paths` (unix group) | `UnixRelativeAccepted` |
 | The longest path | check `unix_longest_path` (unix group) | `UnixLongestRefused` |
+| The URL spelling names the same path | check `unix_url_spelling` (unix group) | `UnixTripleSlashRefused` |
+| A held path is held under either spelling | check `unix_alias_held` (unix group) | `UnixAliasNotHeld` |
 | A loop without the group | `tests/unit/core_only_unix_test.goose` (the core-only loop) and `tests/unit/memory_unix_test.goose` (the in-memory loop configured with `unix_paths` off): `BadAddress` for `listen` and `dial`; the suite does not check it, since a loop that supplies the group accepts the text |
 | No peer text | `tests/unit/memory_unix_test.goose`: `peer_address` is empty on both ends of a path link; no check of the suite can say so, since it needs the inspection group and the unix group |
 | A scripted peer at a path, Paths conflict only when equal | `tests/unit/memory_unix_test.goose` |
