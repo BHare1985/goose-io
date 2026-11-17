@@ -16,11 +16,34 @@ connection behaves without agreeing on how it is implemented.
 
 ```mermaid
 flowchart TB
-    L["<b>Libraries</b><br/>HTTP · Redis · Postgres · proxies"]
-    C["<b>goose-io contract</b><br/>types · operations · events · guarantees"]
-    E["<b>Event loops</b><br/>epoll · io_uring · userspace stacks · in-memory"]
-    L -- "use" --> C
-    E -- "implement" --> C
+    subgraph LIB["1 · Network libraries"]
+        direction LR
+        L1["HTTP"]
+        L2["Redis"]
+        L3["Postgres"]
+        L4["Proxies"]
+    end
+
+    C["<b>goose-io contract</b><br/>Types · Operations · Events · Guarantees"]
+
+    subgraph LOOPS["2 · Event loops"]
+        direction LR
+        E1["epoll"]
+        E2["io_uring"]
+        E3["Userspace stacks"]
+        E4["In-memory"]
+    end
+
+    LIB -->|"use the contract"| C
+    LOOPS -->|"implement the contract"| C
+
+    classDef library fill:#e0efff,stroke:#3978b8,color:#17365d,stroke-width:1.5px
+    classDef contract fill:#fff0cc,stroke:#c58b24,color:#553800,stroke-width:2px
+    classDef loop fill:#e3f2df,stroke:#548b48,color:#21451c,stroke-width:1.5px
+
+    class L1,L2,L3,L4 library
+    class C contract
+    class E1,E2,E3,E4 loop
 ```
 
 | Layer | Responsibility |
@@ -32,6 +55,62 @@ flowchart TB
 goose-io is **not** an event loop, a socket layer or a protocol library: there is no HTTP, SQL or Redis here, and no
 operating-system sockets. It is the contract, a conformance suite that tells an event loop when it conforms, an
 in-memory event loop for tests, and example libraries.
+
+## A common case: an HTTP server that calls Postgres
+
+**The problem.** A request handler needs a row from the database. Both sides do network I/O, and each is normally written
+for one way of driving connections: the HTTP server for the loop it runs on, the Postgres client for its own (blocking
+sockets, a thread pool, or a different poller). Putting them in one process then costs you one of these:
+
+- block the loop's thread on the database call, so one slow query stalls every other request;
+- a thread pool, with hand-off queues and locks between the loop and the threads;
+- rewrite the client for the server's loop, and again for every other loop you want to run on;
+- run a second loop for the database and bridge the two.
+
+And you cannot test the pair without a real Postgres and real time: a slow query, a refused connection and a timeout
+are each a lab setup.
+
+**What goose-io changes.** Both are libraries on the same contract, so one event loop on one thread drives both:
+
+```mermaid
+flowchart LR
+    B["HTTP client"] -->|"request"| LOOP
+    subgraph PROC["One process, one thread"]
+        direction TB
+        H["HTTP server<br/>library"]
+        P["Postgres client<br/>library + pool"]
+        APP["Application:<br/>hands each event to both"]
+        LOOP["Event loop"]
+        H -->|"query"| P
+        P -->|"row"| H
+        APP --> H
+        APP --> P
+        LOOP -->|"events"| APP
+        H -->|"send · dial · close"| LOOP
+        P -->|"send · dial · close"| LOOP
+    end
+    LOOP -->|"TCP"| DB[("Postgres")]
+
+    classDef library fill:#e0efff,stroke:#3978b8,color:#17365d,stroke-width:1.5px
+    classDef loop fill:#e3f2df,stroke:#548b48,color:#21451c,stroke-width:1.5px
+    class H,P library
+    class LOOP loop
+```
+
+- **No blocking and no threads.** The handler asks the Postgres library for a row; the library dials or reuses a pooled
+  link and sends through the same loop; the reply arrives as an event, and the application passes it to whichever
+  library owns that link (each library recognises its own links and ignores the rest).
+- **Backpressure is explicit.** A send that does not fit returns `Full`, and `Writable` says when to go on, so a slow
+  database or a slow client cannot make either library's memory grow without bound.
+- **Write each once, move them together.** The HTTP server and the Postgres client are written against the contract, not
+  against an event loop, so the same pair moves to another event loop without a rewrite.
+- **Deterministic tests with no database.** Run both on the in-memory event loop with a scripted Postgres peer and a
+  virtual clock: a slow query, a reset connection or a refused dial is a few lines of test, and a timeout test takes no
+  time.
+
+[`examples/gateway.goose`](examples/gateway.goose) is this shape, with a line server in front and a pooled line client
+behind it on one loop, neither library knowing the other exists. Real HTTP and Postgres libraries are separate
+projects; this repository has the contract they would share.
 
 ## Where it stands
 
@@ -131,15 +210,26 @@ uSockets, io_uring, libuv, libevent) onto the contract.
 ## Event loops can be layered
 
 An event loop does not have to sit directly on sockets: it can sit on another event loop and present the same contract
-to the layer above. A library does not change when a layer is added.
+to the layer above. A layer is a library of the event loop beneath it and an event loop to the layer above, and a library does not change when a layer is added.
 
 ```mermaid
 flowchart TB
-    A["Library: echo · HTTP · Redis"]
-    B["Logging layer"]
-    D["Fault injector"]
-    E["Event loop: epoll · io_uring · in-memory"]
-    A --> B --> D --> E
+    L["<b>Network library</b><br/>Echo · HTTP · Redis"]
+    W1["<b>Logging layer</b><br/>Observes operations and events"]
+    W2["<b>Fault-injection layer</b><br/>Delays events · Alters data"]
+    P["<b>Underlying event loop</b><br/>epoll · io_uring · in-memory"]
+
+    L -->|"goose-io"| W1
+    W1 -->|"goose-io"| W2
+    W2 -->|"goose-io"| P
+
+    classDef library fill:#e0efff,stroke:#3978b8,color:#17365d,stroke-width:1.5px
+    classDef layer fill:#f0eaff,stroke:#8063b0,color:#38215f,stroke-width:1.5px
+    classDef loop fill:#e3f2df,stroke:#548b48,color:#21451c,stroke-width:1.5px
+
+    class L library
+    class W1,W2 layer
+    class P loop
 ```
 
 The wrapper in `tests/support/wrapper.goose` is such a layer (it scrambles bytes and delays events, to show that a
