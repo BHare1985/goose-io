@@ -28,7 +28,7 @@ The contract is per loop. One loop runs on one thread. Every event is delivered 
 
 (*The contract is a core and groups of extras*, *The core is thirteen operations and five events*, *Each group is named and checked on its own*)
 
-An event loop has to supply **the core**: 13 operations and 5 events, enough for a client or a server that answers requests. Everything else is in one of five **groups** that an event loop may supply or leave out. A library uses what it needs and says so in its header; built against a loop that lacks something it calls, it fails to compile, and the error names the operation.
+An event loop has to supply **the core**: 13 operations and 5 events, enough for a client, and for a server that answers as the bytes arrive. A server that answers after the peer has finished sending needs the half-close group (the line server does; the line client does not). Everything else is in one of five **groups** that an event loop may supply or leave out. A library uses what it needs and says so in its header; built against a loop that lacks something it calls, it fails to compile, and the error names the operation.
 
 | | Operations | Events |
 |---|---|---|

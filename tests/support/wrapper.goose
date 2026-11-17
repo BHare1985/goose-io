@@ -300,8 +300,9 @@ fn serve<F>(w: Layer&) {
     }
 }
 
-// The wrapper passes through the core and every group but batching, so it supplies each of them. This function
-// is never called: it makes the compiler check the wrapper against the contract's own checks whenever it is built.
+// The wrapper supplies the core and every group. Batching is an event and has no operation to check: the wrapper
+// gives `PassEnd` itself (see `_end_pass`) and passes the batching part of the suite. This function checks the
+// operations, and is never called: it makes the compiler check the wrapper against the contract's own checks whenever it is built.
 fn _supplied(w: Layer&) {
     goose_io::require_core(w);
     goose_io::require_half_close(w);

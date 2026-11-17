@@ -132,7 +132,7 @@ a socket or builds C: the package is Goose source and links nothing.
 | Event loop | Contract | Core | Groups | Suite last passed at | Where |
 |---|---|---|---|---|---|
 | in-memory (`memory.goose`) | 0.1 | yes | half-close, sizing, abort, inspection, batching | `650c8c5` | this repository |
-| wrapper over it (`tests/support/wrapper.goose`) | 0.1 | yes | half-close, sizing, abort, inspection | `650c8c5` | this repository |
+| wrapper over it (`tests/support/wrapper.goose`) | 0.1 | yes | half-close, sizing, abort, inspection, batching | `650c8c5` | this repository |
 | core only (`tests/support/core_only.goose`) | 0.1 | yes | none | `650c8c5` | this repository |
 
 **Honestly:** the one working event loop today is the in-memory one, which is for tests. An event loop on real sockets
