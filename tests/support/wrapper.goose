@@ -24,8 +24,6 @@ var inner: goose_io_memory::Loop = goose_io_memory::Loop { .. };
 struct Held {
     kind:     u8                    = 0,        // 'O' 'D' 'W' 'E' 'C'
     link:     goose_io::Link        = goose_io::Link { .. },
-    tag:      u16                   = 0,
-    user:     u32                   = 0,
     listener: goose_io::Listener    = goose_io::Listener { .. },
     why:      goose_io::CloseReason = goose_io::CloseReason.Error,
     pass:     i64                   = 0,
@@ -33,7 +31,9 @@ struct Held {
     len:      i64                   = 0,
 }
 
-// What a library chose for a link. The wrapper delays Opened, so the library chooses what the peer's end of
+// What a library chose for a link. A mode is made when the link is issued (the handle `dial` returns, or an accepted link),
+// so that a choice made while dialling is kept; the choice is closed when the handler of the link's Opened returns, as in
+// the inner event loop (*Keep-open is configured no later than Opened*). The wrapper delays Opened, so the library chooses what the peer's end of
 // stream does after the inner event loop would have acted on its default: the wrapper keeps every inner link
 // open on end of stream and does what the library chose.
 struct Mode {
@@ -42,6 +42,7 @@ struct Mode {
     keep:       bool           = false,     // set_keep_open_on_eof(link, true)
     eof_close:  bool           = false,     // the wrapper closed the inner link because the peer finished and keep is off
     lib_closed: bool           = false,     // the library called close or reset
+    configured: bool           = false,     // the handler of the link's Opened, as the application sees it, has returned
 }
 
 root struct Layer {
@@ -54,6 +55,7 @@ root struct Layer {
     bytes:     u8[>..]                 = [],       // the bytes of held Data events
     scratch:   u8[>..]                 = [],       // what the application is lent, or what goes to the inner event loop
     out:       Out[>..]                = [],       // events to give the application
+    finished:  bool                    = false,    // serve has returned: nothing it held is ever given late
     modes:     Mode[>..]               = [],
 }
 
@@ -80,10 +82,15 @@ fn _plain(bytes: const u8[:]) -> u8[>..] {
 
 // --- the contract: operations, given to the inner event loop ----------------------------------------------
 
-fn listen(w: Layer&, address: const u8[:], tag: u16) -> goose_io::Listener, goose_io::ListenError { w._prepare(); return inner.listen(address, tag); }
+fn listen(w: Layer&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError { w._prepare(); return inner.listen(address); }
 fn listener_port(w: Layer&, l: goose_io::Listener) -> u16 { w._prepare(); return inner.listener_port(l); }
 fn stop_listening(w: Layer&, l: goose_io::Listener) { w._prepare(); inner.stop_listening(l); }
-fn dial(w: Layer&, address: const u8[:], tag: u16, connect_ms: i64) -> goose_io::Link { w._prepare(); return inner.dial(address, tag, connect_ms); }
+fn dial(w: Layer&, address: const u8[:], connect_ms: i64) -> goose_io::Link {
+    w._prepare();
+    let link = inner.dial(address, connect_ms);
+    if goose_io::is_valid(link) { w.modes.push(Mode { link: link, live: true, .. }); }       // a choice made while dialling is recorded
+    return link;
+}
 fn peer_address(w: Layer&, link: goose_io::Link) -> goose_io::Address { w._prepare(); return inner.peer_address(link); }
 fn send_room(w: Layer&, link: goose_io::Link) -> i64 { w._prepare(); return inner.send_room(link); }
 fn max_send(w: Layer&) -> i64 { w._prepare(); return inner.max_send(); }
@@ -96,22 +103,17 @@ fn _mode(w: Layer&, link: goose_io::Link) -> i64 {
 fn set_keep_open_on_eof(w: Layer&, link: goose_io::Link, keep: bool) {
     w._prepare();
     let m = w._mode(link);
-    if m >= 0 { w.modes[m].keep = keep; }
+    if m >= 0 && !w.modes[m].configured { w.modes[m].keep = keep; }
+}
+
+// The application's handler has returned from an event: the Opened of a link makes its keep-open choice final.
+fn _given(w: Layer&, o: Out) {
+    if o.kind == 'L' && o.h.kind == 'O' {
+        let m = w._mode(o.h.link);
+        if m >= 0 { w.modes[m].configured = true; }
+    }
 }
 fn shutdown_write(w: Layer&, link: goose_io::Link) { w._prepare(); inner.shutdown_write(link); }
-// The user value is read when an event is given, so an event the wrapper holds (or has queued) for the link takes the
-// new value too: every event given after `set_user` carries it.
-fn set_user(w: Layer&, link: goose_io::Link, user: u32) {
-    w._prepare();
-    inner.set_user(link, user);
-    for i in w.held.len {
-        if i >= w.held_off && goose_io::same(w.held[i].link, link) { w.held[i].user = user; }
-    }
-    for i in w.out.len {
-        if w.out[i].kind == 'L' && goose_io::same(w.out[i].h.link, link) { w.out[i].h.user = user; }
-    }
-}
-fn user(w: Layer&, link: goose_io::Link) -> u32 { w._prepare(); return inner.user(link); }
 fn now_ms(w: Layer&) -> i64 { w._prepare(); return inner.now_ms(); }
 fn tick_by(w: Layer&, at_ms: i64) { w._prepare(); inner.tick_by(at_ms); }
 fn stop(w: Layer&, grace_ms: i64) { w._prepare(); inner.stop(grace_ms); }
@@ -209,21 +211,21 @@ fn _on_event(w: Layer&, ev: goose_io::Event) {
         },
         Opened e => {
             inner.set_keep_open_on_eof(e.link, true);
-            w.modes.push(Mode { link: e.link, live: true, .. });
-            w._hold(Held { kind: 'O', link: e.link, tag: e.tag, user: e.user, listener: e.listener, pass: w.pass, .. });
+            if w._mode(e.link) < 0 { w.modes.push(Mode { link: e.link, live: true, .. }); }       // an accepted link; a dialled one has its mode already
+            w._hold(Held { kind: 'O', link: e.link, listener: e.listener, pass: w.pass, .. });
         },
         Data e => {
             let off = w.bytes.len;
             for b in e.bytes { w.bytes.push(b ^ KEY); }
-            let h = Held { kind: 'D', link: e.link, tag: e.tag, user: e.user, pass: w.pass, off: off, len: e.bytes.len, .. };
+            let h = Held { kind: 'D', link: e.link, pass: w.pass, off: off, len: e.bytes.len, .. };
             if w._holds(e.link) { w._hold(h); } else { w._give(h); }
         },
         Writable e => {
-            let h = Held { kind: 'W', link: e.link, tag: e.tag, user: e.user, pass: w.pass, .. };
+            let h = Held { kind: 'W', link: e.link, pass: w.pass, .. };
             if w._holds(e.link) { w._hold(h); } else { w._give(h); }
         },
         PeerEof e => {
-            let h = Held { kind: 'E', link: e.link, tag: e.tag, user: e.user, pass: w.pass, .. };
+            let h = Held { kind: 'E', link: e.link, pass: w.pass, .. };
             if w._holds(e.link) { w._hold(h); } else { w._give(h); }
         },
         Closed e => {
@@ -233,7 +235,7 @@ fn _on_event(w: Layer&, ev: goose_io::Event) {
                 if w.modes[m].eof_close && !w.modes[m].lib_closed && why == goose_io::CloseReason.Local { why = goose_io::CloseReason.PeerClosed; }
                 w.modes[m].live = false;
             }
-            let h = Held { kind: 'C', link: e.link, tag: e.tag, user: e.user, why: why, pass: w.pass, .. };
+            let h = Held { kind: 'C', link: e.link, why: why, pass: w.pass, .. };
             if w._holds(e.link) { w._hold(h); } else { w._give(h); }
         },
     }
@@ -260,16 +262,17 @@ fn _event_of(w: Layer&, o: Out) -> goose_io::Event {
     let h = o.h;
     if o.kind == 'T' { return goose_io::Event.Tick { now_ms: h.pass }; }
     if o.kind == 'P' { return goose_io::Event.PassEnd {}; }
-    if h.kind == 'O' { return goose_io::Event.Opened { link: h.link, tag: h.tag, user: h.user, listener: h.listener }; }
-    if h.kind == 'D' { return goose_io::Event.Data { link: h.link, tag: h.tag, user: h.user, bytes: w.bytes[h.off..h.off + h.len] }; }
-    if h.kind == 'W' { return goose_io::Event.Writable { link: h.link, tag: h.tag, user: h.user }; }
-    if h.kind == 'E' { return goose_io::Event.PeerEof { link: h.link, tag: h.tag, user: h.user }; }
-    return goose_io::Event.Closed { link: h.link, tag: h.tag, user: h.user, why: h.why };
+    if h.kind == 'O' { return goose_io::Event.Opened { link: h.link, listener: h.listener }; }
+    if h.kind == 'D' { return goose_io::Event.Data { link: h.link, bytes: w.bytes[h.off..h.off + h.len] }; }
+    if h.kind == 'W' { return goose_io::Event.Writable { link: h.link }; }
+    if h.kind == 'E' { return goose_io::Event.PeerEof { link: h.link }; }
+    return goose_io::Event.Closed { link: h.link, why: h.why };
 }
 
 // Runs the inner event loop's loop and gives the application its events. A held event is given the pass after the one
 // that had it; whatever is still held when the inner loop has finished is given before serve returns.
 fn serve<F>(w: Layer&) {
+    if w.finished { return; }                      // a second serve returns at once, as the loop beneath does
     w._prepare();
     inner.serve() { io, ev =>
         w._on_event(ev);
@@ -278,6 +281,7 @@ fn serve<F>(w: Layer&) {
             if w._wanted(w.out[i]) {
                 let e = w._event_of(w.out[i]);
                 F(w, e);
+                w._given(w.out[i]);
             }
             i++;
         }
@@ -293,11 +297,16 @@ fn serve<F>(w: Layer&) {
             if w._wanted(w.out[i]) {
                 let e = w._event_of(w.out[i]);
                 F(w, e);
+                w._given(w.out[i]);
             }
             i++;
         }
         w.out.clear();
     }
+    // The loop is finished: what the wrapper could still hold is dropped, so that no event is given after serve has returned.
+    w.held_off = w.held.len;
+    w.out.clear();
+    w.finished = true;
 }
 
 // The wrapper supplies the core and every group. Batching is an event and has no operation to check: the wrapper

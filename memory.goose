@@ -11,8 +11,8 @@
 // contract and every group of extras.
 //
 //     var io = goose_io_memory::Loop { .. };
-//     let l, err = io.listen("127.0.0.1:8080", 1);
-//     let link = io.dial("127.0.0.1:8080", 2, 0);
+//     let l, err = io.listen("127.0.0.1:8080");
+//     let link = io.dial("127.0.0.1:8080", 0);
 //     io.serve() { io, ev => handle(io, ev); };
 namespace goose_io_memory;
 import std;
@@ -26,22 +26,28 @@ struct Config {
     link_buffer:        i64  = 65536,   // most bytes held unsent for one link
     max_send:           i64  = 65536,   // largest single send; at least 4096, at most link_buffer
     read_chunk:         i64  = 16384,   // most bytes in one Data event
-    max_links:          i64  = 256,     // link ends of libraries at once, not connections: a joined pair is two; a dial beyond it fails with ConnectFailed, NoResources
+    max_links:          i64  = 256,     // link ends of libraries at once, not connections: a joined pair is two; a dial beyond it fails with ConnectFailed, NoResources; a retired slot (see `age_slot`) does not lower it
     max_listeners:      i64  = 4096,    // listeners ever created: a handle is never used again, so they can run out
     connect_timeout_ms: i64  = 5000,    // what connect_ms 0 means
     tick_ms:            i64  = 100,     // the regular Tick period
     time_limit_ms:      i64  = 600000,  // a serve that runs this long in loop time has hung: fail
     exit_on_time_limit: bool = true,    // false: serve returns instead and hit_time_limit() is true
     passes_per_ms:      i64  = 64,      // busy passes at one instant before the clock moves 1 ms
+    unix_paths:         bool = true,    // supply the unix group; false: unix:/path is refused with BadAddress, as by a loop without it
 }
 
 // --- internals: addresses ------------------------------------------------------------------------
 
-struct _Addr { ok: bool = false, v6: bool = false, ip: u8[16] = [0; 16], port: u16 = 0 }
+// A numeric endpoint, or, with `unix` set, the path of a Unix socket (the unix group): then ip, port and v6 are unused.
+struct _Addr { ok: bool = false, v6: bool = false, ip: u8[16] = [0; 16], port: u16 = 0, unix: bool = false, path: u8[..103] = [] }
 
-fn _same_endpoint(a: _Addr, b: _Addr) -> bool { a.v6 == b.v6 && a.port == b.port && a.ip == b.ip }
+fn _same_endpoint(a: _Addr, b: _Addr) -> bool {
+    if a.unix || b.unix { return a.unix && b.unix && a.path[..] == b.path[..]; }
+    return a.v6 == b.v6 && a.port == b.port && a.ip == b.ip;
+}
 
 fn _is_any(a: _Addr) -> bool {
+    if a.unix { return false; }
     for b in a.ip { if b != 0 { return false; } }
     return true;
 }
@@ -49,12 +55,14 @@ fn _is_any(a: _Addr) -> bool {
 // Two bindings overlap when one connection could be meant for both: the same family and port, and
 // either address is the wildcard or they are equal. Overlapping listeners cannot coexist.
 fn _overlaps(a: _Addr, b: _Addr) -> bool {
-    a.v6 == b.v6 && a.port == b.port && (_is_any(a) || _is_any(b) || a.ip == b.ip)
+    if a.unix || b.unix { return _same_endpoint(a, b); }
+    return a.v6 == b.v6 && a.port == b.port && (_is_any(a) || _is_any(b) || a.ip == b.ip);
 }
 
 // A listener on the wildcard address takes a dial to any address of its family.
 fn _listener_takes(l: _Addr, target: _Addr) -> bool {
-    l.v6 == target.v6 && l.port == target.port && (l.ip == target.ip || _is_any(l))
+    if l.unix || target.unix { return _same_endpoint(l, target); }
+    return l.v6 == target.v6 && l.port == target.port && (l.ip == target.ip || _is_any(l));
 }
 
 fn _parse_number(s: const u8[:], limit: i64) -> i64, bool {
@@ -139,10 +147,25 @@ fn _parse_v6(s: const u8[:], a: _Addr&) -> bool {
     return true;
 }
 
-// "ip:port" or "[ip]:port", numeric only. A host name does not parse.
+// "ip:port" or "[ip]:port", numeric only, or "unix:/path" or "unix:///path" (the same path): an absolute path of at
+// most 103 bytes with no NUL byte (and so no leading "@"). After "unix://" the path must begin with a single "/", so an
+// authority and "unix:////x" do not parse; nothing is decoded or split. A host name does not parse.
 fn _parse_address(text: const u8[:]) -> _Addr {
     var a = _Addr { .. };
     guard text.len > 0 else { return a; }
+    if starts_with(text, "unix:") {
+        var path = text[5..];
+        if starts_with(path, "//") {
+            path = path[2..];
+            guard path.len > 0 && path[0] == '/' && !starts_with(path, "//") else { return a; }
+        }
+        guard path.len > 0 && path.len <= 103 && path[0] == '/' else { return a; }
+        for c in path { if c == 0 { return a; } }
+        a.unix = true;
+        a.path.append(path);
+        a.ok = true;
+        return a;
+    }
     var port_at = 0;
     if text[0] == '[' {
         var close = -1;
@@ -192,7 +215,7 @@ fn _push_hex(out: u8[..56]&, v: i64) {
 
 fn _format_address(a: _Addr) -> goose_io::Address {
     var out = goose_io::Address { .. };
-    guard a.ok else { return out; }
+    guard a.ok && !a.unix else { return out; }
     if a.v6 {
         var groups: i64[8] = [0; 8];
         for k in 8 { groups[k] = ((a.ip[k * 2] as i64) << 8) | a.ip[k * 2 + 1]; }
@@ -258,8 +281,6 @@ let _EPHEMERAL_PORTS = 16384;     // 49152 to 65535
 struct _Slot {
     gen:              u32                   = 1,
     state:            u8                    = 0,
-    tag:              u16                   = 0,
-    user:             u32                   = 0,
     listener:         u32                   = 0,     // the listener that accepted it, 0 for a dialled link
     peer:             i64                   = -1,    // the slot of the other end, -1 when there is none (any more)
     script:           i64                   = -1,    // the scripted peer that plays this end, -1 for a library's link
@@ -267,12 +288,15 @@ struct _Slot {
     opened:           bool                  = false, // its Opened was delivered
     paused:           bool                  = false,
     keep_open:        bool                  = false,
+    configured:       bool                  = false, // the handler of its Opened has returned: keep_open can no longer change
     wr_shut:          bool                  = false, // this end finished sending
     peer_fin:         bool                  = false, // the other end finished sending (seen once in_len reaches 0)
     eof_seen:         bool                  = false,
     want_writable:    bool                  = false, // a send was refused with Full
     want_room:        i64                   = 0,     // the largest send refused since the last Writable
     refusals:         i64                   = 0,     // fault WritablePerRefusal
+    refused_once:     bool                  = false, // a send was refused with Full at some time (fault WritableAfterClosedResult)
+    closed_result:    bool                  = false, // a send has returned Closed (fault ClosedResultNotFinal)
     writable_given:   bool                  = false, // fault OneWritableOnly
     data_queued:      bool                  = false, // a Data record for it is in the queue
     local_closed:     bool                  = false, // its owner called close or reset
@@ -284,7 +308,7 @@ struct _Slot {
     connect_deadline: i64                   = 0,
 }
 
-struct _Listener { addr: _Addr = _Addr { .. }, tag: u16 = 0, active: bool = false }
+struct _Listener { addr: _Addr = _Addr { .. }, active: bool = false }
 
 // A dial to addr fails with this kind (fail_dials).
 struct _Failing { addr: _Addr = _Addr { .. }, kind: goose_io::ConnectFailure = goose_io::ConnectFailure.Other }
@@ -356,6 +380,7 @@ root struct Loop {
     _started:       bool           = false,
     _started_at:    i64            = 0,
     _draining:      bool           = false,
+    _finished:      bool           = false, // serve has returned: every operation does nothing (*A finished loop does nothing*)
     _stop_deadline: i64            = 0x7fffffffffffffff,
     _library_links: i64            = 0, // links that are not scripted peers' ends and not free
     _live_slots:    i64            = 0, // of those, the ones not closed either: what max_links limits
@@ -405,7 +430,7 @@ fn _link_of(io: Loop&, i: i64) -> goose_io::Link {
 
 fn _new_slot(io: Loop&, script: i64) -> i64 {
     var i = 0;
-    if io._free.len > 0 {
+    if io._free.len > 0 && io._fault != 64 {       // fault SlotsNeverReused: a new slot for every link
         i = io._free[io._free.len - 1];
         io._free.pop();
         let gen = io._slots[i].gen;
@@ -416,6 +441,7 @@ fn _new_slot(io: Loop&, script: i64) -> i64 {
         io._inbuf.resize((i + 1) * io.cfg.link_buffer, 0);
     }
     io._slots[i].script = script;
+    io._slots[i].configured = script >= 0;           // a scripted end has no Opened handler: its keep-open is the test's
     if script < 0 { io._library_links++; io._live_slots++; }
     return i;
 }
@@ -462,14 +488,15 @@ fn _close(io: Loop&, i: i64, why: goose_io::CloseReason, abort: bool) {
 
 // --- the contract: listening ---------------------------------------------------------------------
 
-fn listen(io: Loop&, address: const u8[:], tag: u16) -> goose_io::Listener, goose_io::ListenError {
+fn listen(io: Loop&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError {
+    if io._finished { return goose_io::Listener { .. }, goose_io::ListenError { kind: goose_io::ListenErrorKind.Other, code: 108 }; }
     io._start();
     var a = io._addr(address);
     guard a.ok else { return goose_io::Listener { .. }, goose_io::ListenError { kind: goose_io::ListenErrorKind.BadAddress, code: 22 }; }
     guard !io._draining || io._fault == 51 else { return goose_io::Listener { .. }, goose_io::ListenError { kind: goose_io::ListenErrorKind.Other, code: 108 }; }
     // A handle is never issued twice, so there are only so many: fail, never wrap.
     guard io._listeners.len < io.cfg.max_listeners && io._listeners.len < 0xfffffffe else { return goose_io::Listener { .. }, goose_io::ListenError { kind: goose_io::ListenErrorKind.NoResources, code: 24 }; }
-    if a.port == 0 {
+    if a.port == 0 && !a.unix {
         // One lap of the ephemeral range at most, skipping ports that are in use.
         var found = false;
         for _ in _EPHEMERAL_PORTS {
@@ -483,12 +510,11 @@ fn listen(io: Loop&, address: const u8[:], tag: u16) -> goose_io::Listener, goos
         for l, k in io._listeners {
             if !l.active && _same_endpoint(l.addr, a) {
                 io._listeners[k].active = true;
-                io._listeners[k].tag = tag;
                 return goose_io::Listener { id: (k + 1) as u32 }, goose_io::ListenError { .. };
             }
         }
     }
-    io._listeners.push(_Listener { addr: a, tag: tag, active: true });
+    io._listeners.push(_Listener { addr: a, active: true });
     return goose_io::Listener { id: io._listeners.len as u32 }, goose_io::ListenError { .. };
 }
 
@@ -497,11 +523,25 @@ fn listen(io: Loop&, address: const u8[:], tag: u16) -> goose_io::Listener, goos
 fn _addr(io: Loop&, text: const u8[:]) -> _Addr {
     var a = _parse_address(text);
     if io._fault == 19 && a.v6 { a = _Addr { .. }; }
+    if !io.cfg.unix_paths && a.unix { a = _Addr { .. }; }
+    if io._fault == 60 && !a.ok && starts_with(text, "unix:") && text.len > 5 && text[5] != '/' && text[5] != '@' && text.len <= 108 {      // fault UnixRelativeAccepted
+        a = _Addr { ok: true, unix: true, .. };
+        a.path.append(text[5..]);
+    }
+    if io._fault == 62 && starts_with(text, "unix://") { a = _Addr { .. }; }      // fault UnixTripleSlashRefused: the URL spelling is refused
+    if io._fault == 63 && a.unix && starts_with(text, "unix://") && a.path.len < 103 {      // fault UnixAliasNotHeld: the URL spelling is a different endpoint
+        var other: u8[..103] = [];
+        other.push('~');
+        other.append(a.path[..]);
+        a.path = other;
+    }
+    if io._fault == 61 && a.unix && a.path.len > 100 { a = _Addr { .. }; }      // fault UnixLongestRefused: a long path is refused
     return a;
 }
 
 fn _binding_free(io: Loop&, a: _Addr) -> bool {
     if io._fault != 10 { for h in io._held { if _overlaps(h, a) { return false; } } }     // fault HeldIgnored
+    if io._fault == 57 && a.unix { return true; }      // fault UnixOverlapIgnored: a path can be listened on twice
     for l in io._listeners { if l.active && _overlaps(l.addr, a) { return false; } }
     return true;
 }
@@ -523,10 +563,11 @@ fn _listener_index(io: Loop&, l: goose_io::Listener) -> i64 {
 
 fn listener_port(io: Loop&, l: goose_io::Listener) -> u16 {
     let i = io._listener_index(l);
-    if i < 0 || io._fault == 11 { 0 } else { io._listeners[i].addr.port }
+    if i < 0 || io._fault == 11 { 0 } else if io._fault == 59 && io._listeners[i].addr.unix { 4242 } else { io._listeners[i].addr.port }      // fault UnixPortInvented
 }
 
 fn stop_listening(io: Loop&, l: goose_io::Listener) {
+    if io._finished { return; }
     let i = io._listener_index(l);
     if i >= 0 { io._listeners[i].active = false; }
     if i >= 0 && io._fault == 12 {          // fault StopListeningClosesLinks
@@ -538,18 +579,19 @@ fn stop_listening(io: Loop&, l: goose_io::Listener) {
 
 // --- the contract: links -------------------------------------------------------------------------
 
-fn dial(io: Loop&, address: const u8[:], tag: u16, connect_ms: i64) -> goose_io::Link {
+fn dial(io: Loop&, address: const u8[:], connect_ms: i64) -> goose_io::Link {
+    // on a finished loop: the invalid link, no link issued and no connection started (fault FinishedDialIssues: a link is issued)
+    if io._finished && io._fault != 80 { return goose_io::Link { .. }; }
     io._start();
-    let link = io._dial(io._addr(address), tag, connect_ms, -1);
+    let link = io._dial(io._addr(address), connect_ms, -1);
     if io._fault == 15 { return goose_io::Link { .. }; }        // fault DialReturnsInvalid
     return link;
 }
 
-fn _dial(io: Loop&, target: _Addr, tag: u16, connect_ms: i64, script: i64) -> goose_io::Link {
+fn _dial(io: Loop&, target: _Addr, connect_ms: i64, script: i64) -> goose_io::Link {
     let i = io._new_slot(script);
     let s .= io._slots[i];
     s.state = _DIALING;
-    s.tag = tag;
     let link = goose_io::Link { slot: i as u32, gen: s.gen };
     if script < 0 && io._live_slots > io.cfg.max_links { io._close(i, _failed(goose_io::ConnectFailure.NoResources), false); return link; }
     s.target = target;
@@ -564,7 +606,9 @@ fn _dial(io: Loop&, target: _Addr, tag: u16, connect_ms: i64, script: i64) -> go
 fn peer_address(io: Loop&, link: goose_io::Link) -> goose_io::Address {
     let i = io._slot_of(link);
     if i < 0 && io._fault == 14 { return _format_address(io._last_remote); }       // fault StalePeerAddress
+    if io._finished && io._fault == 83 { var a = goose_io::Address { .. }; a.text.append("10.0.0.1:1"); return a; }      // fault PeerAddressAfterFinish
     guard i >= 0 && io._slots[i].opened else { return goose_io::Address { .. }; }
+    if io._fault == 78 && io._slots[i].state == _CLOSED { return goose_io::Address { .. }; }      // fault PeerAddressGoneOnClose
     return _format_address(io._slots[i].remote);
 }
 
@@ -579,6 +623,7 @@ fn send2(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:
 
 // What one send would accept now.
 fn send_room(io: Loop&, link: goose_io::Link) -> i64 {
+    if io._finished { return 0; }
     if io._fault == 2 && link.gen == 0 { return io.cfg.max_send; }      // fault UnsetLinkHasRoom
     let i = io._slot_of(link);
     guard i >= 0 else { return 0; }
@@ -596,18 +641,25 @@ fn max_send(io: Loop&) -> i64 {
 
 // While paused the link's bytes stay where they are, so its peer's sends fill up and are refused.
 fn pause_reading(io: Loop&, link: goose_io::Link, paused: bool) {
+    if io._finished { return; }
     let i = io._slot_of(link);
-    if i >= 0 && io._fault != 34 { io._slots[i].paused = paused; }
+    if i >= 0 && io._fault != 34 && !(io._fault == 67 && io._slots[i].state == _DIALING) { io._slots[i].paused = paused; }      // faults PauseIgnored and PauseBeforeOpenIgnored
 }
 
 fn _send(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:]) -> goose_io::SendStatus {
+    if io._finished { return if io._fault == 79 { goose_io::SendStatus.Sent } else { goose_io::SendStatus.Closed }; }      // fault SendAfterFinishSent
     let i = io._slot_of(link);
     guard i >= 0 else { return goose_io::SendStatus.Closed; }
     let s .= io._slots[i];
     if io._fault == 21 && io._scratch.len > 0 { io._scratch[0] = 'X'; }      // fault SendClobbersLentBytes
     if s.state == _CLOSED && io._fault == 24 { return goose_io::SendStatus.Sent; }      // fault SendAfterCloseAccepted
     if s.wr_shut && io._fault == 55 { return goose_io::SendStatus.Sent; }      // fault SendAfterShutdownAccepted
-    if s.state == _CLOSED || s.wr_shut { return goose_io::SendStatus.Closed; }
+    if s.state == _CLOSED || s.wr_shut {
+        if io._fault == 70 && s.closed_result { return goose_io::SendStatus.Sent; }      // fault ClosedResultNotFinal
+        s.closed_result = true;
+        if io._fault == 75 && s.wr_shut && s.state == _OPEN { io._close(i, goose_io::CloseReason.PeerClosed, false); }      // fault ClosedResultEndsShutLink
+        return goose_io::SendStatus.Closed;
+    }
     if s.state != _OPEN { return if io._fault == 23 { goose_io::SendStatus.Sent } else { goose_io::SendStatus.NotOpen }; }      // fault SendBeforeOpenSent
     let total = first.len + second.len;
     if total == 0 { return goose_io::SendStatus.Sent; }
@@ -626,6 +678,7 @@ fn _send(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:
         // One Writable for however many refusals, once the largest of them would fit.
         if !s.want_writable || total > s.want_room { s.want_room = total; }
         s.want_writable = true;
+        s.refused_once = true;
         s.refusals++;
         if io._fault == 26 && first.len > 0 && second.len > 0 && first.len <= io.cfg.link_buffer - p.in_len {     // fault Send2TakesFirstPart
             let at = s.peer * io.cfg.link_buffer + p.in_len;
@@ -648,48 +701,58 @@ fn _send(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:
 }
 
 fn close(io: Loop&, link: goose_io::Link) {
+    if io._finished { return; }
     let i = io._slot_of(link);
+    if i >= 0 && io._slots[i].state == _CLOSED && io._fault == 68 { io._queue(_EV_CLOSED, i); }      // fault SecondCloseClosesAgain
     guard i >= 0 && io._slots[i].state != _CLOSED else { return; }
     io._slots[i].local_closed = true;
+    // fault ShutdownOverridesLocal: a link whose peer has not read what it was sent is kept until the end of the grace period
+    if io._fault == 84 && io._slots[i].peer >= 0 && io._slots[io._slots[i].peer].in_len > 0 { return; }
     let unread = io._slots[i].in_len > 0;
     io._close(i, goose_io::CloseReason.Local, unread && io._fault == 40);      // fault CloseWithUnreadResets
+    if io._fault == 66 { io._release(i); }      // fault SlotFreedOnClose: the slot is free before its Closed is delivered
 }
 
 // Closes at once. What the other end has not read is discarded and it ends with PeerReset.
 fn reset(io: Loop&, link: goose_io::Link) {
+    if io._finished { return; }
     let i = io._slot_of(link);
+    if i >= 0 && io._slots[i].state == _CLOSED && io._fault == 77 { io._queue(_EV_CLOSED, i); }      // fault ResetAfterCloseClosesAgain
     guard i >= 0 && io._slots[i].state != _CLOSED else { return; }
+    if io._fault == 76 && (io._slots[i].state == _DIALING || io._slots[i].state == _OPENING) { return; }      // fault ResetDialOpens: a dial in progress is not abandoned
     io._slots[i].local_closed = true;
     io._close(i, goose_io::CloseReason.Local, io._fault != 39);      // fault ResetIsGraceful
 }
 
-// keep: the peer's end of stream is delivered as PeerEof and the link stays open for sending.
+// keep: the peer's end of stream is delivered as PeerEof and the link stays open for sending. It is configuration with a
+// fixed window: while the link is dialling or inside the handler of its `Opened`. The setting applies when that handler
+// returns, and a later call has no effect (*Keep-open is configured no later than Opened*).
 fn set_keep_open_on_eof(io: Loop&, link: goose_io::Link, keep: bool) {
+    if io._finished { return; }
     let i = io._slot_of(link);
-    if i >= 0 { io._slots[i].keep_open = keep; }
+    guard i >= 0 else { return; }
+    let s .= io._slots[i];
+    if s.configured && io._fault != 72 { return; }                  // fault KeepOpenLateHonoured: a late call is applied
+    if io._fault == 71 && s.state == _DIALING { return; }           // fault KeepOpenWhileDiallingIgnored: a call while dialling is dropped
+    s.keep_open = keep;
 }
 
 // Ends this side's sending. The other end reads what was sent and then sees the end of the stream.
 fn shutdown_write(io: Loop&, link: goose_io::Link) {
+    if io._finished { return; }
     let i = io._slot_of(link);
     guard i >= 0 else { return; }
     let s .= io._slots[i];
+    if io._fault == 74 && s.state == _DIALING { s.wr_shut = true; return; }      // fault ShutdownBeforeOpenRemembered
     guard s.state == _OPEN && !s.wr_shut else { return; }
     s.wr_shut = true;
     if io._fault != 35 { s.want_writable = false; }      // fault WritableAfterShutdown
     if s.peer >= 0 { io._slots[s.peer].peer_fin = true; }
+    // fault EarlyEofActedOn: an end of stream seen before the other end's Opened handler has returned is acted on at once, with
+    // the setting that end has so far
+    if io._fault == 73 && s.peer >= 0 && io._slots[s.peer].state == _OPENING && !io._slots[s.peer].keep_open { io._close(s.peer, goose_io::CloseReason.PeerClosed, false); }
     // The peer had finished already: both directions are done.
     if s.eof_seen { io._close(i, goose_io::CloseReason.PeerClosed, false); }
-}
-
-fn set_user(io: Loop&, link: goose_io::Link, user: u32) {
-    let i = io._slot_of(link);
-    if i >= 0 { io._slots[i].user = user; }
-}
-
-fn user(io: Loop&, link: goose_io::Link) -> u32 {
-    let i = io._slot_of(link);
-    if i >= 0 { io._slots[i].user } else { 0 }
 }
 
 // --- the contract: time and the application side --------------------------------------------------
@@ -698,6 +761,7 @@ fn now_ms(io: Loop&) -> i64 { io._clock }
 
 // Asks for a Tick at or after at_ms. Only the earliest request is kept, and the next Tick clears it.
 fn tick_by(io: Loop&, at_ms: i64) {
+    if io._finished { return; }
     if io._fault == 45 { return; }                                   // fault TickByIgnored
     if at_ms < io._wake_at || io._fault == 46 { io._wake_at = at_ms; }      // fault TickByKeepsLatest
 }
@@ -705,6 +769,7 @@ fn tick_by(io: Loop&, at_ms: i64) {
 // Every listener stops now. serve returns when the last link has closed, or grace_ms from now,
 // after closing what is left with Shutdown. Of several calls the earliest end of grace stands.
 fn stop(io: Loop&, grace_ms: i64) {
+    if io._finished { return; }
     io._start();
     io._draining = true;
     for &l in io._listeners { l.active = false; }
@@ -713,9 +778,13 @@ fn stop(io: Loop&, grace_ms: i64) {
     if deadline < io._stop_deadline || io._fault == 53 { io._stop_deadline = deadline; }      // fault StopLatestWins
 }
 
-fn draining(io: Loop&) -> bool { io._draining }
+fn draining(io: Loop&) -> bool { io._draining || io._finished }
 
 fn serve<F>(io: Loop&) {
+    if io._finished {          // a second serve returns at once, without calling its handler
+        if io._fault == 81 { let e: goose_io::Event = goose_io::Event.Tick { now_ms: io._clock }; F(io, e); }      // fault SecondServeRuns
+        return;
+    }
     io._start();
     // Sized here and never from an operation: a handler holds a slice of it while it calls operations.
     if io._scratch.len != io.cfg.read_chunk { io._scratch.resize(io.cfg.read_chunk, 0); }
@@ -724,6 +793,7 @@ fn serve<F>(io: Loop&) {
         io._passes++;
         io._run_due();
         io._queue_reads();
+        if io._fault == 82 && io._passes == 1 { io._pending.clear(); io._pending_head = 0; }      // fault SetupEventsDropped: the events of what was set up before serve are discarded
         // The order of one pass: a Tick if one is due, the link events, then PassEnd, always last.
         if io._clock >= io._next_tick || io._clock >= io._wake_at {
             io._next_tick = io._clock + io._tick_period();
@@ -741,6 +811,7 @@ fn serve<F>(io: Loop&) {
         io._advance();
         if io._hit_limit { break; }
     }
+    io._finished = true;
 }
 
 // --- internals: one pass -------------------------------------------------------------------------
@@ -766,7 +837,7 @@ fn _connect(io: Loop&, i: i64) {
     let target = io._slots[i].target;
     var found = -1;
     for l, k in io._listeners {
-        if l.active && _listener_takes(l.addr, target) { found = k; break; }
+        if l.active && _listener_takes(l.addr, target) && !(io._fault == 56 && l.addr.unix) { found = k; break; }      // fault UnixListenerIgnored: a dial to a path never reaches its listener
     }
     for f in io._failing {
         if _same_endpoint(f.addr, target) { io._close(i, _failed(f.kind), false); return; }
@@ -778,7 +849,6 @@ fn _connect(io: Loop&, i: i64) {
             return;
         }
         j = io._new_slot(-1);
-        io._slots[j].tag = io._listeners[found].tag;
         io._slots[j].listener = (found + 1) as u32;
     } else {
         // no listener: the first scripted peer still waiting at this address takes the dial
@@ -789,7 +859,7 @@ fn _connect(io: Loop&, i: i64) {
         if k >= 0 { io._scripts[k].taken = true; }
         if k < 0 || io._scripts[k].refuse {
             if k >= 0 { io._scripts[k].closed = true; }
-            io._close(i, _failed(if io._fault == 16 { goose_io::ConnectFailure.Unreachable } else { goose_io::ConnectFailure.Refused }), false);
+            io._close(i, _failed(if io._fault == 16 { goose_io::ConnectFailure.Unreachable } else if io._fault == 58 && target.unix { goose_io::ConnectFailure.BadAddress } else { goose_io::ConnectFailure.Refused }), false);      // fault UnixRefusedAsBadAddress
             return;
         }
         j = io._new_slot(k);
@@ -798,7 +868,8 @@ fn _connect(io: Loop&, i: i64) {
     let accepted .= io._slots[j];
     accepted.state = _OPENING;
     accepted.peer = i;
-    accepted.remote = _Addr { ok: true, v6: target.v6, ip: target.ip, port: io._take_port() as u16 };
+    // the accepted end of a Unix link has no name: its remote formats as the empty value
+    accepted.remote = if target.unix { target } else { _Addr { ok: true, v6: target.v6, ip: target.ip, port: io._take_port() as u16 } };
     let dialled .= io._slots[i];
     dialled.state = _OPENING;
     dialled.peer = j;
@@ -812,7 +883,9 @@ fn _connect(io: Loop&, i: i64) {
 fn _queue_reads(io: Loop&) {
     for i in io._slots.len {
         let s .= io._slots[i];
-        if s.state == _OPEN && !s.data_queued {
+        // An end of stream seen before the handler of the link's Opened has returned waits: the decision is made once the
+        // link is configured (here: only an open, configured link is read).
+        if s.state == _OPEN && s.configured && !s.data_queued {
             if io._fault == 43 && s.keep_open && s.peer_fin && !s.eof_seen && s.in_len > 0 {      // fault PeerEofBeforeData
                 s.eof_seen = true;
                 io._queue(_EV_PEER_EOF, i);
@@ -854,9 +927,10 @@ fn _deliver<F>(io: Loop&) -> i64 {
                 if !s.local_closed || io._fault == 38 {
                     if s.state == _OPENING { s.state = _OPEN; }
                     s.opened = true;
-                    let e: goose_io::Event = goose_io::Event.Opened { link: link, tag: s.tag, user: s.user, listener: goose_io::Listener { id: if io._fault == 9 { 0 } else { s.listener } } };
+                    let e: goose_io::Event = goose_io::Event.Opened { link: link, listener: goose_io::Listener { id: if io._fault == 9 { 0 } else if io._fault == 6 && s.listener != 0 { 1 } else { s.listener } } };      // faults OpenedWithoutListener and WrongListenerNamed
                     delivered++;
                     F(io, e);
+                    io._slots[r.slot].configured = true;       // the Opened handler has returned: keep-open is fixed now
                 }
             } else if r.kind == _EV_DATA {
                 s.data_queued = false;
@@ -869,30 +943,40 @@ fn _deliver<F>(io: Loop&) -> i64 {
                     s.in_len = rest;
                     io._room_opened(s.peer);
                     if io._fault == 20 { io._scratch[0] = io._scratch[0] ^ 1; }      // fault DataCorrupted
-                    let e: goose_io::Event = goose_io::Event.Data { link: link, tag: if io._fault == 6 { s.tag + 1 } else { s.tag }, user: if io._fault == 7 { 0 } else { s.user }, bytes: io._scratch[..n] };
+                    let e: goose_io::Event = goose_io::Event.Data { link: link, bytes: io._scratch[..n] };
                     delivered++;
                     F(io, e);
                 }
             } else if r.kind == _EV_WRITABLE {
                 // not after shutdown_write, even if it was queued before the call: nothing can fit now
                 if (s.state == _OPEN || io._fault == 37) && (!s.wr_shut || io._fault == 35) {
-                    let e: goose_io::Event = goose_io::Event.Writable { link: link, tag: s.tag, user: s.user };
+                    let e: goose_io::Event = goose_io::Event.Writable { link: link };
                     delivered++;
                     F(io, e);
                 }
             } else if r.kind == _EV_PEER_EOF {
                 if !s.local_closed {
-                    let e: goose_io::Event = goose_io::Event.PeerEof { link: link, tag: s.tag, user: s.user };
+                    let e: goose_io::Event = goose_io::Event.PeerEof { link: link };
                     delivered++;
                     F(io, e);
                 }
             } else if r.kind == _EV_CLOSED {
-                let e: goose_io::Event = goose_io::Event.Closed { link: link, tag: s.tag, user: if io._fault == 8 && goose_io::is_connect_failed(s.why) { 0 } else { s.user }, why: s.why };
+                let e: goose_io::Event = goose_io::Event.Closed { link: if io._fault == 7 && goose_io::is_connect_failed(s.why) { goose_io::Link { .. } } else { link }, why: s.why };      // fault DialClosedLost
                 delivered++;
+                if io._fault == 69 && s.refused_once {      // fault WritableAfterClosedResult: a Writable owed to the link is delivered as it ends
+                    let w: goose_io::Event = goose_io::Event.Writable { link: link };
+                    F(io, w);
+                }
                 if io._fault == 3 { io._release(r.slot); }      // fault ClosedHandleStaleEarly
                 F(io, e);
                 if io._fault != 3 { io._release(r.slot); }
             }
+        } else if r.kind == _EV_CLOSED && (io._fault == 66 || io._fault == 68 || io._fault == 77) && r.gen != s.gen {
+            // fault SlotFreedOnClose: the slot was freed (and its generation advanced) when `close` was called, so the Closed
+            // of the link that was in it is delivered from what the pending record remembers
+            let e: goose_io::Event = goose_io::Event.Closed { link: goose_io::Link { slot: r.slot as u32, gen: r.gen }, why: goose_io::CloseReason.Local };
+            delivered++;
+            F(io, e);
         }
     }
     io._pending.clear();
@@ -922,9 +1006,20 @@ fn _release(io: Loop&, i: i64) {
     io._last_remote = s.remote;
     if s.script < 0 { io._library_links--; }
     s.state = _FREE;
-    s.gen++;
-    if s.gen == 0 { s.gen = 1; }
+    if io._fault != 65 {        // fault GenerationNotAdvanced: a slot comes back with the generation it had
+        // A slot whose last generation has been used is retired: it is never issued again (a generation does not wrap),
+        // so no slot and generation pair is issued twice.
+        if s.gen == 0xffffffff { return; }
+        s.gen++;
+    }
     io._free.push(i);
+}
+
+// Scripting, not part of the contract: sets the generation of the next link a free slot issues, so that the
+// retirement of an exhausted slot can be shown without 2^32 reuses. Does nothing for a slot that is not free.
+fn age_slot(io: Loop&, slot: i64, next_gen: u32) {
+    guard slot >= 0 && slot < io._slots.len && io._slots[slot].state == _FREE && next_gen != 0 else { return; }
+    io._slots[slot].gen = next_gen;
 }
 
 // An open end with bytes it will be given, or an end of stream it has not been told of.
@@ -1135,7 +1230,7 @@ fn _run_script(io: Loop&, k: i64) {
             // a peer plays one connection: a second connect step does nothing
             if !sc.taken {
                 sc.taken = true;
-                let link = io._dial(st.addr, 0, 0, k);
+                let link = io._dial(st.addr, 0, k);
                 sc.slot = link.slot;
             }
         } else if sc.closed || (sc.taken && sc.slot < 0) {
@@ -1259,9 +1354,10 @@ fn set_fault(io: Loop&, name: const u8[:]) {
 }
 
 fn _fault_named(name: const u8[:]) -> i64 {
+    guard name.len > 0 else { return 0; }       // position 8 of the list is retired (it was UserReadAtDial)
     let names = [
         "StaleHandleAccepted", "UnsetLinkHasRoom", "ClosedHandleStaleEarly", "PeerCloseDropsData", "OpenedBeforeFailure",
-        "WrongTag", "UserLostInData", "UserReadAtDial", "OpenedWithoutListener", "HeldIgnored",
+        "WrongListenerNamed", "DialClosedLost", "", "OpenedWithoutListener", "HeldIgnored",
         "PortZeroReportsZero", "StopListeningClosesLinks", "ListenerHandleReused", "StalePeerAddress", "DialReturnsInvalid",
         "RefusedAsUnreachable", "TimeoutEarly", "BadAddressAsRefused", "Ipv6Unsupported", "DataCorrupted",
         "SendClobbersLentBytes", "SendDropsLastByte", "SendBeforeOpenSent", "SendAfterCloseAccepted", "Send2SwapsParts",
@@ -1271,6 +1367,10 @@ fn _fault_named(name: const u8[:]) -> i64 {
         "ClosedNeverDelivered", "EofIgnoresDefault", "PeerEofBeforeData", "TickEvery250", "TickByIgnored",
         "TickByKeepsLatest", "NoPassEnd", "IdlePassEnd", "StopWaitsForGrace", "ShutdownEarly",
         "ListenAfterStop", "DialFailsWhileDraining", "StopLatestWins", "UnsetHandleAccepted", "SendAfterShutdownAccepted",
+        "UnixListenerIgnored", "UnixOverlapIgnored", "UnixRefusedAsBadAddress", "UnixPortInvented", "UnixRelativeAccepted",
+        "UnixLongestRefused", "UnixTripleSlashRefused", "UnixAliasNotHeld", "SlotsNeverReused",
+        "GenerationNotAdvanced", "SlotFreedOnClose", "PauseBeforeOpenIgnored", "SecondCloseClosesAgain", "WritableAfterClosedResult", "ClosedResultNotFinal",
+        "KeepOpenWhileDiallingIgnored", "KeepOpenLateHonoured", "EarlyEofActedOn", "ShutdownBeforeOpenRemembered", "ClosedResultEndsShutLink", "ResetDialOpens", "ResetAfterCloseClosesAgain", "PeerAddressGoneOnClose", "SendAfterFinishSent", "FinishedDialIssues", "SecondServeRuns", "SetupEventsDropped", "PeerAddressAfterFinish", "ShutdownOverridesLocal",
     ];
     for n, i in names { if n == name { return i + 1; } }
     return 0;

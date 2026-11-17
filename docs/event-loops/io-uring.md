@@ -10,7 +10,7 @@ Nothing was built or run. The kernel interface was not read; the opcode and flag
 
 Unverified (c_proxy does not use the operation, or it was not read):
 
-- `listener_port`, `peer_address`, `stop_listening` (runtime), `reset`, `set_user`, `user`, `max_send`,
+- `listener_port`, `peer_address`, `stop_listening` (runtime), `reset`, `max_send`,
   `send_room`, `send2`: not used by c_proxy; plain system calls and adapter state.
 - `Closed` reasons other than the ones the engine sees on a completion (`res` of the operation).
 - `tick_by` and `Tick` beyond a periodic timeout (the engine has one sweep timeout, `io_uring_prep_timeout`).
@@ -41,7 +41,6 @@ Every event loop supplies these.
 | `max_send` | None. | n/a | A configuration value of at least 4096. |
 | `pause_reading` | Do not re-arm the receive: a receive in flight completes once, and the engine re-submits (`copy_recv`) only when it wants more | checked | Do not call `copy_recv`-style submission while paused; a receive already in flight delivers one `Data` (the contract allows one already received). |
 | `close` | `io_uring_prep_close` batched, no completion on success (`fd_close`); `close(2)` direct on the epoll path | checked | See *Closing*. |
-| `set_user` | The user data of a submission carries `slot`, `gen`, kind and direction (`mkud`, `UD`) | checked: for the slot and generation | The `u32` user value lives in the per-link record. |
 | `now_ms` | A clock read when the loop wakes (`w->now`) | checked | `CLOCK_MONOTONIC`. |
 | `tick_by` | `io_uring_prep_timeout` (the engine's sweep timer, `proxy.c`) | checked: one periodic timeout | One timeout request: the regular 100 ms `Tick`, replaced by an earlier one when `tick_by` asks (`IORING_TIMEOUT_UPDATE` or cancel and resubmit; unverified). |
 | `serve` | `io_uring_submit_and_wait` / `io_uring_submit_and_wait_timeout` then a pass over the completions (`proxy.c`) | checked | One loop = one ring on one thread (`IORING_SETUP_SINGLE_ISSUER \| DEFER_TASKRUN`); the pass delivers events through the contract's queue. |
@@ -88,7 +87,6 @@ Only a loop that supplies the inspection group needs these.
 |---|---|---|---|
 | `peer_address` | `getpeername` | unverified | Plain call; the accept completion can also carry the address if requested. |
 | `stop_listening` | `io_uring_prep_cancel64` of the accept (`proxy.c`) then `close` | checked: cancel, `fd_close` | Links accepted stay. |
-| `user` | As above | unverified | The record outlives the close completion until `Closed` has been delivered. |
 
 ### Batching
 
@@ -101,7 +99,7 @@ Only a loop that supplies the batching group needs this.
 
 ## What a loop with only the core costs
 
-An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address`, `stop_listening` or `user`, and no `PassEnd`. Each group is a separate, later addition.
+An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each group is a separate, later addition.
 
 - `listen`: A runtime listener: the same calls, then the multishot accept. `bind` failure by errno gives `AddressInUse`.
 - `listener_port`: Plain call after binding port 0.
@@ -110,7 +108,6 @@ An event loop on this substrate that supplies only the core does the adapter wor
 - `max_send`: A configuration value of at least 4096.
 - `pause_reading`: Do not call `copy_recv`-style submission while paused; a receive already in flight delivers one `Data` (the contract allows one already received).
 - `close`: See *Closing*.
-- `set_user`: The `u32` user value lives in the per-link record.
 - `now_ms`: `CLOCK_MONOTONIC`.
 - `tick_by`: One timeout request: the regular 100 ms `Tick`, replaced by an earlier one when `tick_by` asks (`IORING_TIMEOUT_UPDATE` or cancel and resubmit; unverified).
 - `serve`: One loop = one ring on one thread (`IORING_SETUP_SINGLE_ISSUER \| DEFER_TASKRUN`); the pass delivers events through the contract's queue.
@@ -120,6 +117,7 @@ An event loop on this substrate that supplies only the core does the adapter wor
 - `Data`: Lend the buffer; return it to the ring (`buf_put`) after the handler returns. One `Data` pending per link: re-arm the receive only then. When the buffer ring is empty the receive completes with `-ENOBUFS` (`on_recv`): park the link until a buffer comes back, as c_proxy does (`wq_push`).
 - `Writable`: Queue `Writable` when room for the largest refused send has opened.
 - `Closed`: Queue the `Closed` then; reason from the adapter's state or the completion's `-errno` (`-ECONNRESET` is `PeerReset`).
+- Slots: a fixed-file table is dense by construction (the slot is the index of the registered file) when a freed index is reused before a new one is taken; keep a free list of indexes and free a slot only after the `Closed` handlers return (*Slot numbers are dense*).
 - `Tick`: The first event of a pass.
 - The peer's end of stream: the core still closes the link with `PeerClosed` once what was accepted is out, which is the default of the `set_keep_open_on_eof` row, without the switch to turn it off.
 
@@ -148,6 +146,13 @@ completes with `-ECANCELED`:
 | `-EACCES`, `-EPERM` | `Denied` |
 | `-EMFILE`, `-ENFILE`, `-ENOBUFS`, `-ENOMEM` | `NoResources` |
 | other | `Other` |
+
+## The keep-open window
+
+The contract fixes `set_keep_open_on_eof` to the time a link is dialling or its `Opened` is being handled (*Keep-open is
+configured no later than Opened*). On this substrate a receive of end of stream can complete before the `Opened` event has
+been given to the library: hold it until the handler of `Opened` has returned, then act on it with the setting the
+library made there (close with `PeerClosed` by default, or deliver `PeerEof` after the `Data` and keep the link open).
 
 ## Known gaps
 

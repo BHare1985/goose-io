@@ -31,7 +31,7 @@ fn accepting_peer() {
     io.peer_send(p, 0, "come");
     io.peer_close(p, 20);
     kit::check(!io.peer_connected(p), "a peer is not connected before anything dials it");
-    let link = io.dial("10.0.0.1:80", 2, 0);
+    let link = io.dial("10.0.0.1:80", 0);
     io.serve() { io, ev => accept_event(log, io, ev); };
     kit::check(kit::kinds_of(log, link) == "ODC", "a dial to a peer's address opens, carries its bytes, and ends when it closes");
     kit::check(at(log, kit::OPENED, link) == 0, "the peer accepts at once");
@@ -50,7 +50,7 @@ struct Late { link: goose_io::Link = goose_io::Link { .. } }
 fn late_event(s: Late&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
     kit::note(log, io, ev);
     match ev {
-        Tick t => { if t.now_ms == 100 { s.link = io.dial("10.0.0.10:80", 2, 0); } },
+        Tick t => { if t.now_ms == 100 { s.link = io.dial("10.0.0.10:80", 0); } },
         Data d => { io.close(d.link); },
         _ => {},
     }
@@ -80,7 +80,7 @@ fn retry_event(r: Retry&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_
     kit::note(log, io, ev);
     match ev {
         Closed c => {
-            if goose_io::same(c.link, r.first) { r.second = io.dial("10.0.0.2:80", 2, 0); }
+            if goose_io::same(c.link, r.first) { r.second = io.dial("10.0.0.2:80", 0); }
         },
         _ => {},
     }
@@ -95,7 +95,7 @@ fn refusing_then_accepting() {
     io.peer_refuse(no, "10.0.0.2:80");
     let yes = io.add_peer();
     io.peer_accept(yes, "10.0.0.2:80");
-    r.first = io.dial("10.0.0.2:80", 2, 0);
+    r.first = io.dial("10.0.0.2:80", 0);
     io.serve() { io, ev => retry_event(r, log, io, ev); };
     kit::check(kit::kinds_of(log, r.first) == "C", "the first dial meets the refusing peer");
     kit::check(kit::failed_with(log, r.first, goose_io::ConnectFailure.Refused), "and fails with ConnectFailed, kind Refused");
@@ -121,7 +121,7 @@ fn connecting_peer() {
     var io = goose_io_memory::Loop { .. };
     var log = kit::Log { .. };
     var s = Served { .. };
-    let l, err = io.listen("127.0.0.1:8300", 1);
+    let l, err = io.listen("127.0.0.1:8300");
     s.listener = l;
     let p = io.add_peer();
     io.peer_connect(p, "127.0.0.1:8300", 30);
@@ -185,7 +185,7 @@ fn peer_stops_reading() {
     io.peer_accept(p, "10.0.0.3:80");
     io.peer_stop_reading(p, 10);
     io.peer_resume_reading(p, 290);
-    f.link = io.dial("10.0.0.3:80", 2, 0);
+    f.link = io.dial("10.0.0.3:80", 0);
     io.serve() { io, ev => flood_event(f, chunk, io, ev); };
     kit::check(f.full_at == 100 && f.sent >= 8000, "a peer that stopped reading fills the link's bound");
     kit::check(io.stored_bytes(f.link) == 0 && f.sent == 20000, "fixture: everything was sent in the end");
@@ -195,10 +195,10 @@ fn peer_stops_reading() {
 
 // --- a peer that aborts; a library that resets ---------------------------------------------------
 
-fn abort_event(log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
+fn abort_event(log: kit::Log&, mine: goose_io::Link, io: goose_io_memory::Loop&, ev: goose_io::Event) {
     kit::note(log, io, ev);
     match ev {
-        Opened e => { if e.tag == 3 { io.send(e.link, "x"); io.reset(e.link); } },
+        Opened e => { if goose_io::same(e.link, mine) { io.send(e.link, "x"); io.reset(e.link); } },
         _ => {},
     }
     kit::stop_after(io, ev, 200);
@@ -213,9 +213,9 @@ fn aborting() {
     io.peer_abort(p, 40);
     let q = io.add_peer();
     io.peer_accept(q, "10.0.0.5:80");
-    let link = io.dial("10.0.0.4:80", 2, 0);
-    let mine = io.dial("10.0.0.5:80", 3, 0);
-    io.serve() { io, ev => abort_event(log, io, ev); };
+    let link = io.dial("10.0.0.4:80", 0);
+    let mine = io.dial("10.0.0.5:80", 0);
+    io.serve() { io, ev => abort_event(log, mine, io, ev); };
     kit::check(kit::closed_once(log, link, goose_io::CloseReason.PeerReset), "a peer's abort ends the library's link with PeerReset");
     kit::check(at(log, kit::CLOSED, link) == 40, "at the step's time");
     kit::check(!io.peer_saw_reset(p), "the aborting peer was not itself reset");
@@ -253,7 +253,7 @@ fn peer_send_waits() {
     io.peer_send(p, 0, big);                // far more than the link's bound, in one step
     io.peer_send(p, 0, "END");
     io.peer_close(p, 0);
-    s.link = io.dial("10.0.0.6:80", 2, 0);
+    s.link = io.dial("10.0.0.6:80", 0);
     io.serve() { io, ev => slow_event(s, log, io, ev); };
     let got = kit::data_of(log, s.link);
     kit::check(got.len == 30003 && got[..30000] == big && got[30000..] == "END", "a peer's send larger than the bound goes out as room opens, in order");
@@ -265,17 +265,22 @@ fn peer_send_waits() {
 
 // --- the same script gives the same events at the same times -------------------------------------
 
-struct Mixed { server: goose_io::Link = goose_io::Link { .. } }
+struct Mixed { servers: goose_io::Link[..16] = [] }
+
+fn is_server(m: Mixed&, link: goose_io::Link) -> bool {
+    for l in m.servers { if goose_io::same(l, link) { return true; } }
+    return false;
+}
 
 fn mixed_event(m: Mixed&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
     kit::note(log, io, ev);
     match ev {
         Opened e => {
-            io.set_user(e.link, e.link.slot + 100);
-            if e.tag == 2 { io.send(e.link, "hello from the library"); }
+            if goose_io::is_listener(e.listener) { m.servers.push(e.link); }
+            else { io.send(e.link, "hello from the library"); }
         },
         Data d => {
-            if d.tag == 1 { io.send(d.link, d.bytes); }      // echo
+            if is_server(m, d.link) { io.send(d.link, d.bytes); }      // echo
         },
         _ => {},
     }
@@ -287,7 +292,7 @@ fn mixed(out: u8[>..]&) {
     var log = kit::Log { .. };
     log.ticks = true;
     var m = Mixed { .. };
-    let l, err = io.listen("127.0.0.1:8310", 1);
+    let l, err = io.listen("127.0.0.1:8310");
     let a = io.add_peer();
     io.peer_connect(a, "127.0.0.1:8310", 15);
     io.peer_send(a, 5, "one");
@@ -301,10 +306,10 @@ fn mixed(out: u8[>..]&) {
     io.peer_connect(c, "127.0.0.1:8310", 15);        // the same moment as a
     io.peer_send(c, 5, "three");
     io.peer_close(c, 100);
-    let d1 = io.dial("10.0.0.7:80", 2, 0);
-    let d2 = io.dial("10.0.0.8:80", 2, 250);         // nobody there
+    let d1 = io.dial("10.0.0.7:80", 0);
+    let d2 = io.dial("10.0.0.8:80", 250);         // nobody there
     io.silent("10.0.0.9:80");
-    let d3 = io.dial("10.0.0.9:80", 2, 170);         // never answers
+    let d3 = io.dial("10.0.0.9:80", 170);         // never answers
     io.serve() { io, ev => mixed_event(m, log, io, ev); };
     out.append(kit::text(log));
     format(out, "a got ", io.peer_received(a), "\nb got ", io.peer_received(b), "\nc got ", io.peer_received(c), "\n");
@@ -340,7 +345,7 @@ fn peer_reads_before_stop_returns() {
     var io = goose_io_memory::Loop { .. };
     let p = io.add_peer();
     io.peer_accept(p, "10.0.0.1:80");
-    io.dial("10.0.0.1:80", 1, 0);
+    io.dial("10.0.0.1:80", 0);
     io.serve() { io, ev => finish_event(0, io, ev); };
     kit::check(io.peer_received(p) == "HTTP/1.1 200 OK\r\n\r\nHello", "after close and stop the peer has read the whole reply");
     kit::check(io.peer_saw_eof(p), "and has seen the end of the stream");
@@ -351,7 +356,7 @@ fn peer_reads_before_stop_returns() {
     var log = kit::Log { .. };
     let q = io2.add_peer();
     io2.peer_accept(q, "10.0.0.2:80");
-    let link = io2.dial("10.0.0.2:80", 1, 0);
+    let link = io2.dial("10.0.0.2:80", 0);
     io2.serve() { io, ev => { kit::note(log, io, ev); finish_event(1, io, ev); } };
     kit::check(io2.peer_received(q) == "HTTP/1.1 200 OK\r\n\r\nHello", "after shutdown_write and stop the peer has read the whole reply");
     kit::check(io2.peer_saw_eof(q), "and has seen the end of the stream");
@@ -364,7 +369,7 @@ fn peer_that_cannot_hold_the_loop() {
     let p = io.add_peer();
     io.peer_accept(p, "10.0.0.3:80");
     io.peer_stop_reading(p, 0);
-    io.dial("10.0.0.3:80", 1, 0);
+    io.dial("10.0.0.3:80", 0);
     io.serve() { io, ev => finish_event(0, io, ev); };
     kit::check(io.peer_received(p).len == 0, "a peer told to stop reading has not read what it was sent");
     kit::check(!io.hit_time_limit() && io.now_ms() < 1000, "and stop did not wait for it");
@@ -374,7 +379,7 @@ fn peer_that_cannot_hold_the_loop() {
     let q = io2.add_peer();
     io2.peer_accept(q, "10.0.0.4:80");
     io2.peer_send(q, 10000, "much later");
-    io2.dial("10.0.0.4:80", 1, 0);
+    io2.dial("10.0.0.4:80", 0);
     io2.serve() { io, ev => finish_event(0, io, ev); };
     kit::check(io2.peer_received(q) == "HTTP/1.1 200 OK\r\n\r\nHello", "a peer with a step ten seconds away still read the reply");
     kit::check(io2.now_ms() < 10000, "and stop did not wait for the step");

@@ -42,7 +42,7 @@ else
 fi
 
 for c in $listed; do grep -q "\`$c\`" "$doc" || { echo "BAD   check not named in $doc: $c"; bad=$((bad + 1)); }; done
-for f in $(grep -v '^#' "$tsv" | cut -f5 | grep -v '^-$'); do
+for f in $(grep -v '^#' "$tsv" | cut -f5 | grep -v '^-$' | tr ',' '\n'); do
     grep -q "\"$f\"" memory.goose || { echo "BAD   fault not in memory.goose: $f"; bad=$((bad + 1)); }
 done
 echo "$bad problems"

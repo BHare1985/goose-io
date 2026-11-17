@@ -6,8 +6,8 @@ The reference Linux epoll event loop of the I/O contract: workers that share not
 
 ## ADDED Requirements
 
-### Requirement: The loop supplies the core and every group and passes the suite
-The epoll event loop SHALL supply every operation and event of the core and of the half-close, sizing, abort, inspection and batching groups, and SHALL pass the core and each group of the conformance suite on Linux. It SHALL call the contract's checks for the core and for each group from its root program.
+### Requirement: The loop supplies the core and its five groups and passes the suite
+The epoll event loop SHALL supply every operation and event of the core and of the half-close, sizing, abort, inspection and batching groups (whether it also supplies the unix group is decided when it is applied), and SHALL pass the core and each group of the conformance suite on Linux. It SHALL call the contract's checks for the core and for each group from its root program.
 
 #### Scenario: The suite passes by group
 - **WHEN** the core and each group of the conformance suite are run against the epoll event loop on Linux
@@ -120,7 +120,7 @@ A program SHALL be able to supply an extension, resolved at compile time, that o
 - **THEN** bytes flow both ways with backpressure, both sockets close when either side ends, and no contract event is delivered for that connection
 
 #### Scenario: An extension refuses a send
-- **WHEN** an extension reports that a link's tag is no longer allowed and a library then sends on that link
+- **WHEN** an extension reports, for a slot, that the link in it is no longer allowed and a library then sends on that link
 - **THEN** no bytes are transmitted and the link is closed with a `LoopSpecific` reason
 
 ### Requirement: The seam is free when unused
@@ -155,3 +155,32 @@ On one host and method, a keep-alive HTTP server on the loop SHALL make the same
 #### Scenario: A regression blocks acceptance
 - **WHEN** any of these measurements is worse than the baseline's range
 - **THEN** the change is not accepted until the cause is found and removed
+
+### Requirement: The loop attaches nothing to a link
+The epoll event loop SHALL offer the operations and deliver the events of contract 0.2 only: `listen(address)`, `dial(address, connect_ms)`, and events that carry the link (and, for `Opened`, the listener that accepted it), with no tag, no user value and no operation that sets or reads one. A library SHALL find its state from the link of an event.
+
+#### Scenario: A library on the loop uses no tag
+- **WHEN** the example line server and line client run on the loop with no tag assigned by the application
+- **THEN** each handles only the events of its own links, and the checks that an accepted link names its listener and that a dial that fails at once is found by its link pass
+
+#### Scenario: An operation that was removed does not exist
+- **WHEN** a library calls `set_user` or passes a tag to `listen` or `dial` on the loop
+- **THEN** the build fails and the error names the call
+
+### Requirement: Slots are dense and held until Closed has been handled
+The epoll event loop SHALL give a new link a freed slot before it gives a slot it has never used, and SHALL free a slot only when every handler of its link's `Closed` has returned. A slot whose generations are used up MAY be retired.
+
+#### Scenario: Freed slots are reused first
+- **WHEN** a program opens eight links on the loop, closes them all, waits for every `Closed`, and opens eight more
+- **THEN** every link of the second eight has a slot below eight
+
+#### Scenario: A slot is not reused inside the handler of its Closed
+- **WHEN** a handler receives `Closed` for a link and opens a new link before it returns
+- **THEN** the new link does not take the slot of the link being closed, including when the closed link was a dial that failed inside `dial`
+
+### Requirement: An extension's own identity for a link is its own state
+An extension of the epoll event loop that keys data on a link (a route's lease, a deadline, a policy tag) SHALL keep it in per-slot state that the extension owns, indexed by the link's slot and checked against its generation, and the loop SHALL NOT carry it in any event or operation of the contract. A hook that decides about a link SHALL receive the link's slot.
+
+#### Scenario: An extension keeps its tag in its own state
+- **WHEN** an extension records a route tag for a link in its per-slot state and a library receives the events of that link
+- **THEN** no event the library receives carries a tag

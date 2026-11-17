@@ -16,7 +16,6 @@ Unverified (declaration read, behaviour not):
   `eventing/epoll_kqueue.c` was not read.
 - `stop`: `us_loop_run` returns when `num_polls` is zero (`eventing/epoll_kqueue.c`, checked); that closing every
   listener and socket reaches zero in all cases was not examined.
-- `user`, `set_user`: the socket extension area (`ext_size`) is the usual place; not read.
 
 Changing behaviour (all checked in source):
 
@@ -43,13 +42,12 @@ Every event loop supplies these.
 | `max_send` | None. | n/a | A configuration value of at least 4096. |
 | `pause_reading` | No call upstream. `us_poll_change(p, loop, events)` (declared in `libusockets.h`) with `us_poll_events(p) & ~LIBUS_SOCKET_READABLE` stops the poll for input; `us_poll_events` is read in `eventing/epoll_kqueue.c`. | checked | **Re-apply after every short write**: `us_socket_write` and `us_socket_write2` call `us_poll_change(READABLE|WRITABLE)` on a short write (`socket.c`), which re-enables reading. The `on_writable` path keeps the current `READABLE` bit (`loop.c`), so it does not. Also re-apply when the low-priority queue relinks a socket with `| LIBUS_SOCKET_READABLE` (`loop.c`, only for contexts that use `is_low_prio`; not the plain TCP case). |
 | `close` | `us_socket_close(ssl, s, code, reason)`: unlinks, `us_poll_stop`, `bsd_close_socket` (`close(2)`), queues the socket for freeing after the iteration, and **calls `on_close` before returning** (`socket.c`). It does not flush. | checked | Do not call it from `close`. Mark the link closing, flush the queue, `us_socket_shutdown`, keep reading and discarding until the peer's end of stream or a limit, then call `us_socket_close`; queue the `Closed` and deliver it after the handler returns. See *Closing*. |
-| `set_user` | The socket extension area (`ext_size`) holds adapter state. | unverified | Store the `u32` in the adapter's per-link record. |
 | `now_ms` | None. | n/a | A monotonic clock read at the top of each iteration (`pre_cb`). |
 | `tick_by` | `us_create_timer(loop, fallthrough, ext_size)`, `us_timer_set(timer, cb, ms, repeat_ms)` | unverified: declaration | One adapter timer: the regular 100 ms `Tick`, moved earlier by `tick_by`. `us_socket_timeout` has a granularity of `LIBUS_TIMEOUT_GRANULARITY` (4 s, `libusockets.h`) and is not usable for `connect_ms`. |
 | `serve` | `us_loop_run(loop)` blocks in `epoll_wait` with no timeout and runs while `num_polls` is non-zero; it calls `pre_cb` and `post_cb` each iteration (`eventing/epoll_kqueue.c`, `loop.c`). | checked | The unsolved point (see below): how events reach the Goose handler. |
 | `stop` | None. The loop returns when no polls remain. | checked: absent | On `stop`: close the listeners, close each link at the grace deadline with `Shutdown`, and stop the timers so `num_polls` reaches zero. `us_loop_run` blocks with no timeout, so the adapter's timer must wake it. |
 | `draining` | None. | n/a | A flag. |
-| `Opened` | `on_open(s, is_client, ip, ip_length)`: called for a finished connect (`loop.c`: `on_open(s, 1, 0, 0)`) and, through `us_adopt_accepted_socket`, for an accepted socket. | checked for connect; accept: the call was read, `us_adopt_accepted_socket` itself was not | Queue `Opened`; take the tag from the context of the listener or dial; the listener handle from the listen socket that accepted. |
+| `Opened` | `on_open(s, is_client, ip, ip_length)`: called for a finished connect (`loop.c`: `on_open(s, 1, 0, 0)`) and, through `us_adopt_accepted_socket`, for an accepted socket. | checked for connect; accept: the call was read, `us_adopt_accepted_socket` itself was not | Queue `Opened` with the link; for an accepted socket name the listener handle of the listen socket that accepted it (none for a dial). Nothing else is attached. |
 | `Data` | `on_data(s, data, length)` with `data` in the loop's one receive buffer (`LIBUS_RECV_BUFFER_LENGTH` 512 KB). When a read fills the buffer the loop reads again at once (`goto read_more`, `loop.c`), overwriting it. | checked | Copy the bytes into the adapter's own buffer inside `on_data`, or call Goose synchronously there. A deferred, lent slice is not possible: it would be overwritten before the handler runs. At most one `Data` pending per link: stop the poll for input (as in `pause_reading`) while one is queued. |
 | `Writable` | `on_writable(s)`: runs when the poll is writable after a failed write (`loop.c`). | checked | Drain the adapter's queue; when the room that the largest refused send needs is free, queue `Writable` once. |
 | `Closed` | `on_close(s, code, reason)`, called inside the close operations, with `code` 0 for an error. | checked | Queue it and deliver after the handler returns; the reason comes from the adapter's own state (`Local`, `PeerClosed`, `PeerReset`, `Shutdown`), not from `code`. See *Closing*. |
@@ -90,7 +88,6 @@ Only a loop that supplies the inspection group needs these.
 |---|---|---|---|
 | `peer_address` | `us_socket_remote_address(ssl, s, buf, &length)` | unverified: declaration | Format the bytes as the contract's text. A closed link must give empty. |
 | `stop_listening` | `us_listen_socket_close(ssl, ls)` | unverified: declaration | Links accepted from it are other sockets and stay open. |
-| `user` | As above. | unverified | The record must outlive `on_close` until the `Closed` handler has returned. |
 
 ### Batching
 
@@ -103,7 +100,7 @@ Only a loop that supplies the batching group needs this.
 
 ## What a loop with only the core costs
 
-An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address`, `stop_listening` or `user`, and no `PassEnd`. Each group is a separate, later addition.
+An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each group is a separate, later addition.
 
 - `listen`: Parse the address text first (numeric only) and hand uSockets the numeric text so nothing is resolved. A bind failure returns NULL with errno possibly clobbered by the `close` that follows it: probe with a throwaway `bind` to the same address to tell `AddressInUse`.
 - `listener_port`: Call it on the listen socket (cast). Port 0 binds a system-chosen port.
@@ -112,16 +109,16 @@ An event loop on this substrate that supplies only the core does the adapter wor
 - `max_send`: A configuration value of at least 4096.
 - `pause_reading`: **Re-apply after every short write**: `us_socket_write` and `us_socket_write2` call `us_poll_change(READABLE|WRITABLE)` on a short write (`socket.c`), which re-enables reading. The `on_writable` path keeps the current `READABLE` bit (`loop.c`), so it does not. Also re-apply when the low-priority queue relinks a socket with `| LIBUS_SOCKET_READABLE` (`loop.c`, only for contexts that use `is_low_prio`; not the plain TCP case).
 - `close`: Do not call it from `close`. Mark the link closing, flush the queue, `us_socket_shutdown`, keep reading and discarding until the peer's end of stream or a limit, then call `us_socket_close`; queue the `Closed` and deliver it after the handler returns. See *Closing*.
-- `set_user`: Store the `u32` in the adapter's per-link record.
 - `now_ms`: A monotonic clock read at the top of each iteration (`pre_cb`).
 - `tick_by`: One adapter timer: the regular 100 ms `Tick`, moved earlier by `tick_by`. `us_socket_timeout` has a granularity of `LIBUS_TIMEOUT_GRANULARITY` (4 s, `libusockets.h`) and is not usable for `connect_ms`.
 - `serve`: The unsolved point (see below): how events reach the Goose handler.
 - `stop`: On `stop`: close the listeners, close each link at the grace deadline with `Shutdown`, and stop the timers so `num_polls` reaches zero. `us_loop_run` blocks with no timeout, so the adapter's timer must wake it.
 - `draining`: A flag.
-- `Opened`: Queue `Opened`; take the tag from the context of the listener or dial; the listener handle from the listen socket that accepted.
+- `Opened`: Queue `Opened` with the link; for an accepted socket name the listener handle of the listen socket that accepted it (none for a dial). Nothing else is attached.
 - `Data`: Copy the bytes into the adapter's own buffer inside `on_data`, or call Goose synchronously there. A deferred, lent slice is not possible: it would be overwritten before the handler runs. At most one `Data` pending per link: stop the poll for input (as in `pause_reading`) while one is queued.
 - `Writable`: Drain the adapter's queue; when the room that the largest refused send needs is free, queue `Writable` once.
 - `Closed`: Queue it and deliver after the handler returns; the reason comes from the adapter's own state (`Local`, `PeerClosed`, `PeerReset`, `Shutdown`), not from `code`. See *Closing*.
+- Slots: the adapter keeps one record for each link in a table indexed by the `Link` slot and takes a freed slot (from a free list) before it extends the table, so slots are dense (*Slot numbers are dense*); a slot is freed only after the `Closed` handlers return.
 - `Tick`: Deliver as the first event of a pass.
 - The peer's end of stream: the core still closes the link with `PeerClosed` once what was accepted is out, which is the default of the `set_keep_open_on_eof` row, without the switch to turn it off.
 

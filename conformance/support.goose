@@ -9,8 +9,9 @@
 //     role 0: a dialled link (pair 0)    role 1: the link a listener accepted for it
 //     role 2: a dialled link (pair 1)    role 3: the link a listener accepted for it
 //
-// Tags are `base + 2p` for the accepted end of pair p and `base + 2p + 1` for the dialled end, so a
-// check's events are told from those of an earlier check whose links are still closing.
+// A check's events are told from those of an earlier check whose links are still closing by their links: a dialled
+// end is the link `dial` returned to the check, an accepted end is one whose `Opened` names a listener the check started
+// (`k.l` for pair 0, `k.l2` for pair 1), and every later event is one whose link the check holds.
 namespace goose_io_conformance;
 import std;
 import goose_io;
@@ -18,8 +19,6 @@ import goose_io;
 let RUNNING = 0;
 let PASSED = 1;
 let FAILED = 2;
-
-let TAGS_PER_CHECK = 4;
 
 // What contract calls cannot produce: an address that never answers a connect, and one that is held.
 struct Fixture {
@@ -30,6 +29,9 @@ struct Fixture {
     // stopped by then, so calls cannot make one). Without it the dial-while-draining part proves only that
     // the dial still ends in exactly one event.
     answers: const u8[:] = "",
+    // The unix group only: an absolute path at which the loop may create a socket (without `unix:`); the checks derive
+    // every other path from it. The loop creates and removes the file; the suite stops its listeners before it ends.
+    unix: const u8[:] = "",
 }
 
 // One recorded link event.
@@ -46,6 +48,7 @@ let GROUP_SIZING = 2;
 let GROUP_ABORT = 3;
 let GROUP_INSPECTION = 4;
 let GROUP_BATCHING = 5;
+let GROUP_UNIX = 6;
 let GROUP_NONE = 9;
 
 struct CoreGroup { n: i64 = 0 }
@@ -54,6 +57,7 @@ struct SizingGroup { n: i64 = 0 }
 struct HalfCloseGroup { n: i64 = 0 }
 struct InspectionGroup { n: i64 = 0 }
 struct AbortGroup { n: i64 = 0 }
+struct UnixGroup { n: i64 = 0 }
 
 struct Rec {
     role:     i64                   = 0,
@@ -62,14 +66,24 @@ struct Rec {
     off:      i64                   = 0,    // Data: its bytes in Case.bytes
     len:      i64                   = 0,
     why:      goose_io::CloseReason = goose_io::CloseReason.Error,
-    user:     u32                   = 0,
-    tag:      u16                   = 0,
     listener: goose_io::Listener    = goose_io::Listener { .. }, // Opened: the listener that accepted it
 }
 
+// The two checks that carry the handle rules (conformance/handles.goose). The driver fails whichever check is running
+// when a rule is broken, except that each of these two ignores a break of the other's rule, so that each fails for its own.
+// A check whose id is at least this runs after `serve` has returned, on the finished loop, and not inside serve: the driver
+// gives it one step with `k.after` set (*A finished loop does nothing*).
+let AFTER_ID = 900;
+
+let CHECK_PAIR_UNIQUE = 119;
+let CHECK_SLOT_HELD = 120;
+
+// One issuance of a link handle, as the driver saw it: the handle `dial` returned and the same handle in that link's
+// `Opened` are one issuance, an accepted link's `Opened` is another. `closed` is set when its `Closed` is delivered.
+struct Issue { slot: u32 = 0, gen: u32 = 0, closed: bool = false }
+
 root struct Case {
     id:       i64                = 0,
-    base:     i64                = 0,
     step:     i64                = 0,
     verdict:  i64                = 0,
     why:      u8[>..]            = [],       // an owned copy: a slice could not outlive serve
@@ -81,6 +95,7 @@ root struct Case {
     l:        goose_io::Listener = goose_io::Listener { .. },
     l2:       goose_io::Listener = goose_io::Listener { .. },
     old:      goose_io::Link     = goose_io::Link { .. },    // a handle kept to see that it goes stale
+    prev:     goose_io::Link[4]  = [goose_io::Link { .. }; 4],   // the links of an earlier round of the check
     port:     i64                = 0,
     n:        i64                = 0,
     m:        i64                = 0,
@@ -91,12 +106,22 @@ root struct Case {
     recs:     Rec[>..]           = [],
     bytes:    u8[>..]            = [],
     after:    bool               = false,    // serve has returned: a check that waited for stop gives its verdict
+    // What the driver knows of every handle the loop has issued in this part. It is not cleared between the checks of
+    // a part, because the rules are about the loop and the loop is shared.
+    issues: Issue[>..] = [],
+    // What the entry point set up before serve (see `setup_before_serve` in conformance/handles.goose); not cleared between checks.
+    pre_l:    goose_io::Listener = goose_io::Listener { .. },
+    pre_link: goose_io::Link     = goose_io::Link { .. },
+    pre_done: bool               = false,
+    pair_bad: bool               = false,    // a pair was issued twice, or a link had generation 0
+    slot_bad: bool               = false,    // a slot was issued while the link before it had not had its Closed
+    pair_why: u8[>..]            = [],
+    slot_why: u8[>..]            = [],
 }
 
 // Makes the case ready for check `id` (a Case cannot be copied, so the driver reuses one).
-fn reset(k: Case&, id: i64, base: i64) {
+fn reset(k: Case&, id: i64) {
     k.id = id;
-    k.base = base;
     k.step = 0;
     k.verdict = RUNNING;
     k.why.clear();
@@ -109,6 +134,7 @@ fn reset(k: Case&, id: i64, base: i64) {
     k.l = goose_io::Listener { .. };
     k.l2 = goose_io::Listener { .. };
     k.old = goose_io::Link { .. };
+    for r in 4 { k.prev[r] = goose_io::Link { .. }; }
     k.port = 0;
     k.n = 0;
     k.m = 0;
@@ -141,28 +167,87 @@ fn within<Io>(k: Case&, io: Io&, ms: i64) {
     io.tick_by(k.deadline);
 }
 
-// --- tags and roles ------------------------------------------------------------------------------
+// --- the handles the loop issues ---------------------------------------------------------------------
 
-fn tag(k: Case&, i: i64) -> u16 { (k.base + i) as u16 }
+fn _issue_at(k: Case&, slot: u32, gen: u32) -> i64 {
+    for e, i in k.issues { if e.slot == slot && e.gen == gen { return i; } }
+    return -1;
+}
 
-// The role of the link whose tag index is i: an even index is an accepted end, an odd one a dialled end.
-fn role_of_tag(i: i64) -> i64 { if i % 2 == 0 { i + 1 } else { i - 1 } }
+// Fails the check that is running, and every check that asks `pair_bad` later, with the first violation of the pair rule.
+fn _pair_violation(k: Case&, link: goose_io::Link, what: const u8[:]) {
+    var text: u8[>..] = [];
+    format(text, "[A slot and generation pair is never issued twice] slot ", link.slot, " generation ", link.gen, " ", what);
+    if !k.pair_bad { k.pair_bad = true; k.pair_why.append(text[..]); }
+    if k.id != CHECK_SLOT_HELD { k.fail(text[..]); }
+}
 
-fn owns(k: Case&, t: u16) -> bool { t >= k.base && t < k.base + TAGS_PER_CHECK }
+fn _slot_violation(k: Case&, link: goose_io::Link) {
+    var text: u8[>..] = [];
+    format(text, "[A slot is held until its Closed is delivered] slot ", link.slot, " was issued while the link in it had not had its Closed delivered");
+    if !k.slot_bad { k.slot_bad = true; k.slot_why.append(text[..]); }
+    if k.id != CHECK_PAIR_UNIQUE { k.fail(text[..]); }
+}
+
+// A handle the loop has just issued: the link `dial` returned, or an accepted link. Called by the driver for an
+// accepted link's `Opened` and by `dial_to` (and by a check that dials itself) for a dialled one.
+fn issued(k: Case&, link: goose_io::Link) {
+    if link.gen == 0 { k._pair_violation(link, "has generation 0, which is reserved for the invalid link"); return; }
+    if k._issue_at(link.slot, link.gen) >= 0 { k._pair_violation(link, "was issued again"); return; }
+    for e in k.issues { if e.slot == link.slot && !e.closed { k._slot_violation(link); break; } }
+    k.issues.push(Issue { slot: link.slot, gen: link.gen, closed: false });
+}
+
+// Every link event the driver is given, whichever check's link it is.
+fn sight(k: Case&, ev: goose_io::Event) {
+    match ev {
+        Opened e => {
+            if goose_io::is_listener(e.listener) { k.issued(e.link); }
+            else if k._issue_at(e.link.slot, e.link.gen) < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: false }); }
+        },
+        Data e => { if k._issue_at(e.link.slot, e.link.gen) < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: false }); } },
+        Writable e => { if k._issue_at(e.link.slot, e.link.gen) < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: false }); } },
+        PeerEof e => { if k._issue_at(e.link.slot, e.link.gen) < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: false }); } },
+        Closed e => {
+            let i = k._issue_at(e.link.slot, e.link.gen);
+            if i < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: true }); }
+            else { k.issues[i].closed = true; }
+        },
+        _ => {},
+    }
+}
+
+// --- roles ---------------------------------------------------------------------------------------
 
 fn role(k: Case&, link: goose_io::Link) -> i64 {
     for r in 4 { if goose_io::same(k.link[r], link) { return r; } }
     return -1;
 }
 
+// The role an `Opened` that names a listener belongs to: 1 for the listener of pair 0, 3 for pair 1, -1 when the
+// listener is not one this check started (another check's, still open).
+fn accepted_role(k: Case&, listener: goose_io::Listener) -> i64 {
+    if goose_io::is_listener(k.l) && goose_io::same(listener, k.l) { return 1; }
+    if goose_io::is_listener(k.l2) && goose_io::same(listener, k.l2) { return 3; }
+    return -1;
+}
+
+// True for a link event of this check: its link is one the check holds, or it is the `Opened` of a link that one of
+// the check's listeners accepted.
 fn is_mine(k: Case&, ev: goose_io::Event) -> bool {
     if !goose_io::is_link_event(ev) { return false; }
-    return k.owns(goose_io::tag_of(ev));
+    match ev {
+        Opened e => {
+            if goose_io::is_listener(e.listener) { return k.accepted_role(e.listener) >= 0; }
+            return k.role(e.link) >= 0;
+        },
+        _ => { return k.role(goose_io::link_of(ev)) >= 0; },
+    }
 }
 
 // Listens on the loopback address with a system-chosen port and remembers the port.
 fn listen_local<Io>(k: Case&, io: Io&, pair: i64) -> bool {
-    let l, err = io.listen("127.0.0.1:0", k.tag(pair * 2));
+    let l, err = io.listen("127.0.0.1:0");
     k.expect(goose_io::is_listener(l) && !goose_io::failed(err), "listen on a free port failed");
     if pair == 0 { k.l = l; } else { k.l2 = l; }
     k.port = io.listener_port(l) as i64;
@@ -182,10 +267,23 @@ fn dial_local<Io>(k: Case&, io: Io&, pair: i64, connect_ms: i64) -> goose_io::Li
 }
 
 fn dial_to<Io>(k: Case&, io: Io&, address: const u8[:], pair: i64, connect_ms: i64) -> goose_io::Link {
-    let link = io.dial(address, k.tag(pair * 2 + 1), connect_ms);
+    let link = io.dial(address, connect_ms);
+    k.issued(link);
     k.link[pair * 2] = link;
     k.live++;
     return link;
+}
+
+// Asks for the end of stream to be kept open on the accepted end of `pair`, in the handler of its `Opened` (a call made
+// later has no effect). Call it with every event from the check's step; it needs the half-close group. The dialled end is
+// configured with `io.set_keep_open_on_eof` right after `dial_to`, while it is dialling.
+fn keep_open_on_accept<Io>(k: Case&, io: Io&, ev: goose_io::Event, pair: i64) {
+    match ev {
+        Opened e => {
+            if goose_io::is_listener(e.listener) && k.accepted_role(e.listener) == pair * 2 + 1 { io.set_keep_open_on_eof(e.link, true); }
+        },
+        _ => {},
+    }
 }
 
 // A pair on the loopback: listen, dial. Returns whether both calls were made.
@@ -197,15 +295,10 @@ fn connect_local<Io>(k: Case&, io: Io&, pair: i64) -> bool {
 
 // --- recording -----------------------------------------------------------------------------------
 
-// Appends a record and checks the tag the event carried against the role of the link: every check gets
-// the rule that an event names its owner (*Every link event names its owner*) for nothing.
-fn _record(k: Case&, link: goose_io::Link, tag: u16, rec: Rec) {
+// Appends a record of an event of this check, for the role of its link.
+fn _record(k: Case&, link: goose_io::Link, rec: Rec) {
     var r = rec;
     r.role = k.role(link);
-    r.tag = tag;
-    if r.role >= 0 && tag - k.base != (if r.role % 2 == 1 { r.role - 1 } else { r.role + 1 }) {
-        k.fail("a link event carried the wrong tag");
-    }
     k.recs.push(r);
 }
 
@@ -214,24 +307,29 @@ fn track<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     let now = io.now_ms();
     match ev {
         Opened e => {
-            if k.owns(e.tag) {
-                let r = role_of_tag(e.tag - k.base);
-                if goose_io::is_listener(e.listener) { k.link[r] = e.link; k.live++; }
-                k._record(e.link, e.tag, Rec { kind: 'O', at: now, user: e.user, listener: e.listener, .. });
+            if goose_io::is_listener(e.listener) {
+                let r = k.accepted_role(e.listener);
+                if r >= 0 {
+                    k.link[r] = e.link;
+                    k.live++;
+                    k._record(e.link, Rec { kind: 'O', at: now, listener: e.listener, .. });
+                }
+            } else if k.role(e.link) >= 0 {
+                k._record(e.link, Rec { kind: 'O', at: now, listener: e.listener, .. });
             }
         },
         Data e => {
-            if k.owns(e.tag) {
+            if k.role(e.link) >= 0 {
                 let off = k.bytes.len;
                 k.bytes.append(e.bytes);
-                k._record(e.link, e.tag, Rec { kind: 'D', at: now, off: off, len: e.bytes.len, user: e.user, .. });
+                k._record(e.link, Rec { kind: 'D', at: now, off: off, len: e.bytes.len, .. });
             }
         },
-        Writable e => { if k.owns(e.tag) { k._record(e.link, e.tag, Rec { kind: 'W', at: now, user: e.user, .. }); } },
-        PeerEof e => { if k.owns(e.tag) { k._record(e.link, e.tag, Rec { kind: 'E', at: now, user: e.user, .. }); } },
+        Writable e => { if k.role(e.link) >= 0 { k._record(e.link, Rec { kind: 'W', at: now, .. }); } },
+        PeerEof e => { if k.role(e.link) >= 0 { k._record(e.link, Rec { kind: 'E', at: now, .. }); } },
         Closed e => {
-            if k.owns(e.tag) {
-                k._record(e.link, e.tag, Rec { kind: 'C', at: now, why: e.why, user: e.user, .. });
+            if k.role(e.link) >= 0 {
+                k._record(e.link, Rec { kind: 'C', at: now, why: e.why, .. });
                 k.live--;
             }
         },

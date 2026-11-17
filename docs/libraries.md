@@ -12,7 +12,7 @@ network. Then come back here for the shape of a library and the rules it follows
 This document covers the shape of a library, what the contract gives it to work with, and how to test it with
 no network. Every excerpt of code in it is copied from a file that the tests build and run, and
 `tests/checks/docs.sh` fails if one drifts: `examples/lineserver/server.goose`, `examples/lineclient/client.goose`
-and `examples/gateway.goose` are the libraries, and `tests/examples/` runs them on scripted peers.
+`examples/gateway.goose` and `examples/dispatch.goose` are the libraries and the applications that run them, and `tests/examples/` runs them on scripted peers.
 
 ## What a library needs
 
@@ -35,8 +35,7 @@ goose_io::require_half_close(io);       // the line server keeps its link open a
 The fewer groups a library needs, the more event loops it runs on, so ask first whether the core is enough. It
 usually is: `send` and `Full` do what `send_room` and `send2` do (join the two parts into a buffer of your own, and
 wait for `Writable` on `Full`), `close` ends a link as `shutdown_write` does for a protocol where the peer's end of
-stream means it is done, `Tick` and `tick_by` replace `PassEnd` for a library that does not batch, and the user
-value is yours to keep (`set_user` sets it; you do not need `user` to read it back). A library that needs a group
+stream means it is done, `Tick` and `tick_by` replace `PassEnd` for a library that does not batch. A library that needs a group
 fails to build on an event loop without it, naming the operation. `examples/lineclient/` needs only the core and its
 tests run on `tests/support/core_only.goose`; `examples/lineserver/` answers after the peer has finished sending, so it needs half-close.
 
@@ -50,19 +49,19 @@ says whether the event was its own. It imports the contract and nothing that nam
 `tests/examples/imports_test.sh`), so one source runs on every event loop that passes the conformance suite.
 
 The state is one struct that the application owns: a local or a global variable, passed by reference. It holds the
-library's tag, its listener or its pool of links, and its buffers. Buffers have fixed sizes in these examples, so
+library's listener or its pool of links, a `LinkMap` that finds a connection from the link of an event, and its buffers. Buffers have fixed sizes in these examples, so
 a peer that is too fast, too slow or silent cannot make the library grow; a library that needs more may use
 growable arrays, with the one rule of Goose that an array element cannot itself be resizable.
 
 <!-- excerpt: examples/lineserver/server.goose#state -->
 ```goose
 root struct LineServer {
-    tag:      u16                = 0,
-    listener: goose_io::Listener = goose_io::Listener { .. },
-    open:     i64                = 0,
-    fulls:    i64                = 0,       // how many sends were refused with Full
-    conns:    Conn[>..]          = [],
-    free:     i64[>..<]          = [],
+    listener: goose_io::Listener     = goose_io::Listener { .. },
+    open:     i64                    = 0,
+    fulls:    i64                    = 0,   // how many sends were refused with Full
+    refs:     goose_io::LinkMap<Ref> = goose_io::LinkMap<Ref> {},         // the connection of a link
+    conns:    Conn[>..]              = [],
+    free:     i64[>..<]              = [],
 }
 ```
 
@@ -72,8 +71,9 @@ none owns.
 
 <!-- excerpt: examples/lineserver/server.goose#entry -->
 ```goose
-// The library's one entry point: true if the event was for this server, false if it is another library's (or
-// a Tick or PassEnd, which every library is offered).
+// The library's one entry point: true if the event was for a link of this server, false if it is another library's
+// (or a Tick or PassEnd, which every library is offered). An accepted link is this server's when `Opened` names its
+// listener; every later event is its own when the map has the link.
 fn server_event<Io>(s: LineServer&, io: Io&, ev: goose_io::Event) -> bool {
     match ev {
         Tick t => {
@@ -82,56 +82,101 @@ fn server_event<Io>(s: LineServer&, io: Io&, ev: goose_io::Event) -> bool {
         },
         PassEnd => { return false; },
         Opened e => {
-            if e.tag != s.tag { return false; }
+            guard goose_io::is_listener(e.listener) && goose_io::same(e.listener, s.listener) else { return false; }
             s._on_opened(io, e.link);
             return true;
         },
         Data e => {
-            if e.tag != s.tag { return false; }
-            let i = s._conn_of(e.user, e.link);
-            if i >= 0 { s._on_data(io, i, e.bytes); }
+            let i = s._conn_of(e.link);
+            guard i >= 0 else { return false; }
+            s._on_data(io, i, e.bytes);
             return true;
         },
         Writable e => {
-            if e.tag != s.tag { return false; }
-            let i = s._conn_of(e.user, e.link);
-            if i >= 0 {
-                s._flush(io, i);
-                s._finish_if_done(io, i);
-            }
+            let i = s._conn_of(e.link);
+            guard i >= 0 else { return false; }
+            s._flush(io, i);
+            s._finish_if_done(io, i);
             return true;
         },
         PeerEof e => {
-            if e.tag != s.tag { return false; }
-            let i = s._conn_of(e.user, e.link);
-            if i >= 0 {
-                s.conns[i].eof = true;
-                s._finish_if_done(io, i);
-            }
+            let i = s._conn_of(e.link);
+            guard i >= 0 else { return false; }
+            s.conns[i].eof = true;
+            s._finish_if_done(io, i);
             return true;
         },
         Closed e => {
-            if e.tag != s.tag { return false; }
-            let i = s._conn_of(e.user, e.link);
-            if i >= 0 {
-                s.conns[i].in_use = false;
-                s.open--;
-                s.free.push(i);
-            }
+            let i = s._conn_of(e.link);
+            guard i >= 0 else { return false; }
+            s.conns[i].in_use = false;
+            s.open--;
+            s.free.push(i);
+            s.refs.drop(e.link);
             return true;
         },
     }
 }
 ```
 
-### Tags and the user value
+### How an event finds its state
 
-Every link event names its owner. The **tag** is given to `listen` or `dial` and comes back on every event of the
-link: it is how a library tells its links from another library's, and the application gives each library its own. The
-**user value** is the library's own number for one link, set with `set_user` and carried by every later event of
-that link. Both examples use it as an index into their table of connections, so an event leads straight to its
-state, and check that the link in the table is the link in the event (`same`) before trusting the index. A link
-that failed at once still carries the user value set after `dial` returned, so a library can set it right away.
+Nothing is attached to a link: an event carries its **link**, and the library keeps its own state keyed by it. A
+library recognises its events by what it already holds. A **dialled** link is the one `dial` returned, which the library
+put in its table before any event about it (so a dial that fails at once finds its state too, because every event is
+delivered after the handler that called `dial` has returned). An **accepted** link is one whose `Opened` names a
+listener the library started: the library compares `e.listener` with its own, as a ZeroMQ program compares the socket
+`zpoller_wait` returned with its frontend. Every **later** event is one whose link the library has state for. For any
+other link the library returns "not handled", and the application offers the event to the next library: a library
+claims an event only when it owns the link, and does none of its handling for a link it does not know.
+
+`goose_io::LinkMap<T>` is the table for this. `put(link, value)` stores a value, `find(link)` returns a reference to it or
+nothing, `has(link)` asks, and `drop(link)` empties the entry. A stale link, another library's link, a link never put and a
+dropped link all find nothing, because the generation of the link is stored beside the value. Both examples use it.
+
+The `server_event` of `examples/lineserver` above is the whole pattern: `Opened` compares `e.listener` with the server's listener and puts
+the link in the map; `Data`, `Writable` and `PeerEof` look the link up and return `false` when it is not found; `Closed` looks it up, releases
+the connection and calls `s.refs.drop(e.link)` (the handle is valid until that handler returns).
+
+A dialled link's `Opened` finds the entry the library put when `dial` returned: the library does not `put` it again, which
+would overwrite what it had set up. A library that has several listeners compares `e.listener` with each; a library that both
+accepts and dials uses one map for both. Use one map only with the links of one event loop (two loops can issue equal
+slot and generation pairs).
+
+#### Choosing a table
+
+`LinkMap` is flat: it holds an entry (a generation and a value) for each slot up to the highest one the library has used, so its
+memory is **the event loop's peak slot count times the size of the entry**. Slots are dense on every event loop (a freed slot
+is reused before a new one is issued), so that number is the greatest number of links valid at once on the loop, which counts every library's links, not
+only yours. For small state this is nothing: 1,024 slots of 512 bytes is about half a megabyte, and a lookup costs the same as
+a table you would write by hand (`bench/README.md`, measured at its largest use too). For **large state** (the example
+servers keep 16 to 36 KB of buffers for each connection) do not put the state in the map: keep the records in a compact table of
+your own, one for each open connection, and put only the index in the map (`LinkMap<Ref>` with `struct Ref { index: i64 }`),
+as `examples/lineserver` and `examples/echo` do. The map then costs a few bytes a slot. A library may also keep its state
+any other way, or with another layout (the benchmark has a compact table that stores values only for the links a library owns),
+because the contract guarantees the identity and lifetime of a link and not the table; the laws a table must obey are in
+`tests/unit/link_map_test.goose`, written so that another table can be run through them.
+
+### The end of the loop
+
+- **Do not count on delivery at the end of the grace period.** When `stop`'s grace period ends the event loop may discard bytes
+  you were told were `Sent`, so a protocol that needs the peer to have received something has the peer say so. A link you had
+  closed before the end of the grace period ends with `Local`, not `Shutdown`, whether you closed it before or after `stop`.
+- **After `serve` has returned the loop is finished.** Every operation does nothing and returns at once: `send` returns `Closed`,
+  `listen` fails, and `dial` returns the invalid link, so check `goose_io::is_valid` on a link from a `dial` that may be made
+  after `serve` could have returned. A second `serve` returns at once without calling your handler.
+- **A loop belongs to the thread that serves it**: set it up (`listen`, `dial`) and call `serve` on one thread, and do not use
+  one loop from two threads.
+
+### Keep-open and the end of a send
+
+- **Call `set_keep_open_on_eof(link, true)` in the handler of the link's `Opened`**, or before it for a link you dialled
+  (right after `dial` returns, while it is dialling). A call made later, from the handler of a `Data` for instance, has no
+  effect even if the peer has not finished: the contract fixes this window so that every event loop answers the same way
+  (`examples/lineserver` calls it in the handler of `Opened`).
+- **A `Closed` result from `send` is final for sending**: drop the send queue for that link, and expect no `Writable`. It does
+  not mean no more `Data`: if you called `shutdown_write` the link goes on receiving until its `Closed` event, and if you
+  did not, the event loop is ending the link and its `Closed` follows with no further call.
 
 ### `Full` and `Writable`
 
@@ -229,7 +274,7 @@ A library may still `dial` while draining to finish work in hand; it may not `li
 
 ### The application
 
-The application is the only code that names an event loop, and it assigns the tags. It runs the loop and hands each event to
+The application is the only code that names an event loop. It runs the loop and hands each event to
 its libraries. `examples/gateway.goose` runs the line server twice (a front and a backend) and the line client on
 one loop, and connects them without either library naming the other: the front's requests become the client's
 requests to the backend, and the client's results become the front's replies.
@@ -269,6 +314,73 @@ fn step<Io>(front: lineserver::LineServer&, back: lineserver::LineServer&, clien
 `tests/examples/gateway_test.goose` runs it, and checks that on `stop` every library closes its links so that
 `serve` returns before the grace period ends.
 
+#### Offering in turn, or dispatching by link
+
+`step` above **offers** each event to the libraries in turn: the first library is offered it, returns `false` if the link is
+not its own (and does nothing), and the application offers it to the next. A library is written to tolerate this, so it is
+the simplest application. `examples/dispatch.goose` is the other way: the application keeps which library owns each link in
+a `LinkMap` and calls only that library.
+
+<!-- excerpt: examples/dispatch.goose#router -->
+```goose
+// The library that owns a link, as a number the application chooses.
+struct Owner { library: i64 = 0 }
+
+root struct Router {
+    owners:  goose_io::LinkMap<Owner> = goose_io::LinkMap<Owner> {},
+    offered: i64                      = 0,        // events offered in turn: the first event of each link
+}
+
+// Offers the event to one library; true if the event was for one of its links.
+fn _offer<Io>(echo: echo::Echo&, client: lineclient::LineClient&, library: i64, io: Io&, ev: goose_io::Event) -> bool {
+    return if library == 0 { echo.echo_event(io, ev) } else { client.client_event(io, ev) };
+}
+
+fn step<Io>(r: Router&, echo: echo::Echo&, client: lineclient::LineClient&, io: Io&, ev: goose_io::Event) {
+    if !goose_io::is_link_event(ev) {
+        // a Tick is about no link: every library has its own
+        echo.echo_event(io, ev);
+        client.client_event(io, ev);
+        return;
+    }
+    let link = goose_io::link_of(ev);
+    let known .= r.owners.find(link);
+    if known != null {
+        _offer(echo, client, known.library, io, ev);                    // one lookup
+    } else {
+        for library in 2 {                                              // the first event of a link: ask each library once
+            r.offered++;
+            if _offer(echo, client, library, io, ev) {
+                r.owners.put(link, Owner { library: library });
+                break;
+            }
+        }
+    }
+    match ev {
+        Closed e => { r.owners.drop(e.link); },                         // the handle is valid until this handler returns
+        _ => {},
+    }
+}
+```
+
+The tradeoffs:
+
+| | Offer in turn (`gateway.goose`) | Dispatch by link (`dispatch.goose`) |
+|---|---|---|
+| **Cost of an event** | A failed ownership check in every library before the owner: a table lookup each, a few nanoseconds when the table is in cache (`bench/README.md`), so it grows linearly with the number of libraries. Not measured for a chain of many libraries. | One `LinkMap` lookup, whatever the number of libraries. |
+| **Cost of a new link** | The same as any other event. | The first event of each link is still offered in turn, until a library claims it: one failed check per library before the owner, once for the life of the link. |
+| **State in the application** | None. | A table with an entry (a generation and an owner number) for each slot up to the loop's highest, as in `LinkMap`; an entry is dropped in `Closed`, and one that is forgotten is harmless because the generation protects it. |
+| **Code** | A few lines. | A router and a drop in `Closed`. |
+| **What it relies on** | Each library returning `false`, and doing nothing, for a link that is not its own (*A library claims only the events of links it owns*). | The same, for the first event of each link: a library that claimed a link that was not its own would own it in the table. |
+| **Choose it when** | There are a few libraries and the cost is not measurable. | There are many libraries, or the events are many and the failed checks add up. |
+
+A library that dials for itself (the line client) makes links the application never sees the handle of, so an application
+cannot register them in advance: dispatching by link learns the owner from the library that claims the first event, as
+`dispatch.goose` does. A `Tick` and `PassEnd` are about no link and go to every library in either way.
+
+`tests/examples/dispatch_test.goose` runs it, with an echo server and a line client on one loop, and checks that only the first
+event of each link was offered in turn.
+
 ## Testing a library
 
 The package includes an event loop that needs no network and no real clock: `goose_io_memory::Loop`
@@ -300,16 +412,26 @@ import goose_io.tests.support.kit;
 // --- the library ---------------------------------------------------------------------------------
 // Sends back what it receives in upper case, and closes the link at the first '.'.
 
-let SHOUT_TAG = 7;
+struct Link { open: bool = false }
 
-struct Shout { links: i64 = 0, bytes: i64 = 0 }
+struct Shout {
+    listener: goose_io::Listener      = goose_io::Listener { .. },
+    links:    i64                     = 0,
+    bytes:    i64                     = 0,
+    conns:    goose_io::LinkMap<Link> = goose_io::LinkMap<Link> {},        // the library's state, found by the event's link
+}
 
-// Returns false for an event that belongs to another library.
+// Returns false for an event that belongs to another library: an accepted link is ours when `Opened` names our
+// listener, and every later event is ours when we have state for its link.
 fn shout_event<Io>(lib: Shout&, io: Io&, ev: goose_io::Event) -> bool {
-    guard goose_io::is_link_event(ev) && goose_io::tag_of(ev) == SHOUT_TAG else { return false; }
     match ev {
-        Opened e => { lib.links++; },
+        Opened e => {
+            guard goose_io::is_listener(e.listener) && goose_io::same(e.listener, lib.listener) else { return false; }
+            lib.conns.put(e.link, Link { open: true });
+            lib.links++;
+        },
         Data d => {
+            guard lib.conns.has(d.link) else { return false; }
             var out: u8[>..] = [];
             var done = false;
             for c in d.bytes {
@@ -320,8 +442,12 @@ fn shout_event<Io>(lib: Shout&, io: Io&, ev: goose_io::Event) -> bool {
             io.send(d.link, out);
             if done { io.close(d.link); }
         },
-        Closed e => { lib.links--; },
-        _ => {},
+        Closed e => {
+            guard lib.conns.has(e.link) else { return false; }
+            lib.links--;
+            lib.conns.drop(e.link);
+        },
+        _ => { return false; },
     }
     return true;
 }
@@ -332,8 +458,9 @@ fn main() {
     var io = goose_io_memory::Loop { .. };
     io.cfg.read_chunk = 4;                      // deliver in small pieces: the library must not care
     var lib = Shout { .. };
-    let listener, err = io.listen("127.0.0.1:7000", SHOUT_TAG);
+    let listener, err = io.listen("127.0.0.1:7000");
     kit::check(!goose_io::failed(err), "listen");
+    lib.listener = listener;
 
     // The client is a scripted peer: connect at once, send 10 ms later, send again 40 ms after that.
     let peer = io.add_peer();
@@ -429,6 +556,59 @@ stream, so after `serve` returns `peer_received` holds the whole reply and `peer
 wait for a peer's later steps or for a peer told to stop reading, so a test that needs a peer to
 read more than that adds the step and a deadline for it, and does not stop the loop before then.
 
+### A path as an address
+
+A library that wants a Unix socket passes `unix:/path` (or `unix:///path`, the same path, as Docker, gRPC and Redis configuration write it) where it would pass a numeric address, to `dial` or `listen`, and
+nothing else changes. The in-memory loop supplies the unix group: a path is the name of an endpoint, a listener holds
+it, a dial reaches it, and a scripted peer can wait at it as it waits at an address. A path has no port
+(`listener_port` is 0) and no peer address text. Set `io.cfg.unix_paths = false` to see a library meet a loop without
+the group: every path is `BadAddress`.
+
+<!-- excerpt: tests/examples/unix_dial_test.goose#unix_peer -->
+```goose
+fn dials_a_path<Io>(io: Io&) {
+    var log = kit::Log { .. };
+    let db = io.add_peer();
+    io.peer_accept(db, "unix:/var/run/postgresql/.s.PGSQL.5432");
+    io.peer_send(db, 5, "ready");
+    let link = io.dial("unix:/var/run/postgresql/.s.PGSQL.5432", 0);
+    io.serve() { io, ev => on_event(log, io, ev); };
+    kit::check(kit::data_of(log, link) == "ready", "the peer at the path answers");
+    kit::check(io.peer_received(db) == "hello", "and reads what the library sent");
+}
+```
+
+### Protocol URLs are the library's
+
+`postgres://`, `mysql://` and `redis://` are not addresses. They carry credentials, a database name, a TLS choice and
+rules for where a socket is, none of which an event loop knows. A library reads its own URL and passes `dial` an
+address: `unix:/path`, `unix:///path` (the same path) or a numeric `ip:port`. Text that is none of these is `BadAddress`,
+as a host name is, since the contract does no name resolution.
+
+| The library is given | It passes to `dial` |
+|---|---|
+| a PostgreSQL host setting of `/run/postgresql`, port 5432 | `unix:/run/postgresql/.s.PGSQL.5432` |
+| `redis+unix:///run/redis.sock` | `unix:///run/redis.sock` |
+| a MySQL `socket=/run/mysqld/mysqld.sock` | `unix:/run/mysqld/mysqld.sock` |
+| `redis://10.0.0.5:6379` | `10.0.0.5:6379` |
+| `redis://cache.internal:6379` | its own lookup first; the event loop never resolves a name |
+
+What the system reports for a path that fails (no file, nobody listening, no permission) arrives as the kinds the
+contract already has, `Refused`, `Denied`, `NoResources` or `Other`. There is no kind for a Unix socket.
+
+### Moving from 0.1
+
+Version 0.2 removes the tag and the user value. A library or an event loop moves in these steps; each is a compile error
+until done, and the error names the operation.
+
+1. **Event loop:** stop taking `tag` in `listen` and `dial`; drop `tag` and `user` from the five link events; drop `set_user` and
+   `user`; take slots from a free list before extending, so that slots are dense.
+2. **Library:** replace the table indexed by the user value with a `LinkMap` keyed by the link (holding the state, or an index into a
+   compact table for large state); delete the `tag` field and every `if e.tag != s.tag`; in `Opened` decide ownership by `e.listener`
+   (an accepted link) or by `has(e.link)` (a dialled link); return "not handled" from every arm whose link the library does not own;
+   in `Closed`, call `drop`.
+3. **Application:** stop assigning tags to libraries.
+
 ### The clock
 
 `now_ms` starts at 0. The loop delivers everything that is due and then moves the clock straight
@@ -457,6 +637,7 @@ Set these on `io.cfg` before the first `listen`, `dial`, `add_peer` or `serve`.
 | `time_limit_ms` | 600000 | See "Limits". |
 | `exit_on_time_limit` | true | See "Limits". |
 | `passes_per_ms` | 64 | See "The clock". A value below 1 is raised to 1. |
+| `unix_paths` | true | Supply the unix group. With false, `unix:/path` is refused with `BadAddress`, as by a loop without the group. |
 
 A setting that would stop the loop making progress is raised to the smallest value that does not
 (`tick_ms`, `passes_per_ms`, `max_send`, `link_buffer`, `read_chunk`); the other settings only make
@@ -490,6 +671,10 @@ And for checking afterwards:
 - **`serve` returns** after `stop` once no link of a library is left. Scripted peers do not keep
   it running. A test usually stops at a time, as `kit::stop_after(io, ev, 200)` does, or when the
   library reaches the state under test.
+- **A slot is retired, not wrapped.** When the link holding a slot's last generation (`0xffffffff`) has had its
+  `Closed` delivered, the loop never issues that slot again, so no slot and generation pair is issued twice. It does not
+  lower `cfg.max_links`, which counts link ends. A test shows it without 2^32 reuses by setting a free slot's next
+  generation with `io.age_slot(slot, next_gen)`, a scripting call that is not part of the contract.
 - **It is not a network.** Bytes arrive in the pass after they were sent, complete and in order.
   There is no delay, loss or reordering to script, apart from what peers do with their steps.
 - **Sending to an end that has gone** returns `Sent`; the bytes are lost and the link then ends

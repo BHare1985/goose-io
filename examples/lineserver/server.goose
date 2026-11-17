@@ -5,7 +5,7 @@
 //
 // It imports the contract and nothing else, so it runs on every event loop that passes the conformance suite.
 // It shows the shape of a library (docs/libraries.md): a state struct, one event entry point that says whether
-// it handled the event, the tag and the user value to tell links apart, `Full` and `Writable` for
+// it handled the event, a `LinkMap` to find a connection from the link of an event, `Full` and `Writable` for
 // backpressure, and what to do while the loop is stopping.
 //
 // The server reads lines. The application takes each request with `take_request` and answers it with `reply`:
@@ -48,21 +48,25 @@ struct Conn {
 // A request taken from the server, to be answered with `reply`.
 struct Request { found: bool = false, conn: i64 = 0, link: goose_io::Link = goose_io::Link { .. } }
 
+// Where a link's connection is in the server's table. A connection holds about 36 KB of buffers, so the table of
+// connections stays compact (one entry for each open connection) and the `LinkMap` holds only this index: its
+// memory is the event loop's peak slot count times a few bytes and not times a connection's size.
+struct Ref { index: i64 = 0 }
+
 // doc:begin state
 root struct LineServer {
-    tag:      u16                = 0,
-    listener: goose_io::Listener = goose_io::Listener { .. },
-    open:     i64                = 0,
-    fulls:    i64                = 0,       // how many sends were refused with Full
-    conns:    Conn[>..]          = [],
-    free:     i64[>..<]          = [],
+    listener: goose_io::Listener     = goose_io::Listener { .. },
+    open:     i64                    = 0,
+    fulls:    i64                    = 0,   // how many sends were refused with Full
+    refs:     goose_io::LinkMap<Ref> = goose_io::LinkMap<Ref> {},         // the connection of a link
+    conns:    Conn[>..]              = [],
+    free:     i64[>..<]              = [],
 }
 // doc:end state
 
-// Listens on `address`; the links it accepts carry `tag`. False if the listen failed.
-fn start<Io>(s: LineServer&, io: Io&, address: const u8[:], tag: u16) -> bool {
-    s.tag = tag;
-    let l, err = io.listen(address, tag);
+// Listens on `address`; it handles the links that listener accepts. False if the listen failed.
+fn start<Io>(s: LineServer&, io: Io&, address: const u8[:]) -> bool {
+    let l, err = io.listen(address);
     s.listener = l;
     return goose_io::is_listener(l) && !goose_io::failed(err);
 }
@@ -72,12 +76,14 @@ fn open_connections(s: LineServer&) -> i64 { s.open }
 // How many sends were refused with Full so far.
 fn full_count(s: LineServer&) -> i64 { s.fulls }
 
-// The connection a link event belongs to, or -1: the user value is the index, and the link must match.
-fn _conn_of(s: LineServer&, user: u32, link: goose_io::Link) -> i64 {
-    guard user < s.conns.len else { return -1; }
-    let c .= s.conns[user];
-    guard c.in_use && goose_io::same(c.link, link) else { return -1; }
-    return user;
+// The connection a link event belongs to, or -1 when the link is not one of this server's: a stale link, another
+// library's link and a link that was dropped all find nothing in the map.
+fn _conn_of(s: LineServer&, link: goose_io::Link) -> i64 {
+    let r .= s.refs.find(link);
+    guard r != null else { return -1; }
+    let i = r.index;
+    guard i < s.conns.len && s.conns[i].in_use && goose_io::same(s.conns[i].link, link) else { return -1; }
+    return i;
 }
 
 fn _find_newline(b: const u8[:]) -> i64 {
@@ -148,7 +154,7 @@ fn _on_opened<Io>(s: LineServer&, io: Io&, link: goose_io::Link) {
     c.in_buf.clear();
     c.out.clear();
     s.open++;
-    io.set_user(link, i as u32);
+    s.refs.put(link, Ref { index: i });
     io.set_keep_open_on_eof(link, true);
 }
 
@@ -226,8 +232,9 @@ fn _close_idle<Io>(s: LineServer&, io: Io&) {
 }
 // doc:end draining
 // doc:begin entry
-// The library's one entry point: true if the event was for this server, false if it is another library's (or
-// a Tick or PassEnd, which every library is offered).
+// The library's one entry point: true if the event was for a link of this server, false if it is another library's
+// (or a Tick or PassEnd, which every library is offered). An accepted link is this server's when `Opened` names its
+// listener; every later event is its own when the map has the link.
 fn server_event<Io>(s: LineServer&, io: Io&, ev: goose_io::Event) -> bool {
     match ev {
         Tick t => {
@@ -236,42 +243,37 @@ fn server_event<Io>(s: LineServer&, io: Io&, ev: goose_io::Event) -> bool {
         },
         PassEnd => { return false; },
         Opened e => {
-            if e.tag != s.tag { return false; }
+            guard goose_io::is_listener(e.listener) && goose_io::same(e.listener, s.listener) else { return false; }
             s._on_opened(io, e.link);
             return true;
         },
         Data e => {
-            if e.tag != s.tag { return false; }
-            let i = s._conn_of(e.user, e.link);
-            if i >= 0 { s._on_data(io, i, e.bytes); }
+            let i = s._conn_of(e.link);
+            guard i >= 0 else { return false; }
+            s._on_data(io, i, e.bytes);
             return true;
         },
         Writable e => {
-            if e.tag != s.tag { return false; }
-            let i = s._conn_of(e.user, e.link);
-            if i >= 0 {
-                s._flush(io, i);
-                s._finish_if_done(io, i);
-            }
+            let i = s._conn_of(e.link);
+            guard i >= 0 else { return false; }
+            s._flush(io, i);
+            s._finish_if_done(io, i);
             return true;
         },
         PeerEof e => {
-            if e.tag != s.tag { return false; }
-            let i = s._conn_of(e.user, e.link);
-            if i >= 0 {
-                s.conns[i].eof = true;
-                s._finish_if_done(io, i);
-            }
+            let i = s._conn_of(e.link);
+            guard i >= 0 else { return false; }
+            s.conns[i].eof = true;
+            s._finish_if_done(io, i);
             return true;
         },
         Closed e => {
-            if e.tag != s.tag { return false; }
-            let i = s._conn_of(e.user, e.link);
-            if i >= 0 {
-                s.conns[i].in_use = false;
-                s.open--;
-                s.free.push(i);
-            }
+            let i = s._conn_of(e.link);
+            guard i >= 0 else { return false; }
+            s.conns[i].in_use = false;
+            s.open--;
+            s.free.push(i);
+            s.refs.drop(e.link);
             return true;
         },
     }

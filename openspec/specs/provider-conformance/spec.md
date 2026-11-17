@@ -45,7 +45,7 @@ In the in-memory event loop, `listen` SHALL fail with `AddressInUse` when an act
 
 #### Scenario: Wildcard then specific
 - **WHEN** a library listens on `0.0.0.0:8080` and then on `127.0.0.1:8080`
-- **THEN** the second `listen` returns `AddressInUse` and a dial to `127.0.0.1:8080` opens a link carrying the first listener's tag
+- **THEN** the second `listen` returns `AddressInUse` and a dial to `127.0.0.1:8080` opens a link accepted by the first listener
 
 #### Scenario: Specific then wildcard
 - **WHEN** a library listens on `127.0.0.1:8080` and then on `0.0.0.0:8080`
@@ -206,3 +206,145 @@ Nothing in the conformance suite SHALL prevent the use of an event loop that pas
 #### Scenario: A library on a loop that passes only some groups
 - **WHEN** a library uses only the core and the sizing group, and the loop passes those two
 - **THEN** the library is supported on that loop whatever the loop does for the other groups
+
+### Requirement: The unix group has its own suite
+The conformance suite SHALL have an entry point for the unix group, run against an event loop that supplies the core and that group. The fixture SHALL supply one absolute path at which the event loop may create a socket, and every other path a check needs SHALL be derived from it. A check of the group SHALL call no operation of another group, `peer_address` included.
+
+#### Scenario: A loop that supplies the group
+- **WHEN** a root program passes an event loop that supplies the core and the unix group, and a fixture with a path, to the unix entry point
+- **THEN** every check of the group runs against it, and the program's exit status says whether all passed
+
+#### Scenario: A check that reaches into another group
+- **WHEN** the operations the unix group's checks call are compared with the groups they belong to
+- **THEN** no check calls an operation of a group other than the core
+
+#### Scenario: A loop that does not supply the group
+- **WHEN** an event loop that supplies only the core is built
+- **THEN** it builds and passes the core suite, and the unix suite is not run against it
+
+### Requirement: The unix suite checks the form's behaviour
+The unix suite SHALL check a listener and a dial on a path with data both ways, the URL spelling reaching the same listener, a path held by a listener under either spelling, a dial to a path nothing listens on, `listener_port` of a path listener, malformed paths (an authority and a doubled slash included), and the longest path. Each check SHALL name its requirement and have a fault of the in-memory event loop that makes it fail.
+
+#### Scenario: Each check has a fault
+- **WHEN** the unix group's checks are compared with the in-memory event loop's faults
+- **THEN** every check has at least one fault that makes it fail, recorded in the check table
+
+### Requirement: The in-memory event loop supplies the unix group
+The in-memory event loop SHALL supply the unix group, treating a path as the name of an endpoint that a listener holds and a dial reaches. Two paths SHALL conflict only when they are equal, whichever of the two spellings each was written in, and a path SHALL never conflict with a numeric address. Scripted peers SHALL be able to wait at a path as they wait at an address.
+
+#### Scenario: A scripted peer at a path
+- **WHEN** a test scripts a peer to accept a dial at `unix:/run/db.sock` and a library dials that path
+- **THEN** the library observes `Opened`, then the peer's scripted `Data`, and the test reads the bytes the library sent
+
+#### Scenario: Paths conflict only when equal
+- **WHEN** a library listens on `unix:/run/a.sock`, then on `unix:/run/b.sock` and on `0.0.0.0:8080`
+- **THEN** every `listen` succeeds, and a second `listen` on `unix:/run/a.sock` returns `AddressInUse`
+
+### Requirement: The in-memory event loop can refuse the unix form
+The in-memory event loop SHALL be configurable to refuse `unix:/path` and `unix:///path`, reporting `BadAddress` as an event loop that does not supply the group does, so that the refusal can be shown. The core-only event loop of the tests SHALL refuse it.
+
+#### Scenario: A loop configured to refuse the form
+- **WHEN** the in-memory event loop is configured to refuse the form and a library dials `unix:/run/a.sock` and listens on it
+- **THEN** the dial ends with one `Closed` with `ConnectFailed` of kind `BadAddress`, and `listen` returns an error of kind `BadAddress`
+
+#### Scenario: The core-only loop refuses it
+- **WHEN** a library dials `unix:/run/a.sock` on the core-only event loop
+- **THEN** the dial ends with one `Closed` with `ConnectFailed` of kind `BadAddress`
+
+### Requirement: The suite checks how events find their owner
+The suite SHALL have a check for each scenario about the event loop of *A link event is recognised by what the library holds*, *Slot numbers are dense*, *A slot is freed when its Closed has been handled* and *Dialling never blocks and always ends in one event*, each with a recorded fault of the in-memory event loop, or a note in `docs/event-loops.md` saying why none is possible (no event can be delivered from inside `dial` of a queue-based loop).
+
+#### Scenario: A loop that names the wrong listener fails
+- **WHEN** the in-memory loop is made to put the first listener's handle on every `Opened`
+- **THEN** the check that an accepted link names its listener fails
+
+#### Scenario: A loop that does not reuse slots fails
+- **WHEN** the in-memory loop is made to issue a new slot for every link
+- **THEN** the dense-slots check fails
+
+#### Scenario: A loop that reuses a slot while Closed is handled fails
+- **WHEN** the in-memory loop is made to give a freed slot to a new link before the handlers of its `Closed` have returned
+- **THEN** the check that a slot is not reused while `Closed` is handled fails
+
+#### Scenario: A map that ignores generations fails its unit test
+- **WHEN** `LinkMap.find` is made to compare slots only
+- **THEN** the test of a stale link finding nothing fails
+
+### Requirement: Library scenarios are shown by tests of this repository
+The scenarios about what a library does with an event (*A library claims only the events of links it owns*, a dialled link's `Opened`) depend on no event loop and SHALL be shown by tests of the example libraries. `LinkMap` SHALL be tested by unit tests written as one body that runs against any table with the same functions, so that a table written elsewhere can be run against it.
+
+#### Scenario: A table written elsewhere runs the same laws
+- **WHEN** the unit test body is run against a table of another layout with `put`, `find` and `drop`
+- **THEN** it checks the same scenarios as for `LinkMap`
+
+### Requirement: The suite checks every link operation in every state
+The suite SHALL check the result of each link operation in each link state that the scenarios of `io-contract` name: core operations in the core suite, and each group's operations in that group's suite. The batching and unix groups have no link operation and SHALL have no such check. The suite SHALL check that a `Closed` send result is final, the keep-open window, and how operations complete. Each check SHALL have a fault of the in-memory event loop that makes it fail.
+
+#### Scenario: A loop that ignores a pause before Opened fails
+- **WHEN** the in-memory event loop is made to forget a `pause_reading` call made on a dialling link
+- **THEN** the check of pausing before `Opened` fails and names its requirement
+
+#### Scenario: A loop that closes twice fails
+- **WHEN** the in-memory event loop is made to deliver a second `Closed` for a second `close` on a closing link
+- **THEN** the check of closing twice fails
+
+#### Scenario: A loop that wakes a link after a Closed result fails
+- **WHEN** the in-memory event loop is made to deliver a `Writable` owed to a link after `send` has returned `Closed` on it
+- **THEN** the check that a `Closed` result is final fails
+
+#### Scenario: A loop that honours a late keep-open fails
+- **WHEN** the in-memory event loop is made to apply `set_keep_open_on_eof` called after the link's `Opened` handler has returned
+- **THEN** the check of the keep-open window fails
+
+#### Scenario: A loop that forgets a closing link's address fails
+- **WHEN** the in-memory event loop is made to return an empty `peer_address` once `close` has been called on a link
+- **THEN** the inspection group's check of link states fails
+
+#### Scenario: Group operations stay in their group
+- **WHEN** the operations called by the new checks are compared with the groups the checks belong to
+- **THEN** each check calls no operation outside the core and its own group
+
+### Requirement: The suite checks how handles are issued
+In every part of every group's suite, the driver SHALL record each link handle it is given. The handle `dial` returns and the same handle in that link's `Opened` count as one issuance. The driver SHALL fail `handles_pair_unique` when a pair is issued again or has generation 0. It SHALL fail `handles_slot_held` when a slot is issued while the `Closed` of its previous link is still to be delivered.
+
+#### Scenario: A loop that does not advance the generation fails
+- **WHEN** the in-memory event loop is made to reuse a slot without changing its generation
+- **THEN** `handles_pair_unique` fails, naming the slot and the generation issued twice
+
+#### Scenario: A loop that reuses a slot early fails
+- **WHEN** the in-memory event loop is made to free a slot when `close` is called, before that link's `Closed` is delivered, while still advancing the generation
+- **THEN** `handles_slot_held` fails and `handles_pair_unique` does not
+
+#### Scenario: A dialled link seen twice is one issuance
+- **WHEN** a check dials a link and later receives that link's `Opened`
+- **THEN** neither handle check fails
+
+### Requirement: The suite checks the life of a loop
+Every entry point SHALL listen and dial before it calls `serve`, and SHALL check that the events of those calls arrive from `serve`. In a part that calls `stop`, once `serve` has returned, it SHALL check what the operations of its group do on the finished loop, including that `dial` returns the invalid link, and that a second `serve` returns at once. The core suite SHALL check that a link closed before the end of the grace period ends with `Local`, whether it was closed before or after `stop`.
+
+#### Scenario: A loop that accepts sends after serve fails
+- **WHEN** the in-memory event loop is made to return `Sent` from `send` once `serve` has returned
+- **THEN** the finished-loop check fails
+
+#### Scenario: A loop that issues a link after serve fails
+- **WHEN** the in-memory event loop is made to return a valid link from `dial` once `serve` has returned
+- **THEN** the finished-loop check fails
+
+#### Scenario: A loop that runs again fails
+- **WHEN** the in-memory event loop is made to deliver a `Tick` from a second `serve`
+- **THEN** the finished-loop check fails
+
+#### Scenario: A loop that overrides Local with Shutdown fails
+- **WHEN** the in-memory event loop is made to keep a closed link whose peer has not read until the end of the grace period, and to end it with `Shutdown`
+- **THEN** the check of the end of the grace period fails for the link closed before `stop` and for the link closed after it
+
+### Requirement: The in-memory event loop retires an exhausted slot
+The in-memory event loop SHALL retire a slot once the link holding the slot's last generation has had its `Closed` delivered. It SHALL let a test set the generation of the next link a slot issues, so that the retirement can be shown without 2^32 reuses.
+
+#### Scenario: The last generation retires the slot
+- **WHEN** a test sets a free slot's next generation to the largest value, a link is issued in that slot, and the link is closed
+- **THEN** no later link is issued in that slot, and no later link has generation 0 or any generation the slot issued before
+
+#### Scenario: A retired slot does not lower the link limit
+- **WHEN** a slot has been retired on a loop configured with `max_links` of 4, and libraries then open links until four link ends are open
+- **THEN** every one of those dials opens, and none of them is issued in the retired slot

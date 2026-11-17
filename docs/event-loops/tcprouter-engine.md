@@ -11,25 +11,23 @@ what differs in behaviour is listed under *Adapter work*.
 
 ## Unverified rows, and the rows that need an adapter that changes behaviour
 
-1. `Closed` after a dial that fails inside `dial` carries user value 0, not the value set after `dial` returned
-   (settled below; needs a change), and `user` called inside the handler of any `Closed` returns 0, because the slot is
-   freed before the event is delivered.
+1. The slot of a link is freed (and its generation bumped) when its `Closed` is queued, before the event is delivered, so
+   `peer_address` inside the handler of a `Closed` answers empty and a link made in that handler can take the slot. The
+   contract keeps the handle valid, and the slot unreused, until the handlers of its `Closed` have returned (settled below).
 2. `Writable` is delivered below a fixed low-water mark, not once the largest refused send would fit.
 3. `close` ends with a plain `close(2)`, which can reset a connection that has unread input (see *Closing*).
 4. `listener_port`, `peer_address`, `stop_listening`, runtime `listen`: no such call exists; plain system calls
    are to be added to `src/c_sys.c`.
-5. `Opened` and `Data` do not carry the fields the contract's events carry (`user` on `Opened`, `tag` on `Data`).
+5. `Opened` carries a listener index and a tag, and `Data` neither; the contract's events carry the link, and `Opened` the `Listener` handle that accepted it.
 
-### Does a `Closed` queued inside `dial` report a user value set afterwards?
+### Does a `Closed` queued inside `dial` find its link?
 
-No. Read in `conn.goose`, `_close_connection`: it queues the `Closed` (`_queue_closed`, which copies `s.user` into
-the pending record at that moment) and then sets `s.live = false` and bumps `s.gen`, in the same call. In
-`handler.goose`, `_deliver_events` re-reads the user value at delivery only `if s.live && s.gen == r.gen`; for a
-dial that failed inside `dial` the slot is dead by then, so the value copied at queue time, 0, is what the event
-carries. The contract requires the value set after `dial` returns (*The user value survives an immediate dial
-failure*). Adapter work: do not free the slot of a dial that failed inside `dial` until its `Closed` has been
-delivered (mark it dead for sends and `close`, live for `set_user` and `user`; `_user_slot` already admits a dialling
-slot), or keep the failure in a small side table keyed by slot and generation that `set_user` can write to.
+Yes, with one change. Nothing is attached to a link in the contract, so there is no value to read at delivery: a library
+keeps the link `dial` returned and finds its state when the `Closed` carries that link. The one thing to fix is the one in
+item 1: in `conn.goose`, `_close_connection` queues the `Closed` and sets `s.live = false` and bumps `s.gen` in the same call,
+so for a dial that failed inside `dial` the slot is dead, and could be reused, before the `Closed` is delivered. Adapter work:
+do not free the slot of a link, a failed dial included, until its `Closed` has been delivered and its handlers have returned
+(mark it dead for sends and `close`, live for `peer_address`).
 
 ## Operations and events
 
@@ -39,21 +37,20 @@ Every event loop supplies these.
 
 | Contract item | tcprouter | Status | Adapter work |
 |---|---|---|---|
-| `listen` | Listeners are fixed at start: `Config.listeners`, one `_listen_fds[li]` each, accepted in `_accept_ready_connections` (`conn.goose`). No call opens one later. | checked: `conn.goose`, `handler.goose` (no such public function) | Add `listen(address, tag)`: create, bind and listen with a new `c_listen` call, add the fd to epoll, return a `Listener` that is an index into a never-reused table (u32). A bind failure maps to `AddressInUse` by errno. Port 0 must be accepted; `_parse_address` rejects a zero port, so listen needs its own check. |
+| `listen` | Listeners are fixed at start: `Config.listeners`, one `_listen_fds[li]` each, accepted in `_accept_ready_connections` (`conn.goose`). No call opens one later. | checked: `conn.goose`, `handler.goose` (no such public function) | Add `listen(address)`: create, bind and listen with a new `c_listen` call, add the fd to epoll, return a `Listener` that is an index into a never-reused table (u32). A bind failure maps to `AddressInUse` by errno. Port 0 must be accepted; `_parse_address` rejects a zero port, so listen needs its own check. |
 | `listener_port` | None. `src/c_sys.c` has no `getsockname`. | checked: absent | Add `c_local_port(fd)`. |
 | `dial` | `dial` returns a `Conn` at once; connect failure is one `Closed` and no `Opened` (`handler.goose`, RT-14c in `_close_connection`). `_parse_address` accepts numeric `ip:port` and `[ip6]:port` and refuses host names (`address.goose`). | checked: `handler.goose` `dial`, `address.goose` `_parse_address` | Map the failure to a kind (see *Connect failures*). A zone identifier: unverified whether `_parse_ipv6` rejects `%`; add a test. |
 | `send` | `send` returns `bool`, decides before copying, queue of 4 pool buffers (`handler.goose` `send`). | checked | Map `false` to `SendStatus`: `Closed` for a stale or closing link, `NotOpen` for a dialling one (`_user_slot` sees it, `_handler_slot` does not), `TooLarge` when `new_buffers > 4` (no `Writable` is promised, RT-19b), `Full` otherwise. |
 | `max_send` | `buffer_size * 4` (64 KB at the default, comment in `send`). | checked: comment, `send_room` | Refuse a configuration where it is below 4096. |
 | `pause_reading` | `pause_reading`: `paused` and `_update_epoll_interest` (`handler.goose`). Bytes stay in the kernel. | checked | None. |
 | `close` | `close`: cancels a dial; otherwise `_begin_close`, which closes once the queue is empty (`_flush_output`). | checked | See *Closing*: the final `c_close` can reset a link with unread input. |
-| `set_user` | `set_user`; works on a dialling `Conn` (`_user_slot`). | checked | None. |
 | `now_ms` | `w._now_ms`, set each pass from `c_boottime_ms()`, monotonic. Private. | checked | Export an accessor. |
 | `tick_by` | None. The loop sleeps at most 100 ms, or until `_dial_due` (`_wait_limit`, `_note_dial_due`). | checked | Generalise `_dial_due` to a `_wake_at` that keeps the earliest request; the first `Tick` at or after it clears it. |
 | `serve` | `serve<F>(w)`, one worker, one thread, the block called with `(w, event)` (`engine.goose`). | checked: signature | The adapter's loop type is the worker; its block receives contract events. |
 | `stop` | `drain`, a message posted to the worker: listeners closed, links end by themselves or at the deadline, reason `Drained` (`handler.goose` comment on `draining`). | checked: comment | `stop(grace)` called from the handler sets draining directly on the worker's own thread; `Drained` becomes `Shutdown`. Of several calls the earliest deadline stands: unverified. |
 | `draining` | `draining(w)` (`handler.goose`). | checked | None. |
-| `Opened` | `Opened { conn, tag, listener: u16, sni }` (`engine.goose`). | checked | Add `user: 0`; `listener` is an index: return the matching `Listener` handle. The tag is the one of the route that chose `Handle(tag)`; configure it as the listener's tag. |
-| `Data` | One read into a pool buffer; one pending `Data` per connection, the buffer returned after the block (`_read_for_handler`, `_data_delivered`). The event has no tag. | checked | Add `tag`. Maximum bytes per event is `buffer_size`. |
+| `Opened` | `Opened { conn, tag, listener: u16, sni }` (`engine.goose`). | checked | Drop the tag; `listener` is an index: return the matching `Listener` handle for an accepted link and none for a dialled one. |
+| `Data` | One read into a pool buffer; one pending `Data` per connection, the buffer returned after the block (`_read_for_handler`, `_data_delivered`). The event carries the link. | checked | Maximum bytes per event is `buffer_size`. |
 | `Writable` | `want_writable`; delivered when the queue holds less than one buffer (`_flush_output`: `_output_bytes() < buffer_size`). It does not remember the size that was refused. | checked | Remember the largest refused size and deliver `Writable` only when `send_room` is at least that (*Writable follows Full once*). A refusal resolved by the connection closing is already covered by `Closed`. |
 | `Closed` | Exactly once, always last (`engine.goose` `Event` comment). Reasons differ: `ByHandler` is `Local`, `Drained` is `Shutdown`, `PeerClosed`, `PeerReset`, `IdleTimeout`, `HalfCloseTimeout`, `Error` as named, `ConnectFailed` needs a kind; `Fenced`, `InspectTimeout`, `InvalidHello` have no portable name. | checked | Translate; the three extras are `LoopSpecific { code }`. |
 | `Tick` | At least every 100 ms (`engine.goose` `Event` comment; the 100 ms wait in `_wait_limit`). | checked | None. |
@@ -93,7 +90,6 @@ Only a loop that supplies the inspection group needs these.
 |---|---|---|---|
 | `peer_address` | None. No `getpeername` in `src/c_sys.c`. | checked: absent | Add `c_peer_address(fd)` and the formatting rule of the contract (lower case, longest zero run as `::`). |
 | `stop_listening` | Listeners are closed only by drain (`draining` doc, `handler.goose`). | checked: absent | Close one listener's fd and remove it from epoll; links accepted from it stay. |
-| `user` | `user`; 0 for a stale handle (`handler.goose`). `_user_slot` needs `s.live`, and `_close_connection` clears it before the `Closed` is delivered, so `user(c)` called inside the handler of `Closed` returns 0 (the event itself carries the value read at delivery or queue time). | checked: `handler.goose` `_user_slot`, `conn.goose` `_close_connection` | The contract keeps the handle valid, `user` and `peer_address` included, until the handler of `Closed` returns (*The handle is still valid while Closed is handled*). Keep the slot (and its generation) until the handler has returned; the same change serves the dial failure above. |
 
 ### Batching
 
@@ -106,9 +102,9 @@ Only a loop that supplies the batching group needs this.
 
 ## What a loop with only the core costs
 
-An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address`, `stop_listening` or `user`, and no `PassEnd`. Each group is a separate, later addition.
+An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each group is a separate, later addition.
 
-- `listen`: Add `listen(address, tag)`: create, bind and listen with a new `c_listen` call, add the fd to epoll, return a `Listener` that is an index into a never-reused table (u32). A bind failure maps to `AddressInUse` by errno. Port 0 must be accepted; `_parse_address` rejects a zero port, so listen needs its own check.
+- `listen`: Add `listen(address)`: create, bind and listen with a new `c_listen` call, add the fd to epoll, return a `Listener` that is an index into a never-reused table (u32). A bind failure maps to `AddressInUse` by errno. Port 0 must be accepted; `_parse_address` rejects a zero port, so listen needs its own check.
 - `listener_port`: Add `c_local_port(fd)`.
 - `dial`: Map the failure to a kind (see *Connect failures*). A zone identifier: unverified whether `_parse_ipv6` rejects `%`; add a test.
 - `send`: Map `false` to `SendStatus`: `Closed` for a stale or closing link, `NotOpen` for a dialling one (`_user_slot` sees it, `_handler_slot` does not), `TooLarge` when `new_buffers > 4` (no `Writable` is promised, RT-19b), `Full` otherwise.
@@ -118,10 +114,11 @@ An event loop on this substrate that supplies only the core does the adapter wor
 - `tick_by`: Generalise `_dial_due` to a `_wake_at` that keeps the earliest request; the first `Tick` at or after it clears it.
 - `serve`: The adapter's loop type is the worker; its block receives contract events.
 - `stop`: `stop(grace)` called from the handler sets draining directly on the worker's own thread; `Drained` becomes `Shutdown`. Of several calls the earliest deadline stands: unverified.
-- `Opened`: Add `user: 0`; `listener` is an index: return the matching `Listener` handle. The tag is the one of the route that chose `Handle(tag)`; configure it as the listener's tag.
-- `Data`: Add `tag`. Maximum bytes per event is `buffer_size`.
+- `Opened`: Drop the tag; `listener` is an index: return the matching `Listener` handle for an accepted link and none for a dialled one.
+- `Data`: Maximum bytes per event is `buffer_size`.
 - `Writable`: Remember the largest refused size and deliver `Writable` only when `send_room` is at least that (*Writable follows Full once*). A refusal resolved by the connection closing is already covered by `Closed`.
 - `Closed`: Translate; the three extras are `LoopSpecific { code }`.
+- Slots: the engine keeps its connections in a slot table with a generation; give a new link a freed slot before extending the table (a free list; unverified whether `conn.goose` already takes the first free slot), and free a slot only after the `Closed` handlers return (*Slot numbers are dense*), which is also the fix for the slot that is freed before its `Closed` is delivered.
 - The peer's end of stream: the core still closes the link with `PeerClosed` once what was accepted is out, which is the default of the `set_keep_open_on_eof` row, without the switch to turn it off.
 
 ## Closing
@@ -154,5 +151,5 @@ counts such a link as present. A peer that never reads: the same limit ends it, 
 
 ## Known gaps
 
-None: every row has a workable mapping. The three rows that change behaviour (user value after an immediate
-failure, the `Writable` size, the close that can reset) are fixes inside the engine, not changes to the contract.
+None: every row has a workable mapping. The three rows that change behaviour (the slot freed before its `Closed`,
+the `Writable` size, the close that can reset) are fixes inside the engine, not changes to the contract.

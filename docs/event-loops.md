@@ -1,7 +1,7 @@
 # Writing an event loop and running the conformance suite
 
 **In short:** you write the engine, and every library written for the contract runs on it. The job is the 13
-operations and 5 events of the core, and as many of the five optional groups as you like; the conformance suite tells
+operations and 5 events of the core, and as many of the six optional groups as you like; the conformance suite tells
 you when you are done. [`tests/support/core_only.goose`](../tests/support/core_only.goose) is the smallest example of
 the shape (it sits over the in-memory loop, where yours would sit over your sockets).
 
@@ -13,22 +13,23 @@ for being listed as conforming; the table that says where each requirement is pr
 ## What an event loop must supply
 
 The **core**, which every event loop supplies: the operations `listen`, `listener_port`, `dial`, `send`,
-`max_send`, `pause_reading`, `close`, `set_user`, `now_ms`, `tick_by`, `serve`, `stop` and `draining`, and the
+`max_send`, `pause_reading`, `close`, `now_ms`, `tick_by`, `serve`, `stop` and `draining`, and the
 events `Opened`, `Data`, `Writable`, `Closed` and `Tick`, with the types of `goose_io.goose`, as functions that a
 library calls by method syntax on the event loop's type.
 
-And any of five **groups**, which it may supply or leave out (`docs/contract.md`, section 2):
+And any of six **groups**, which it may supply or leave out (`docs/contract.md`, section 2):
 
 | Group | Operations | Events |
 |---|---|---|
 | half-close | `shutdown_write`, `set_keep_open_on_eof` | `PeerEof` |
 | sizing | `send_room`, `send2` | |
 | abort | `reset` | |
-| inspection | `peer_address`, `stop_listening`, `user` | |
+| inspection | `peer_address`, `stop_listening` | |
 | batching | | `PassEnd` |
+| unix | the address form `unix:/path`, no operation | |
 
 Call `goose_io::require_core(io)` once from the event loop's root program, and the check of each group it supplies
-(`require_half_close`, `require_sizing`, `require_abort`, `require_inspection`). Each names every operation of its
+(`require_half_close`, `require_sizing`, `require_abort`, `require_inspection`; batching and unix have no operation and so no check). Each names every operation of its
 part with the contract's argument and result types and never runs, so a missing or mistyped operation is a compile
 error at that one line, naming the operation, and not deep inside a library. An event loop with nothing more than
 the core conforms; anything it adds (name resolution, TLS, other transports) is not part of the contract and no
@@ -43,13 +44,13 @@ a check listens on the loopback with port 0 and dials the port it was given, and
 contract calls (`close`, `pause_reading`, not sending; a check of a group also uses that group's operations). It therefore runs unchanged on any
 event loop, over IPv4 and IPv6 loopback.
 
-An event loop's root program constructs its loop, builds a fixture and calls the entry point of the core and of each group it supplies (`conformance_core_part`, `conformance_half_close_part`, `conformance_sizing_part`, `conformance_abort_part`, `conformance_inspection_part`, `conformance_batching_part`) with a part number.
+An event loop's root program constructs its loop, builds a fixture and calls the entry point of the core and of each group it supplies (`conformance_core_part`, `conformance_half_close_part`, `conformance_sizing_part`, `conformance_abort_part`, `conformance_inspection_part`, `conformance_batching_part`, `conformance_unix_part`) with a part number.
 This is the program that runs the in-memory event loop, whose suite results the tests of this repository rely on:
 
 <!-- source: tests/conformance/memory_conformance.goose -->
 ```goose
 // Runs one part of the conformance suite against the in-memory event loop: `goose run tests/conformance/memory_conformance.goose -- 3 core`.
-// The part is the first argument (default 0) and the group the second (core, half-close, sizing, abort, inspection or batching; default core).
+// The part is the first argument (default 0) and the group the second (core, half-close, sizing, abort, inspection, batching or unix; default core).
 // The environment variable GOOSE_IO_FAULT, when set, switches the in-memory event loop to one of its named faults
 // (see tests/conformance/faults.sh).
 import std;
@@ -75,12 +76,13 @@ fn main() {
     io.hold("127.0.0.1:9999");
     let up = io.add_peer();
     io.peer_accept(up, "10.255.0.2:80");
-    let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80" };
+    let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80", unix: "/run/goose-io-test.sock" };
     if group == "half-close" { exit(goose_io_conformance::conformance_half_close_part(io, fixture, part)); }
     if group == "sizing" { exit(goose_io_conformance::conformance_sizing_part(io, fixture, part)); }
     if group == "abort" { exit(goose_io_conformance::conformance_abort_part(io, fixture, part)); }
     if group == "inspection" { exit(goose_io_conformance::conformance_inspection_part(io, fixture, part)); }
     if group == "batching" { exit(goose_io_conformance::conformance_batching_part(io, fixture, part)); }
+    if group == "unix" { exit(goose_io_conformance::conformance_unix_part(io, fixture, part)); }
     exit(goose_io_conformance::conformance_core_part(io, fixture, part));
 }
 ```
@@ -145,6 +147,43 @@ While the contract is at major version 0 an event loop may find that a requireme
 then records what it tried, and the contract is changed only if no other way works (design D13 of the change that
 introduced it).
 
+## Candidate event loops and libraries
+
+These are candidates, not claims: today only the in-memory event loop exists, and `docs/event-loops/` maps the first
+few in detail. They show how much one contract could unify. They are not equivalent integration targets: some are
+whole event loops (libuv, libevent), some are lower-level interfaces an event loop would be built on (liburing), and
+TLS libraries and QUIC engines would be layers over an event loop, not event loops of their own.
+
+**Under it (event loops).** Anything that can deliver the five core events and perform the 12 operations.
+
+- Pollers and reactors: [uSockets](https://github.com/uNetworking/uSockets), [libuv](https://github.com/libuv/libuv),
+  [libevent](https://github.com/libevent/libevent), [libev](http://software.schmorp.de/pkg/libev.html),
+  [libhv](https://github.com/ithewei/libhv), [picoev](https://github.com/kazuho/picoev), the loop of
+  [Redis](https://github.com/redis/redis) (`src/ae.c`), the socket layer of [H2O](https://github.com/h2o/h2o)
+- Completion rings and thread-per-core engines: [liburing](https://github.com/axboe/liburing),
+  [libxev](https://github.com/mitchellh/libxev), [UCall](https://github.com/unum-cloud/UCall),
+  [Seastar](https://github.com/scylladb/seastar)
+- Userspace network stacks, with no operating-system sockets: [F-Stack](https://github.com/F-Stack/f-stack) (FreeBSD's
+  stack over DPDK), [lwIP](https://savannah.nongnu.org/projects/lwip/) (embedded), [mTCP](https://github.com/mtcp-stack/mtcp),
+  [smoltcp](https://github.com/smoltcp-rs/smoltcp), [gVisor's netstack](https://github.com/google/gvisor)
+- Layers over another event loop, which have no loop of their own: TLS ([BearSSL](https://www.bearssl.org/),
+  [s2n-tls](https://github.com/aws/s2n-tls), [Mbed TLS](https://github.com/Mbed-TLS/mbedtls),
+  [wolfSSL](https://github.com/wolfSSL/wolfssl)), and engines that present streams as links
+  ([MsQuic](https://github.com/microsoft/msquic), [LSQUIC](https://github.com/litespeedtech/lsquic),
+  [quiche](https://github.com/cloudflare/quiche)); also metering, rate limiting and fault injection
+- Simulators and fuzzers, for tests with a virtual clock and no network: the in-memory loop here,
+  [libEpollFuzzer](https://github.com/uNetworking/libEpollFuzzer) and [turmoil](https://github.com/tokio-rs/turmoil)
+  as the same idea elsewhere; [NNG](https://github.com/nanomsg/nng) is worth reading for how it separates transports,
+  listeners and dialers
+
+**On it (libraries).** Each is written once and runs on every event loop above.
+
+- Servers: HTTP/1.1 and HTTP/2, WebSocket, gRPC, MQTT, SSH, SMTP and IMAP
+- Clients: Postgres, MySQL, Redis, Memcached, NATS, Kafka
+- Infrastructure: reverse proxies, load balancers, connection pools, SOCKS5 and HTTP `CONNECT` forwarders, ACME clients
+- Distributed systems: Raft, gossip and other replication, tested on the in-memory loop with a virtual clock, so a
+  timeout, a slow peer or a silent one is a few lines of test and not a lab
+
 ## Layering one event loop over another
 
 An event loop may wrap another and present the same contract above it (*Event loops can be layered*): a TLS layer,
@@ -198,16 +237,16 @@ fails when this table, that file, the suite and the specification disagree.
 | The contract exposes no operating-system primitives | A zone identifier is rejected | check `dial_bad_address` | 0 | `BadAddressAsRefused` |
 | The contract exposes no operating-system primitives | An event loop without descriptors conforms | inspection: the in-memory event loop has no descriptors and passes `tests/conformance/run.sh` | - | - |
 | The contract states its version | A library reads the version | build: `tests/unit/types_test.goose` reads `VERSION_MAJOR` and `VERSION_MINOR` | - | - |
-| Links are generation-checked handles | A stale handle cannot reach a reused slot | check `handles_stale_reuse`, `handles_stale_reset`, `handles_stale_send_room`, `handles_stale_user` | 0 | `StaleHandleAccepted`, `StaleHandleAccepted`, `StaleHandleAccepted`, `StaleHandleAccepted` |
+| Links are generation-checked handles | A stale handle cannot reach a reused slot | check `handles_stale_reuse`, `handles_stale_reset`, `handles_stale_send_room`, `handles_stale_peer_address` | 0 | `StaleHandleAccepted`, `StaleHandleAccepted`, `StaleHandleAccepted`, `StaleHandleAccepted` |
 | Links are generation-checked handles | The handle is still valid while Closed is handled | check `handles_valid_in_closed` | 0 | `ClosedHandleStaleEarly` |
 | Links are generation-checked handles | An unset handle is recognisably invalid | check `handles_unset`, `handles_unset_reset`, `handles_unset_shutdown_write`, `handles_unset_sizing`, `handles_unset_inspection` | 0 | `UnsetHandleAccepted`, `UnsetHandleAccepted`, `UnsetHandleAccepted`, `UnsetLinkHasRoom`, `UnsetHandleAccepted` |
 | Events are delivered to one handler, one at a time | A close does not re-enter the handler | check `events_not_reentrant` | 0 | none (see below) |
 | Events are delivered to one handler, one at a time | A send that closes the link does not re-enter the handler | check `events_not_reentrant_after_reset` | 0 | none (see below) |
 | Link events follow a fixed order | An accepted link | check `order_accepted_link` | 0 | `PeerCloseDropsData` |
 | Link events follow a fixed order | A link that never opens | check `order_failed_dial` | 0 | `OpenedBeforeFailure` |
-| Every link event names its owner | Two libraries share one loop | check `owner_tags` | 0 | `WrongTag` |
-| Every link event names its owner | The user value comes back | check `owner_user_value` | 0 | `UserLostInData` |
-| Every link event names its owner | The user value survives an immediate dial failure | check `owner_user_after_failed_dial` | 0 | `UserReadAtDial` |
+| Every link event names its owner | Two libraries share one loop | removed with the tag in 0.2; see *Scenarios added by the link-keyed state*, below | - | - |
+| Every link event names its owner | The user value comes back | removed with the user value in 0.2 | - | - |
+| Every link event names its owner | The user value survives an immediate dial failure | removed with the user value in 0.2: the `Closed` of a dial that fails at once carries the link `dial` returned | - | - |
 | Listening | A connection is accepted | check `listen_accepts` | 0 | `OpenedWithoutListener` |
 | Listening | The address is taken | check `listen_held_address` | 0 | `HeldIgnored` |
 | Listening | A system-chosen port can be discovered | check `listen_port_zero` | 0 | `PortZeroReportsZero` |
@@ -308,10 +347,91 @@ checks of the table above, now run by group). `tests/conformance/run.sh --core-o
 | Reset | check `reset_aborts_the_peer` (abort group) |
 | An accepted link names its peer, A dialled link names its target, A closed link has no peer address | check `peer_address_names_peer` (inspection group) |
 
+### Scenarios added by the unix group
+
+The change that added the unix group (the address forms `unix:/path` and `unix:///path`) added these scenarios. The group's checks need
+`Fixture.unix`, an absolute path at which the loop may create a socket, and run by their own entry point,
+`conformance_unix_part`, against a loop that supplies the core and the group (`tests/conformance/run.sh --group unix`).
+
+| Scenario | Proved by | Fault |
+|---|---|---|
+| A listener and a dial on a path | check `unix_listen_dial` (unix group) | `UnixListenerIgnored` |
+| The path is held | check `unix_held_path` (unix group) | `UnixOverlapIgnored` |
+| Nothing listens on the path | check `unix_nothing_listens` (unix group) | `UnixRefusedAsBadAddress` |
+| No port | check `unix_no_port` (unix group) | `UnixPortInvented` |
+| Malformed paths | check `unix_malformed_paths` (unix group) | `UnixRelativeAccepted` |
+| The longest path | check `unix_longest_path` (unix group) | `UnixLongestRefused` |
+| The URL spelling names the same path | check `unix_url_spelling` (unix group) | `UnixTripleSlashRefused` |
+| A held path is held under either spelling | check `unix_alias_held` (unix group) | `UnixAliasNotHeld` |
+| A loop without the group | `tests/unit/core_only_unix_test.goose` (the core-only loop) and `tests/unit/memory_unix_test.goose` (the in-memory loop configured with `unix_paths` off): `BadAddress` for `listen` and `dial`; the suite does not check it, since a loop that supplies the group accepts the text |
+| No peer text | `tests/unit/memory_unix_test.goose`: `peer_address` is empty on both ends of a path link; no check of the suite can say so, since it needs the inspection group and the unix group |
+| A scripted peer at a path, Paths conflict only when equal | `tests/unit/memory_unix_test.goose` |
+| A check that reaches into another group | `tests/conformance/groups_check.sh` |
+| A loop that does not supply the group | `tests/conformance/run.sh --core-only` runs no unix part |
+
+### Scenarios added by the link-keyed state
+
+The change that removed the tag and the user value from the events (`link-keyed-state`, contract 0.2) added these
+scenarios. A library finds its state from the link of an event; the event loop passes nothing in.
+
+| Scenario | Proved by | Fault |
+|---|---|---|
+| An accepted link names its listener | check `owner_listener_named` | `WrongListenerNamed` |
+| A dial that fails at once is found by its link | check `owner_dial_found_by_link` | `DialClosedLost` |
+| Slots are reused before new ones are issued, A reused slot has a new generation | check `slots_dense` | `SlotsNeverReused` |
+| A slot is not reused while Closed is handled | check `slot_kept_during_closed` | `ClosedHandleStaleEarly` |
+| No event inside the dial | check `dial_no_event_inside` | none (see below) |
+| The bound is the loop's peak | `tests/unit/memory_links_test.goose` (slots) |  |
+| A stale link finds nothing, A foreign link finds nothing, Growing does not move values, Dropping touches one entry, A dropped value is gone, A put over a stale entry replaces it | `tests/unit/link_map_test.goose`, one body of laws that any table with `put`, `find`, `has` and `drop` can be run through |  |
+| One map for each loop | stated in `docs/libraries.md`; nothing to run |  |
+| Two libraries share one loop, Another library's Closed is not handled, Two instances of one library on one loop, A dialled link's Opened does not replace its state | `tests/examples/lineserver_test.goose`, `tests/examples/gateway_test.goose` and `tests/examples/lineclient_test.goose`: a library reports an event of a link it does not own as not handled |  |
+| An operation that was removed | `tests/unit/removed_set_user_mustfail.goose`, `tests/unit/removed_tag_mustfail.goose` |  |
+
+### Scenarios added by the lifecycle guarantees
+
+The change `lifecycle-guarantees` (contract 0.2) states the life of a link and of a loop: the states, the result of every
+operation in each state, the keep-open window, the handles and the loop's own states. Its scenarios are proved here, as
+each group of them lands.
+
+| Scenario | Proved by | Fault |
+|---|---|---|
+| Handles in a long run are distinct, No issued link has generation 0 | check `handles_pair_unique`; the driver also records every handle in every part of every group's suite and fails the running check on a pair issued twice | `GenerationNotAdvanced` |
+| A slot is not reused while its Closed is pending | check `handles_slot_held`; the driver fails the running check in every other part | `SlotFreedOnClose` |
+| The invalid link is never issued | check `handles_unset` (and its group variants); `tests/unit/memory_links_test.goose` | `UnsetHandleAccepted` |
+| The last generation retires the slot, A retired slot does not lower the link limit | `tests/unit/memory_links_test.goose` (`age_slot`); no check of the suite can age a slot | |
+| A dialled link seen twice is one issuance, A loop that does not advance the generation fails, A loop that reuses a slot early fails | `tests/conformance/driver_test.goose` and the two faults above | |
+| Sending has one result in each link state, A link is in one of five states: one link in each state, a dialled link moves through the states, the event loop ends a link the library sees as open | check `states_send` (and `states_sizing` for `send2` and `send_room`) | `SendBeforeOpenSent`; `RoomWhenClosed`, `SendBeforeOpenSent` |
+| A Closed send result is final: the peer goes away, a refused send then a Closed result | checks `states_closed_is_final`, `states_closed_wakes_nothing` | `ClosedResultNotFinal`; `WritableAfterClosedResult` |
+| Ending a link has one result in each link state: close twice, reset a dial in progress, reset after close | checks `states_close`, `states_reset` (abort group) | `SecondCloseClosesAgain`; `ResetDialOpens`, `ResetAfterCloseClosesAgain` |
+| Sending on a write-shut link, shutdown before the link opens, close after shutdown, a Closed result concerns only sending | check `states_half_close` (half-close group) | `ShutdownBeforeOpenRemembered`, `ClosedResultEndsShutLink` |
+| Pausing takes effect in every live state: pause before Opened | check `states_pause` | `PauseBeforeOpenIgnored` |
+| Keep-open is configured no later than Opened: while dialling, while handling Opened, a late call has no effect, an end of stream before Opened is handled | check `states_keep_open` (half-close group) | `KeepOpenWhileDiallingIgnored`, `KeepOpenLateHonoured`, `EarlyEofActedOn` |
+| Each operation says how it completes: pausing is complete when it returns, one Tick may answer several requests | check `states_completion` | `TickByIgnored` |
+| A dialling link has no peer address, a closing link still names its peer, a closed link has no peer address | check `states_inspection` (inspection group) | `PeerAddressGoneOnClose` |
+| Sending on a write-shut link (`send2`, `send_room`), `peer_address` while write-shut | `tests/unit/memory_data_test.goose`, `tests/unit/memory_links_test.goose`: the sizing and inspection suites cannot call `shutdown_write` | |
+| The batching and unix groups | no link operation and no states check: batching has only an event, unix only address forms | |
+| Setting up on the serving thread | inspection (task 4.7 of `lifecycle-guarantees`): `grep -rn "thread\|spawn" --include=*.goose examples tests conformance memory.goose` prints nothing, so `examples/gateway.goose`, `examples/echo/`, `examples/lineserver/`, `examples/lineclient/`, every root program under `tests/` (`tests/unit/`, `tests/examples/`, `tests/conformance/memory_conformance.goose`, `wrapped_conformance.goose`, `core_only_conformance.goose`) and every entry point of `conformance/suite.goose` construct their loop, set it up and call `serve` on one thread | |
+| Listening and dialling before serve: no event is delivered before serve, and serve delivers Opened for both links | check `setup_before_serve` (the entry point listens and dials before it calls `serve`), `tests/unit/memory_loop_test.goose` | `SetupEventsDropped` |
+| Operations after serve returns, Serve a second time | checks `finished_loop` (core, part 1), `finished_loop_sizing`, `finished_loop_inspection`: each runs after `serve` has returned (ids of 900 and more); the half-close and abort operations return nothing, so their cells are covered by `tests/unit/memory_loop_test.goose` and `tests/unit/wrapper_loop_test.goose` | `SendAfterFinishSent`, `FinishedDialIssues`, `SecondServeRuns`; `PeerAddressAfterFinish` |
+| Close, then stop; Stop, then close during the grace period | check `grace_keeps_local` (core, part 6) | `ShutdownOverridesLocal` |
+
+### What the lifecycle guarantees added
+
+An event loop that conforms to contract 0.2 keeps these obligations, each shown above:
+
+- **the reserved invalid link**: the default `Link` (generation 0) is the one invalid link, and no loop issues a link with generation 0;
+- **retirement**: a slot whose generations are used up is retired and never issued again, so no slot and generation pair is issued twice;
+- **slots held until `Closed`**: a slot is not issued again until the `Closed` of the link in it has been delivered (and, as the dense-slot rule says, every handler of it has returned);
+- **the keep-open window**: `set_keep_open_on_eof` takes effect only while dialling or in the handler of `Opened`, and an end of stream seen earlier waits for that handler;
+- **reading controls while dialling**: `pause_reading` takes effect on a link that is still dialling;
+- **`Closed` is final**: after a `Closed` send result sending has ended, `send_room` is 0 and no `Writable` follows;
+- **the finished loop**: after `serve` returns every operation does nothing, `dial` returns the invalid link, and a second `serve` returns at once;
+- **`Local` over `Shutdown`**: a link the library closed ends with `Local`, even at the end of the grace period.
+
 ### What cannot be shown by a fault
 
-`events_not_reentrant` (*A close does not re-enter the handler*) and `events_not_reentrant_after_reset` (*A send that closes
-the link does not re-enter the handler*, in the abort group) have no fault in the in-memory event loop. An operation of a queue-based event loop has no handler to call, so
+`events_not_reentrant` (*A close does not re-enter the handler*), `events_not_reentrant_after_reset` (*A send that closes
+the link does not re-enter the handler*, in the abort group) and `dial_no_event_inside` (*No event inside the dial*) have no fault in the in-memory event loop. An operation of a queue-based event loop has no handler to call, so
 it cannot be made to deliver an event from inside itself. The check is the driver's own guard: every check runs
 under a counter of handler nesting, and the check fails if an event arrives while another is being handled. The
 guard is shown to work by `tests/conformance/reentry_test.goose`, which tells the driver that a handler is already
@@ -320,6 +440,10 @@ running. An event loop that delivers an event from inside an operation fails the
 A few scenarios depend on a limit a socket event loop cannot be asked to reach (*Handles run out and do not wrap*,
 *An event loop out of links*). They are tested on the in-memory event loop and, for a socket event loop, answered in its
 mapping document under `docs/event-loops/`.
+
+The unix group's checks share one loop, so each derives its own paths from `Fixture.unix` (a suffix of the check's number),
+and the group's malformed-path check needs no file system. The loop creates and removes the socket file, and the suite
+stops its listeners before it ends.
 
 `dial_while_draining` is complete only when the fixture supplies an address that still answers after `stop`
 (`Fixture.answers`): every listener of the loop has stopped by then, so no call can make one. Without it the check

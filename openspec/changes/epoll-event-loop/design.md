@@ -2,7 +2,7 @@
 
 See `proposal.md` for the motivation. The facts that shape the approach:
 
-- **The contract and its tests exist.** Contract 0.1 is a core of 13 operations and 5 events and five groups; the conformance suite runs by group (`conformance_core_part` and one entry point for each group), a loop that supplies only the core passes the core on it (`tests/support/core_only.goose`), and the example libraries run on the in-memory loop and over a wrapper. This change builds none of that again. It adds a loop that the same programs run on.
+- **The contract and its tests exist.** Contract 0.2 is a core of twelve operations and 5 events and six groups (half-close, sizing, abort, inspection, batching and unix); nothing is attached to a link, so an event carries the link (and, for `Opened`, the listener) and a library finds its state from it; slots are dense and a slot is freed only after the handlers of its `Closed` have returned; the conformance suite runs by group (`conformance_core_part` and one entry point for each group), a loop that supplies only the core passes the core on it (`tests/support/core_only.goose`), and the example libraries run on the in-memory loop and over a wrapper. This change builds none of that again. It adds a loop that the same programs run on.
 - **The mapping is done.** `docs/event-loops/tcprouter-engine.md` has one row per operation and event, marked checked or unverified against source, with the adapter work. This design turns its rows into tasks.
 - **tcprouter's engine** (`05995d1`; `main` is `ea41fed`, which changes documents only) has three layers in one `Worker`: the generic layer (loop, slots and generations, buffer pool, handler path, control messages, drain, statistics, address parsing, the C socket layer, about 2,300 lines), the forwarding layer (`_pump`, readiness flags, ready queue, 64 KiB budget) and proxy policy (routes, SNI, retry, tags, deadlines, fences). skein already runs on the generic layer for HTTP and for outbound links.
 - **The package must stay pure Goose** (`tests/checks/purity.sh`). A loop on epoll needs C, so it lives under `examples/loops/`, the one place the check allows native files and `extern`.
@@ -12,7 +12,7 @@ See `proposal.md` for the motivation. The facts that shape the approach:
 
 **Goals:**
 
-- A loop on real sockets that the existing suite and example libraries pass on unchanged, supplying the core and every group.
+- A loop on real sockets that the existing suite and example libraries pass on unchanged, supplying the core and the five groups it is written for (half-close, sizing, abort, inspection and batching). Whether it also supplies the unix group is the owner's decision when the loop is applied (the owner's open decision), and is not assumed here.
 - A loop that is tcprouter's code, moved, so that a later tcprouter refactor changes where code lives and not what runs.
 - Evidence, before that refactor, that both the handler path and a forwarding extension hold tcprouter's numbers.
 - Tests that exist before the code they test and fail when the code is wrong.
@@ -35,8 +35,8 @@ Alternative considered: a repository of its own. Better for the pure-package rul
 ### D2. tcprouter's code is imported before it is changed
 
 1. Copy the generic files from `05995d1` unmodified, with their tests, in one commit that changes only namespaces and imports. It must build and pass the copied tests; the pass counts are recorded as the behavioural baseline.
-2. Move the proxy layer (routes, SNI, forward pump, retry, policy, tags, deadlines, fences) behind the seam, in small commits, each with the imported tests green.
-3. Move to the contract's names last: `Conn` to `Link`, `send -> bool` to `SendStatus`, events with `tag` and `user`, `Opened` carrying the listener, close reasons to the portable set plus `LoopSpecific`.
+2. Move the proxy layer (routes, SNI, forward pump, retry, policy, tags, deadlines, fences) behind the seam, in small commits, each with the imported tests green. The route tags and their leases and deadlines are the proxy layer's own: they move into the extension's per-slot state (D5), and the loop keeps no tag.
+3. Move to the contract's names last: `Conn` to `Link`, `send -> bool` to `SendStatus`, events that carry the link and nothing attached to it (no `tag`, no `user`), `Opened` carrying the listener, close reasons to the portable set plus `LoopSpecific`.
 
 Every behaviour change is then a reviewable diff against known-good code, and a failed gate has a bisectable history.
 
@@ -46,11 +46,11 @@ What the mapping document found, as work (the core first, so that a loop with on
 
 | Group | Work |
 |---|---|
-| Core | `listen(address, tag)` at run time (a never-reused `Listener` table), `listener_port` (`getsockname`), `tick_by` (one earliest-wake field shared with dial deadlines), `now_ms` exported, `max_send` of at least 4096, `Writable` once the largest refused send fits, `close` that finishes sending and drains input before closing, the user value of a dial that failed inside `dial`, `Closed` reasons mapped to the portable set |
+| Core | `listen(address)` at run time (a never-reused `Listener` table, which `Opened` names for an accepted link), `listener_port` (`getsockname`), `tick_by` (one earliest-wake field shared with dial deadlines), `now_ms` exported, `max_send` of at least 4096, `Writable` once the largest refused send fits, `close` that finishes sending and drains input before closing, a slot kept until the handlers of its `Closed` have returned, including for a dial that failed inside `dial` (today the engine frees it when it queues the `Closed`), slots kept dense with a free list (a freed slot is reused before the table is extended, D9), `Closed` reasons mapped to the portable set |
 | Half-close | `set_keep_open_on_eof`, `shutdown_write`, `PeerEof` (present in tcprouter) |
 | Sizing | `send_room` (present), `send2` (both parts or neither, bounded as the sum) |
 | Abort | `reset` (`SO_LINGER` 0) |
-| Inspection | `peer_address` (`getpeername`, formatted as the contract's text), `stop_listening`, `user` readable inside the handler of `Closed` |
+| Inspection | `peer_address` (`getpeername`, formatted as the contract's text, valid inside the handler of `Closed`), `stop_listening` |
 | Batching | `PassEnd` (present) |
 
 Each row ends with the matching entry point of the suite passing; the loop is described as conforming to a group only when its entry point passes.
@@ -68,7 +68,7 @@ The suite needs three things a contract call cannot make (`docs/event-loops.md`,
 | `on_accept(w, listener, fd) -> bool` | a socket was accepted; true means the extension took it | `_new_connection` routing and inspection |
 | `on_event(w, slot, kind, mask)` | an event for a slot in an extension-owned state or an extension-registered socket | the inspecting, connecting and forwarding arms of `_dispatch_event` |
 | `on_ready(w, slot)` | a slot queued by the extension runs after the batch | `_run_ready` calling `_pump` |
-| `allows(w, tag) -> bool` | before a dial opens, a send and a flush | `_tag_allows` |
+| `allows(w, slot) -> bool` | before a dial opens, a send and a flush | `_tag_allows` (the extension looks the slot up in its own state) |
 | `on_close(w, slot, reason)` | a slot is being closed | server-socket close, policy notification |
 | `on_sweep(w, now)` | the 250 ms sweep | inspect and connect timeouts, deadline enforcement |
 | `on_message(w, kind, body)` | a control message the loop does not own | `Deadline`, `CloseTagged`, `SetAddr`, `Policy` |
@@ -78,7 +78,7 @@ The loop offers the extension: register and re-arm an extra socket under an exte
 
 Why hooks on a generic parameter: tcprouter already does it for policy (`serve<P, F>`), it is monomorphised, and an empty hook compiles to nothing. Alternative: a generic slot payload (`Worker<S>`), which keeps one cache-line pattern but couples the loop's layout to its extension and relies on generic root structs. Held in reserve for D8.
 
-A tag's meaning (a lease, a deadline) is the extension's; the loop only carries the tag. With no extension `allows` is constant true and disappears.
+A route's tag, with its lease and deadline, is the extension's own: it lives in per-slot state that the extension keeps, indexed by the link's slot and checked against the generation the extension stores, and the loop carries no tag in any event or operation (contract 0.2 has none). A hook that decides about a link is given its slot. With no extension `allows` is constant true and disappears.
 
 ### D6. Timers and clock
 
@@ -121,7 +121,7 @@ bench/                       syscalls, http, memory, forward_ext, results/
 
 ## Migration Plan
 
-- Work on a branch of goose-io after `contract-v1` and `simplify-contract` have merged; nothing is pushed or tagged without the owner's approval. tcprouter's `integrate/goose-io` branch pins an old commit and stays unmerged.
+- Work on a branch of goose-io after `link-keyed-state` (archived) and `lifecycle-guarantees` have merged; nothing is pushed or tagged without the owner's approval. tcprouter's `integrate/goose-io` branch pins an old commit and stays unmerged.
 - Rollback is a revert of the merge; the in-memory loop and the suite are untouched.
 
 ## Open Questions
@@ -129,3 +129,7 @@ bench/                       syscalls, http, memory, forward_ext, results/
 - Does a loop under `examples/loops/` build with `goose build` and its C file from this repository (D1), or does it need a repository of its own? Settled by the first task; changes where files are, not what they do.
 - Should the loop's multi-worker start use `SO_REUSEPORT` as tcprouter does, or one listener shared by the workers? tcprouter's behaviour is kept unless a test shows a reason.
 - Can `Data` be delivered without a copy from a provided-buffer ring in a later io_uring loop? Not for this change.
+
+### D9. Dense slots, held until `Closed` has been handled
+
+Contract 0.2 requires that a freed slot is reused before a new one is issued (so no slot is as large as the greatest number of links valid at once) and that a slot is freed only when every handler of its `Closed` has returned. The loop keeps a free list over its slot table and takes from it before it extends the table. The slot goes back on the list in the place where the engine bumps the generation after delivering `Closed`, not when it queues `Closed` (the engine does the latter today, which is why `peer_address` inside the handler of a `Closed` is empty and a link made there can take the slot, and why a dial that fails inside `dial` loses its slot at once). A slot whose generations are used up is retired and not put back (the rule of `lifecycle-guarantees`). The suite's checks `slots_dense`, `slot_kept_during_closed`, `owner_listener_named`, `owner_dial_found_by_link` and `dial_no_event_inside` are the conformance expectations, and a unit test shows that a link opened inside the handler of a failed dial's `Closed` does not take that slot.

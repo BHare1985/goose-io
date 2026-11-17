@@ -40,7 +40,7 @@ fn one_request<Io>(io: Io&) {
     var s = lineserver::LineServer { .. };
     var log = kit::Log { .. };
     var c = Counts { .. };
-    kit::check(s.start(io, "127.0.0.1:8080", 4), "the server listens");
+    kit::check(s.start(io, "127.0.0.1:8080"), "the server listens");
     let p = io.add_peer();
     io.peer_connect(p, "127.0.0.1:8080", 0);
     io.peer_send(p, 5, "hello\n");
@@ -54,7 +54,7 @@ fn pipelined<Io>(io: Io&) {
     var s = lineserver::LineServer { .. };
     var log = kit::Log { .. };
     var c = Counts { .. };
-    s.start(io, "127.0.0.1:8081", 4);
+    s.start(io, "127.0.0.1:8081");
     let p = io.add_peer();
     io.peer_connect(p, "127.0.0.1:8081", 0);
     io.peer_send(p, 5, "one\ntwo\nthree\n");
@@ -66,7 +66,7 @@ fn split_request<Io>(io: Io&) {
     var s = lineserver::LineServer { .. };
     var log = kit::Log { .. };
     var c = Counts { .. };
-    s.start(io, "127.0.0.1:8082", 4);
+    s.start(io, "127.0.0.1:8082");
     let p = io.add_peer();
     io.peer_connect(p, "127.0.0.1:8082", 0);
     io.peer_send(p, 5, "par");
@@ -82,7 +82,7 @@ fn slow_reader<Io>(io: Io&) {
     var s = lineserver::LineServer { .. };
     var log = kit::Log { .. };
     var c = Counts { .. };
-    s.start(io, "127.0.0.1:8083", 4);
+    s.start(io, "127.0.0.1:8083");
     let p = io.add_peer();
     io.peer_connect(p, "127.0.0.1:8083", 0);
     io.peer_stop_reading(p, 0);
@@ -104,7 +104,7 @@ fn half_close<Io>(io: Io&) {
     var s = lineserver::LineServer { .. };
     var log = kit::Log { .. };
     var c = Counts { .. };
-    s.start(io, "127.0.0.1:8084", 4);
+    s.start(io, "127.0.0.1:8084");
     let p = io.add_peer();
     io.peer_connect(p, "127.0.0.1:8084", 0);
     io.peer_send(p, 5, "last\n");
@@ -119,7 +119,7 @@ fn stopping<Io>(io: Io&) {
     var s = lineserver::LineServer { .. };
     var log = kit::Log { .. };
     var c = Counts { .. };
-    s.start(io, "127.0.0.1:8085", 4);
+    s.start(io, "127.0.0.1:8085");
     let p = io.add_peer();
     io.peer_connect(p, "127.0.0.1:8085", 0);
     io.peer_send(p, 5, "hi\n");
@@ -139,13 +139,13 @@ fn other_tags<Io>(io: Io&) {
     var s = lineserver::LineServer { .. };
     var log = kit::Log { .. };
     var c = Counts { .. };
-    s.start(io, "127.0.0.1:8086", 4);
-    let l, err = io.listen("127.0.0.1:8087", 9);              // another library's listener
+    s.start(io, "127.0.0.1:8086");
+    let l, err = io.listen("127.0.0.1:8087");              // another library's listener
     let p = io.add_peer();
     io.peer_connect(p, "127.0.0.1:8087", 0);
     io.peer_send(p, 5, "not for the server\n");
     io.serve() { io, ev => simple_event(s, c, log, io, ev, 0, 200); };
-    kit::check(io.peer_received(p).len == 0, "a link that carries another library's tag is not touched");
+    kit::check(io.peer_received(p).len == 0, "a link accepted by another library's listener is not touched");
     kit::check(s.open_connections() == 0, "and is not counted");
 }
 

@@ -1,5 +1,5 @@
 // Contract types and helpers (specs/io-contract: "Links are generation-checked handles",
-// "Every link event names its owner", "The contract states its version").
+// "A link event is recognised by what the library holds", "The contract states its version").
 import std;
 import goose_io from "../..";
 
@@ -10,7 +10,7 @@ fn check(ok: bool, what: const u8[:]) {
 
 // The compiler has no size query for a type holding a slice, so the size of the largest
 // Event variant (Data) is measured on a mirror with the slice replaced by two 64-bit words.
-struct DataShape { link: goose_io::Link, tag: u16, user: u32, ptr: u64, len: u64 }
+struct DataShape { link: goose_io::Link, ptr: u64, len: u64 }
 
 fn main() {
     // Link
@@ -38,24 +38,23 @@ fn main() {
     full.text.append("127.0.0.1:80");
     check(!goose_io::is_empty(full), "an Address with text is not empty");
 
-    // tag_of / is_link_event / user_of / link_of for every variant
+    // is_link_event / link_of for every variant
     let l = goose_io::Link { slot: 1, gen: 1 };
-    let opened:   goose_io::Event = goose_io::Event.Opened { link: l, tag: 11, user: 21, listener: goose_io::Listener { id: 1 } };
-    let data:     goose_io::Event = goose_io::Event.Data { link: l, tag: 12, user: 22, bytes: "abc" };
-    let writable: goose_io::Event = goose_io::Event.Writable { link: l, tag: 13, user: 23 };
-    let eof:      goose_io::Event = goose_io::Event.PeerEof { link: l, tag: 14, user: 24 };
-    let closed:   goose_io::Event = goose_io::Event.Closed { link: l, tag: 15, user: 25, why: goose_io::CloseReason.Local };
+    let opened:   goose_io::Event = goose_io::Event.Opened { link: l, listener: goose_io::Listener { id: 1 } };
+    let data:     goose_io::Event = goose_io::Event.Data { link: l, bytes: "abc" };
+    let writable: goose_io::Event = goose_io::Event.Writable { link: l };
+    let eof:      goose_io::Event = goose_io::Event.PeerEof { link: l };
+    let closed:   goose_io::Event = goose_io::Event.Closed { link: l, why: goose_io::CloseReason.Local };
     let tick:     goose_io::Event = goose_io::Event.Tick { now_ms: 5 };
     let pass_end: goose_io::Event = goose_io::Event.PassEnd {};
 
-    check(goose_io::is_link_event(opened) && goose_io::tag_of(opened) == 11 && goose_io::user_of(opened) == 21, "Opened");
-    check(goose_io::is_link_event(data) && goose_io::tag_of(data) == 12 && goose_io::user_of(data) == 22, "Data");
-    check(goose_io::is_link_event(writable) && goose_io::tag_of(writable) == 13 && goose_io::user_of(writable) == 23, "Writable");
-    check(goose_io::is_link_event(eof) && goose_io::tag_of(eof) == 14 && goose_io::user_of(eof) == 24, "PeerEof");
-    check(goose_io::is_link_event(closed) && goose_io::tag_of(closed) == 15 && goose_io::user_of(closed) == 25, "Closed");
-    check(!goose_io::is_link_event(tick) && goose_io::tag_of(tick) == 0, "Tick carries no tag");
-    check(!goose_io::is_link_event(pass_end) && goose_io::tag_of(pass_end) == 0, "PassEnd carries no tag");
-    check(goose_io::same(goose_io::link_of(data), l), "link_of a link event");
+    check(goose_io::is_link_event(opened) && goose_io::same(goose_io::link_of(opened), l), "Opened");
+    check(goose_io::is_link_event(data) && goose_io::same(goose_io::link_of(data), l), "Data");
+    check(goose_io::is_link_event(writable) && goose_io::same(goose_io::link_of(writable), l), "Writable");
+    check(goose_io::is_link_event(eof) && goose_io::same(goose_io::link_of(eof), l), "PeerEof");
+    check(goose_io::is_link_event(closed) && goose_io::same(goose_io::link_of(closed), l), "Closed");
+    check(!goose_io::is_link_event(tick), "Tick is not a link event");
+    check(!goose_io::is_link_event(pass_end), "PassEnd is not a link event");
     check(!goose_io::is_valid(goose_io::link_of(tick)), "link_of Tick is invalid");
 
     // Close reasons: a loop-specific reason carries a code and is not portable.
@@ -63,13 +62,13 @@ fn main() {
     check(!goose_io::is_portable(why), "a loop-specific reason is not portable");
     check(goose_io::is_portable(goose_io::CloseReason.PeerReset), "PeerReset is portable");
 
-    // Size: tag byte + the largest payload.
+    // Size: the variant byte + the largest payload (a link and a slice: no tag, no user value).
     var shapes: DataShape[>..] = [];
-    shapes.push(DataShape { link: l, tag: 0, user: 0, ptr: 0, len: 0 });
-    check(bytes_of(shapes).len + 1 <= 32, "Event is at most 32 bytes");
+    shapes.push(DataShape { link: l, ptr: 0, len: 0 });
+    check(bytes_of(shapes).len + 1 <= 25, "Event is at most 25 bytes");
 
     // Version
-    check(goose_io::VERSION_MAJOR == 0 && goose_io::VERSION_MINOR == 1, "contract version is 0.1");
+    check(goose_io::VERSION_MAJOR == 0 && goose_io::VERSION_MINOR == 2, "contract version is 0.2");
 
     if failures > 0 { print(failures, " failed"); exit(1); }
 }

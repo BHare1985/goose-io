@@ -16,7 +16,7 @@ fn reply_event(p: kit::Pair&, log: kit::Log&, io: goose_io_memory::Loop&, ev: go
     if kit::track(p, log, io, ev) { io.send(p.client, "ping, and more that is never read"); }
     match ev {
         Data d => {
-            if d.tag == 1 {
+            if goose_io::same(d.link, p.server) {
                 kit::check(d.bytes == "ping", "fixture: the closing end has input it has not read");
                 kit::check(io.send(d.link, "the whole reply") == goose_io::SendStatus.Sent, "fixture: reply");
                 io.close(d.link);
@@ -71,8 +71,7 @@ struct Quiet { p: kit::Pair = kit::Pair { .. }, resumed: bool = false }
 
 // The client has a Writable owed to it and a PeerEof on its way when it closes: neither arrives.
 fn quiet_event(q: Quiet&, log: kit::Log&, chunk: u8[>..]&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
-    if kit::track(q.p, log, io, ev) {
-        io.set_keep_open_on_eof(q.p.client, true);
+    if kit::track_keep(q.p, log, io, ev, false, true) {
         io.pause_reading(q.p.server, true);
         while io.send(q.p.client, chunk) == goose_io::SendStatus.Sent {}       // until Full: a Writable is owed
         io.shutdown_write(q.p.server);                                          // a PeerEof is on its way
@@ -105,22 +104,24 @@ fn only_closed_after_close() {
 // Closing a link from another link's handler, when an event for it is already on its way in the
 // same pass: that event is not delivered either.
 struct Two {
-    a_client: goose_io::Link = goose_io::Link { .. },
-    a_server: goose_io::Link = goose_io::Link { .. },
-    b_client: goose_io::Link = goose_io::Link { .. },
-    open:     i64            = 0,
-    b_server: goose_io::Link = goose_io::Link { .. },
-    fired:    bool           = false,
+    a_client: goose_io::Link     = goose_io::Link { .. },
+    a_server: goose_io::Link     = goose_io::Link { .. },
+    b_client: goose_io::Link     = goose_io::Link { .. },
+    open:     i64                = 0,
+    b_server: goose_io::Link     = goose_io::Link { .. },
+    fired:    bool               = false,
+    la:       goose_io::Listener = goose_io::Listener { .. },
+    lb:       goose_io::Listener = goose_io::Listener { .. },
 }
 
 fn two_event(t: Two&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
     kit::note(log, io, ev);
     match ev {
         Opened e => {
-            if e.tag == 1 { t.a_server = e.link; }
-            if e.tag == 3 { t.b_server = e.link; }
+            if goose_io::same(e.listener, t.la) { t.a_server = e.link; }
+            if goose_io::same(e.listener, t.lb) { t.b_server = e.link; }
             t.open++;
-            if t.open == 4 { io.set_keep_open_on_eof(t.b_client, true); }
+            if goose_io::same(e.link, t.b_client) { io.set_keep_open_on_eof(e.link, true); }       // in the handler of its own Opened
         },
         Tick k => {
             if !t.fired && t.open == 4 {
@@ -129,7 +130,7 @@ fn two_event(t: Two&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::
                 io.shutdown_write(t.b_server);          // ... and, after it, PeerEof for b_client
             }
         },
-        Data d => { if d.tag == 2 { io.close(t.b_client); } },
+        Data d => { if goose_io::same(d.link, t.a_client) { io.close(t.b_client); } },
         _ => {},
     }
     kit::stop_after(io, ev, 300);
@@ -139,10 +140,12 @@ fn close_cancels_pending_events() {
     var io = goose_io_memory::Loop { .. };
     var log = kit::Log { .. };
     var t = Two { .. };
-    let la, ea = io.listen("127.0.0.1:8110", 1);
-    let lb, eb = io.listen("127.0.0.1:8111", 3);
-    t.a_client = io.dial("127.0.0.1:8110", 2, 0);
-    t.b_client = io.dial("127.0.0.1:8111", 4, 0);
+    let la, ea = io.listen("127.0.0.1:8110");
+    let lb, eb = io.listen("127.0.0.1:8111");
+    t.la = la;
+    t.lb = lb;
+    t.a_client = io.dial("127.0.0.1:8110", 0);
+    t.b_client = io.dial("127.0.0.1:8111", 0);
     io.serve() { io, ev => two_event(t, log, io, ev); };
     kit::check(kit::count_for(log, kit::DATA, t.a_client) == 1, "fixture: the other link's Data was delivered");
     kit::check(kit::kinds_of(log, t.b_client) == "OC", "an event already on its way when the link is closed is not delivered");
@@ -180,8 +183,8 @@ fn resetting() {
     // reset on a dial that has not opened: cancelled like close
     var io2 = goose_io_memory::Loop { .. };
     var log2 = kit::Log { .. };
-    let l, err = io2.listen("127.0.0.1:8103", 1);
-    let d = io2.dial("127.0.0.1:8103", 2, 0);
+    let l, err = io2.listen("127.0.0.1:8103");
+    let d = io2.dial("127.0.0.1:8103", 0);
     io2.reset(d);
     io2.serve() { io, ev => { kit::note(log2, io, ev); kit::stop_after(io, ev, 200); } };
     kit::check(kit::kinds_of(log2, d) == "C", "reset before Opened: no Opened, one Closed");
@@ -200,7 +203,7 @@ fn eof_event(p: kit::Pair&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goos
         io.shutdown_write(p.client);            // twice: no effect
     }
     match ev {
-        Data d => { if d.tag == 1 { io.send(d.link, "sent before the end"); } },
+        Data d => { if goose_io::same(d.link, p.server) { io.send(d.link, "sent before the end"); } },
         _ => {},
     }
     kit::stop_after(io, ev, 200);
@@ -225,8 +228,7 @@ fn default_end_of_stream() {
 struct Half { p: kit::Pair = kit::Pair { .. }, eof_at: i64 = -1, replied: bool = false, close_instead: bool = false }
 
 fn half_event(h: Half&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
-    if kit::track(h.p, log, io, ev) {
-        io.set_keep_open_on_eof(h.p.server, true);
+    if kit::track_keep(h.p, log, io, ev, true, false) {
         io.send(h.p.client, "req");
         io.send(h.p.client, "uest");
         io.shutdown_write(h.p.client);
@@ -266,8 +268,7 @@ fn half_close(close_instead: bool) {
 struct Gone { p: kit::Pair = kit::Pair { .. }, sent: bool = false }
 
 fn gone_event(g: Gone&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
-    if kit::track(g.p, log, io, ev) {
-        io.set_keep_open_on_eof(g.p.client, true);
+    if kit::track_keep(g.p, log, io, ev, false, true) {
         io.close(g.p.server);
     }
     match ev {
@@ -336,21 +337,18 @@ fn stale_event(s: Stale&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_
             if goose_io::same(e.link, s.first) { io.close(s.first); }
             if goose_io::same(e.link, s.second) { s.second_open = true; }
             if goose_io::is_valid(s.second) {
-                io.set_user(e.link, 9);
                 if e.link.slot == s.first.slot { s.reuser = e.link; }
             }
         },
         Closed c => {
             if goose_io::same(c.link, s.first) {
-                kit::check(io.user(c.link) == 5, "the handle is still valid while its Closed is handled");
                 kit::check(!goose_io::is_empty(io.peer_address(c.link)), "and so is its peer address");
                 kit::check(io.send(c.link, "x") == goose_io::SendStatus.Closed, "though nothing can be sent on it");
             }
         },
         Tick t => {
             if !goose_io::is_valid(s.second) && kit::count_for(log, kit::CLOSED, s.first) == 1 {
-                s.second = io.dial("127.0.0.1:8108", 2, 0);
-                io.set_user(s.second, 9);
+                s.second = io.dial("127.0.0.1:8108", 0);
             }
             if s.second_open && !s.checked {
                 s.checked = true;
@@ -358,9 +356,6 @@ fn stale_event(s: Stale&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_
                 kit::check(!goose_io::same(s.first, s.reuser), "a reused slot gives a different handle");
                 // every operation on the old handle is a no-op and leaves the new link alone
                 kit::check(io.send(s.first, "x") == goose_io::SendStatus.Closed, "send on the stale handle returns Closed");
-                io.set_user(s.first, 1234);
-                kit::check(io.user(s.first) == 0, "user on the stale handle is 0: the handle went stale when its Closed handler returned");
-                kit::check(io.user(s.reuser) == 9, "set_user on the stale handle did not touch the link now in its slot");
                 kit::check(goose_io::is_empty(io.peer_address(s.first)), "peer_address on the stale handle is empty");
                 io.pause_reading(s.first, true);
                 io.set_keep_open_on_eof(s.first, true);
@@ -379,9 +374,8 @@ fn stale_handles() {
     var io = goose_io_memory::Loop { .. };
     var log = kit::Log { .. };
     var s = Stale { .. };
-    let l, err = io.listen("127.0.0.1:8108", 1);
-    s.first = io.dial("127.0.0.1:8108", 2, 0);
-    io.set_user(s.first, 5);
+    let l, err = io.listen("127.0.0.1:8108");
+    s.first = io.dial("127.0.0.1:8108", 0);
     io.serve() { io, ev => stale_event(s, log, io, ev); };
     kit::check(s.checked, "fixture: the second link opened");
     kit::check(kit::count_for(log, kit::CLOSED, s.first) == 1, "the old link still has exactly one Closed");
@@ -389,7 +383,102 @@ fn stale_handles() {
     kit::check(kit::count(log, kit::CLOSED) == 4, "four links, four Closed");
 }
 
+// --- keep-open is configured no later than Opened (specs/io-contract of the change lifecycle-guarantees) ---------------
+
+// `who` says where the call is made: 0 while dialling (the dialled end asks, its peer finishes), 1 in the Opened handler of
+// the accepted end (its peer finishes), 3 in the dialled end's Opened handler, after the peer finished before it ran.
+struct Window { p: kit::Pair = kit::Pair { .. }, who: i64 = 0, asked: bool = false, sent_after: goose_io::SendStatus = goose_io::SendStatus.NotOpen }
+
+fn window_event(w: Window&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
+    kit::note(log, io, ev);
+    match ev {
+        Opened e => {
+            if goose_io::is_listener(e.listener) {
+                w.p.server = e.link;
+                if w.who == 1 { io.set_keep_open_on_eof(e.link, true); }
+                if w.who == 0 || w.who == 3 {
+                    // the accepted end is the peer of the library's dialled end: it sends and finishes as soon as it is open
+                    io.send(e.link, "hello");
+                    io.shutdown_write(e.link);
+                }
+            } else {
+                // the dialled end's own Opened handler
+                if w.who == 3 { io.set_keep_open_on_eof(e.link, true); }
+                if w.who == 1 { io.send(e.link, "hello"); io.shutdown_write(e.link); }       // its peer asked to keep open, and sees this end finish
+            }
+        },
+        PeerEof e => {
+            if goose_io::same(e.link, w.p.client) || goose_io::same(e.link, w.p.server) { w.sent_after = io.send(e.link, "reply"); }
+        },
+        _ => {},
+    }
+    kit::stop_after(io, ev, 300);
+}
+
+fn window_run(who: i64, log: kit::Log&) -> Window {
+    var io = goose_io_memory::Loop { .. };
+    var w = Window { who: who, .. };
+    let l, err = io.listen("127.0.0.1:8120");
+    w.p.client = io.dial("127.0.0.1:8120", 0);
+    if who == 0 { io.set_keep_open_on_eof(w.p.client, true); }      // while it is dialling
+    io.serve() { io, ev => window_event(w, log, io, ev); };
+    return w;
+}
+
+fn keep_open_window() {
+    var log0 = kit::Log { .. };
+    let w0 = window_run(0, log0);
+    kit::check(kit::kinds_of(log0, w0.p.client) == "ODEC" || kit::kinds_of(log0, w0.p.client) == "ODE" || kit::kinds_of(log0, w0.p.client) == "OEC",
+        "keep-open set while dialling: the dialled end receives Opened, the Data and one PeerEof");
+    kit::check(kit::count_for(log0, kit::PEER_EOF, w0.p.client) == 1, "and exactly one PeerEof");
+    kit::check(w0.sent_after == goose_io::SendStatus.Sent, "and the link stays open for sending");
+
+    var log1 = kit::Log { .. };
+    let w1 = window_run(1, log1);
+    // the client sends and finishes; the accepted end asked in its Opened handler
+    kit::check(kit::count_for(log1, kit::PEER_EOF, w1.p.server) == 1 && kit::data_of(log1, w1.p.server) == "hello", "keep-open set in the Opened handler of the accepted end: it receives the Data and one PeerEof");
+    kit::check(w1.sent_after == goose_io::SendStatus.Sent, "and the link stays open for sending");
+
+    var log3 = kit::Log { .. };
+    let w3 = window_run(3, log3);
+    kit::check(kit::count_for(log3, kit::PEER_EOF, w3.p.client) == 1 && kit::data_of(log3, w3.p.client) == "hello",
+        "an end of stream that arrives before Opened is handled is delivered once the Opened handler has asked to keep open");
+    kit::check(w3.sent_after == goose_io::SendStatus.Sent, "and the link stays open for sending");
+}
+
+// A late call: the server end asks to keep open in the handler of its first Data, after its Opened handler returned. The
+// client then finishes: no PeerEof is delivered and the link closes with PeerClosed.
+struct Late { p: kit::Pair = kit::Pair { .. }, asked: bool = false }
+
+fn late_event(l: Late&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
+    if kit::track(l.p, log, io, ev) { io.send(l.p.client, "bytes"); }
+    match ev {
+        Data d => {
+            if goose_io::same(d.link, l.p.server) && !l.asked {
+                l.asked = true;
+                io.set_keep_open_on_eof(d.link, true);      // too late
+                io.shutdown_write(l.p.client);              // the peer finishes
+            }
+        },
+        _ => {},
+    }
+    kit::stop_after(io, ev, 300);
+}
+
+fn late_keep_open() {
+    var io = goose_io_memory::Loop { .. };
+    var log = kit::Log { .. };
+    var l = Late { .. };
+    kit::connect(io, l.p, "127.0.0.1:8121");
+    io.serve() { io, ev => late_event(l, log, io, ev); };
+    kit::check(l.asked, "fixture: the server received its first Data");
+    kit::check(kit::count_for(log, kit::PEER_EOF, l.p.server) == 0, "a keep-open call made after Opened has no effect: no PeerEof");
+    kit::check(kit::closed_once(log, l.p.server, goose_io::CloseReason.PeerClosed), "the link closes with PeerClosed");
+}
+
 fn main() {
+    keep_open_window();
+    late_keep_open();
     close_after_reply();
     no_data_after_close();
     only_closed_after_close();

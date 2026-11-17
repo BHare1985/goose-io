@@ -8,16 +8,26 @@ import goose_io.tests.support.kit;
 // --- the library ---------------------------------------------------------------------------------
 // Sends back what it receives in upper case, and closes the link at the first '.'.
 
-let SHOUT_TAG = 7;
+struct Link { open: bool = false }
 
-struct Shout { links: i64 = 0, bytes: i64 = 0 }
+struct Shout {
+    listener: goose_io::Listener      = goose_io::Listener { .. },
+    links:    i64                     = 0,
+    bytes:    i64                     = 0,
+    conns:    goose_io::LinkMap<Link> = goose_io::LinkMap<Link> {},        // the library's state, found by the event's link
+}
 
-// Returns false for an event that belongs to another library.
+// Returns false for an event that belongs to another library: an accepted link is ours when `Opened` names our
+// listener, and every later event is ours when we have state for its link.
 fn shout_event<Io>(lib: Shout&, io: Io&, ev: goose_io::Event) -> bool {
-    guard goose_io::is_link_event(ev) && goose_io::tag_of(ev) == SHOUT_TAG else { return false; }
     match ev {
-        Opened e => { lib.links++; },
+        Opened e => {
+            guard goose_io::is_listener(e.listener) && goose_io::same(e.listener, lib.listener) else { return false; }
+            lib.conns.put(e.link, Link { open: true });
+            lib.links++;
+        },
         Data d => {
+            guard lib.conns.has(d.link) else { return false; }
             var out: u8[>..] = [];
             var done = false;
             for c in d.bytes {
@@ -28,8 +38,12 @@ fn shout_event<Io>(lib: Shout&, io: Io&, ev: goose_io::Event) -> bool {
             io.send(d.link, out);
             if done { io.close(d.link); }
         },
-        Closed e => { lib.links--; },
-        _ => {},
+        Closed e => {
+            guard lib.conns.has(e.link) else { return false; }
+            lib.links--;
+            lib.conns.drop(e.link);
+        },
+        _ => { return false; },
     }
     return true;
 }
@@ -40,8 +54,9 @@ fn main() {
     var io = goose_io_memory::Loop { .. };
     io.cfg.read_chunk = 4;                      // deliver in small pieces: the library must not care
     var lib = Shout { .. };
-    let listener, err = io.listen("127.0.0.1:7000", SHOUT_TAG);
+    let listener, err = io.listen("127.0.0.1:7000");
     kit::check(!goose_io::failed(err), "listen");
+    lib.listener = listener;
 
     // The client is a scripted peer: connect at once, send 10 ms later, send again 40 ms after that.
     let peer = io.add_peer();

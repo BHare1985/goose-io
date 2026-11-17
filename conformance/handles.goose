@@ -1,6 +1,8 @@
 // goose-io conformance suite, group 4.3: handles, delivery, event order and ownership.
 // Requirements: Links are generation-checked handles; Events are delivered to one handler, one at a time;
-// Link events follow a fixed order; Every link event names its owner.
+// Link events follow a fixed order; A slot and generation pair is never issued twice; A slot is held until its Closed is
+// is delivered; The invalid link is reserved; A link event is recognised by what the library holds; Slot numbers are dense;
+// A slot is freed when its Closed has been handled; Dialling never blocks and always ends in one event.
 namespace goose_io_conformance;
 import std;
 import goose_io;
@@ -13,17 +15,22 @@ fn handles_info(id: i64) -> Info {
     if id == 103 { return Info { name: "events_not_reentrant", req: "Events are delivered to one handler, one at a time", part: 0 }; }
     if id == 104 { return Info { name: "order_accepted_link", req: "Link events follow a fixed order", part: 0 }; }
     if id == 105 { return Info { name: "order_failed_dial", req: "Link events follow a fixed order", part: 0 }; }
-    if id == 106 { return Info { name: "owner_tags", req: "Every link event names its owner", part: 0 }; }
-    if id == 107 { return Info { name: "owner_user_value", req: "Every link event names its owner", part: 0 }; }
+    if id == 106 { return Info { name: "owner_listener_named", req: "A link event is recognised by what the library holds", part: 0 }; }
+    if id == 107 { return Info { name: "owner_dial_found_by_link", req: "A link event is recognised by what the library holds", part: 0 }; }
     if id == 109 { return Info { name: "handles_stale_reset", req: "Links are generation-checked handles", part: 0 }; }
     if id == 110 { return Info { name: "handles_stale_send_room", req: "Links are generation-checked handles", part: 0 }; }
-    if id == 111 { return Info { name: "handles_stale_user", req: "Links are generation-checked handles", part: 0 }; }
+    if id == 111 { return Info { name: "handles_stale_peer_address", req: "Links are generation-checked handles", part: 0 }; }
     if id == 112 { return Info { name: "handles_unset_reset", req: "Links are generation-checked handles", part: 0 }; }
     if id == 113 { return Info { name: "handles_unset_shutdown_write", req: "Links are generation-checked handles", part: 0 }; }
     if id == 114 { return Info { name: "handles_unset_sizing", req: "Links are generation-checked handles", part: 0 }; }
     if id == 115 { return Info { name: "handles_unset_inspection", req: "Links are generation-checked handles", part: 0 }; }
     if id == 116 { return Info { name: "events_not_reentrant_after_reset", req: "Events are delivered to one handler, one at a time", part: 0 }; }
-    if id == 108 { return Info { name: "owner_user_after_failed_dial", req: "Every link event names its owner", part: 0 }; }
+    if id == 108 { return Info { name: "slots_dense", req: "Slot numbers are dense", part: 0 }; }
+    if id == 90 { return Info { name: "setup_before_serve", req: "A loop is set up, serving, draining or finished", part: 0 }; }
+    if id == 119 { return Info { name: "handles_pair_unique", req: "A slot and generation pair is never issued twice", part: 0 }; }
+    if id == 120 { return Info { name: "handles_slot_held", req: "A slot is held until its Closed is delivered", part: 0 }; }
+    if id == 117 { return Info { name: "slot_kept_during_closed", req: "A slot is freed when its Closed has been handled", part: 0 }; }
+    if id == 118 { return Info { name: "dial_no_event_inside", req: "Dialling never blocks and always ends in one event", part: 0 }; }
     return Info { .. };
 }
 
@@ -50,25 +57,21 @@ fn stale_ready<Io>(k: Case&, io: Io&) -> bool {
 }
 
 // What the checks of a stale handle see in the end: both new links open, and each carried its own message with the
-// user value it was given, so that nothing the stale handle did reached them.
+// message it was sent, so that nothing the stale handle did reached them.
 fn stale_finish<Io>(k: Case&, io: Io&) {
     if k.step == 4 && k.received(3).len >= 5 && k.received(2).len >= 5 {
         k.expect(k.received(3) == "fresh" && k.received(2) == "fresh", "a new link received something other than what its peer sent");
         k.expect(k.is_open(2) && k.is_open(3), "a stale handle closed or reset a new link");
-        k.expect(k.recs[k.first(2, 'D')].user == 5 && k.recs[k.first(3, 'D')].user == 6, "a stale handle changed the user value of a new link");
         io.close(k.link[2]);
         k.step = 5;
         k.finish();
     }
 }
 
-// A stale handle cannot reach a reused slot: set_user, pause_reading, close and send with it touch no new link.
+// A stale handle cannot reach a reused slot: pause_reading, close and send with it touch no new link.
 fn c_handles_stale_reuse<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if stale_ready(k, io) {
         let fresh = k.link[2];
-        io.set_user(fresh, 5);
-        io.set_user(k.link[3], 6);
-        io.set_user(k.old, 99);
         io.pause_reading(k.old, true);
         io.close(k.old);
         k.expect(io.send(k.old, "stale") == goose_io::SendStatus.Closed, "send with a stale handle did not return Closed");
@@ -82,8 +85,6 @@ fn c_handles_stale_reuse<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 // The abort group: reset with a stale handle resets no new link.
 fn c_handles_stale_reset<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if stale_ready(k, io) {
-        io.set_user(k.link[2], 5);
-        io.set_user(k.link[3], 6);
         io.reset(k.old);
         io.send(k.link[2], "fresh");
         io.send(k.link[3], "fresh");
@@ -95,8 +96,6 @@ fn c_handles_stale_reset<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 // The sizing group: send_room and send2 with a stale handle report no room and a closed link.
 fn c_handles_stale_send_room<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if stale_ready(k, io) {
-        io.set_user(k.link[2], 5);
-        io.set_user(k.link[3], 6);
         k.expect(io.send_room(k.old) == 0, "send_room with a stale handle was not 0");
         k.expect(io.send2(k.old, "a", "b") == goose_io::SendStatus.Closed, "send2 with a stale handle did not return Closed");
         io.send(k.link[2], "fresh");
@@ -106,15 +105,11 @@ fn c_handles_stale_send_room<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     stale_finish(k, io);
 }
 
-// The inspection group: user and peer_address with a stale handle answer 0 and an empty value, and do not answer
-// for the new link.
-fn c_handles_stale_user<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+// The inspection group: peer_address with a stale handle answers an empty value, and does not answer for the new link.
+fn c_handles_stale_peer_address<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if stale_ready(k, io) {
-        io.set_user(k.link[2], 5);
-        io.set_user(k.link[3], 6);
-        k.expect(io.user(k.old) == 0, "user with a stale handle was not 0");
         k.expect(goose_io::is_empty(io.peer_address(k.old)), "peer_address with a stale handle was not empty");
-        k.expect(io.user(k.link[2]) == 5, "set_user on a new link did not stay");
+        k.expect(!goose_io::is_empty(io.peer_address(k.link[2])), "peer_address of the new link in the reused slot was empty");
         io.send(k.link[2], "fresh");
         io.send(k.link[3], "fresh");
         k.step = 4;
@@ -137,11 +132,10 @@ fn unset_ready<Io>(k: Case&, io: Io&) -> bool {
 }
 
 // What the checks of an unset handle see in the end: the pair still works in both directions, and nothing the unset
-// handle was used for changed it. `user0` is the user value the first link was given.
-fn unset_finish<Io>(k: Case&, io: Io&, user0: u32) {
+// handle was used for changed it.
+fn unset_finish<Io>(k: Case&, io: Io&) {
     if k.step == 2 && k.received(0).len >= 9 && k.received(1).len >= 9 {
         k.expect(k.is_open(0) && k.is_open(1), "an operation with an unset handle closed or reset a link");
-        k.expect(k.recs[k.first(0, 'D')].user == user0 && k.recs[k.first(1, 'D')].user == 0, "an operation with an unset handle changed a user value");
         io.close(k.link[0]);
         k.step = 3;
         k.finish();
@@ -161,11 +155,10 @@ fn c_handles_unset<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         k.expect(!goose_io::is_valid(none), "a default Link was valid");
         io.close(none);
         io.pause_reading(none, true);
-        io.set_user(none, 5);
         k.expect(io.send(none, "x") == goose_io::SendStatus.Closed, "send on an unset Link did not return Closed");
         unset_traffic(k, io);
     }
-    unset_finish(k, io, 0);
+    unset_finish(k, io);
 }
 
 // The abort group.
@@ -174,7 +167,7 @@ fn c_handles_unset_reset<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         io.reset(goose_io::Link { .. });
         unset_traffic(k, io);
     }
-    unset_finish(k, io, 0);
+    unset_finish(k, io);
 }
 
 // The half-close group: shutdown_write with an unset handle shuts no link.
@@ -183,7 +176,7 @@ fn c_handles_unset_shutdown_write<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         io.shutdown_write(goose_io::Link { .. });
         unset_traffic(k, io);
     }
-    unset_finish(k, io, 0);
+    unset_finish(k, io);
 }
 
 // The sizing group.
@@ -194,19 +187,17 @@ fn c_handles_unset_sizing<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         k.expect(io.send2(none, "x", "y") == goose_io::SendStatus.Closed, "send2 on an unset Link did not return Closed");
         unset_traffic(k, io);
     }
-    unset_finish(k, io, 0);
+    unset_finish(k, io);
 }
 
-// The inspection group: user and peer_address of an unset handle answer 0 and an empty value, whatever a link has.
+// The inspection group: peer_address of an unset handle answers an empty value, whatever a link has.
 fn c_handles_unset_inspection<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if unset_ready(k, io) {
-        io.set_user(k.link[0], 7);
         let none = goose_io::Link { .. };
-        k.expect(io.user(none) == 0, "user of an unset Link was not 0");
         k.expect(goose_io::is_empty(io.peer_address(none)), "peer_address of an unset Link was not empty");
         unset_traffic(k, io);
     }
-    unset_finish(k, io, 7);
+    unset_finish(k, io);
 }
 
 // --- 102: the handle is valid while Closed is handled, and stale after ----------------------------
@@ -216,7 +207,6 @@ fn c_handles_valid_in_closed<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         k.connect_local(io, 0);
         k.step = 1;
     } else if k.step == 1 && k.pair_open(0) {
-        io.set_user(k.link[0], 42);
         k.expect(!goose_io::is_empty(io.peer_address(k.link[0])), "peer_address of an open link was empty");
         k.old = k.link[0];
         io.close(k.link[0]);
@@ -225,8 +215,7 @@ fn c_handles_valid_in_closed<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         match ev {
             Closed e => {
                 if goose_io::same(e.link, k.old) {
-                    k.expect(io.user(e.link) == 42, "user was not available while Closed was handled");
-                    k.expect(e.user == 42, "the Closed event did not carry the user value");
+                    k.expect(!goose_io::is_empty(io.peer_address(e.link)), "peer_address was not available while Closed was handled");
                     k.step = 3;
                 }
             },
@@ -234,7 +223,6 @@ fn c_handles_valid_in_closed<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         }
     } else if k.step == 3 {
         // the handler has returned: the handle is stale
-        k.expect(io.user(k.old) == 0, "user of a link after its Closed was not 0");
         k.expect(goose_io::is_empty(io.peer_address(k.old)), "peer_address of a link after its Closed was not empty");
         k.step = 4;
         k.finish();
@@ -327,19 +315,25 @@ fn c_order_failed_dial<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) 
     }
 }
 
-// --- 106: events carry the tag; two pairs with different tags share the loop ----------------------
+// --- 106: an accepted link names its own listener -------------------------------------------------
 
-fn c_owner_tags<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+fn c_owner_listener_named<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
-        k.connect_local(io, 0);
-        k.connect_local(io, 1);
+        // two listeners, and a dial to each: the second pair first
+        k.listen_local(io, 0);
+        let first_port = k.port;
+        k.listen_local(io, 1);
+        k.dial_to(io, local_text(k.port)[..], 1, 0);
+        k.dial_to(io, local_text(first_port)[..], 0, 0);
+        k.expect(!goose_io::same(k.l, k.l2), "two listeners were given the same handle");
         k.step = 1;
     } else if k.step == 1 && k.pair_open(0) && k.pair_open(1) {
+        k.expect(goose_io::same(k.recs[k.first(1, 'O')].listener, k.l), "the accepted link of the first listener did not name it");
+        k.expect(goose_io::same(k.recs[k.first(3, 'O')].listener, k.l2), "the accepted link of the second listener did not name it");
         io.send(k.link[1], "to the first client");
         io.send(k.link[3], "to the second client");
         k.step = 2;
     } else if k.step == 2 && k.received(0).len >= 19 && k.received(2).len >= 20 {
-        // track already failed the check if any event carried a tag that is not its link's
         k.expect(k.received(0) == "to the first client" && k.received(2) == "to the second client", "bytes arrived on the wrong link");
         io.close(k.link[0]);
         io.close(k.link[2]);
@@ -347,40 +341,168 @@ fn c_owner_tags<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-// --- 107: the user value comes back --------------------------------------------------------------
+// --- 107: a dial that fails at once is found by the link dial returned ------------------------------
 
-fn c_owner_user_value<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+fn c_owner_dial_found_by_link<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
-        k.connect_local(io, 0);
+        k.dial_to(io, "not an address", 0, 0);
         k.step = 1;
-    } else if k.step == 1 && k.pair_open(0) {
-        io.set_user(k.link[0], 41);
-        io.set_user(k.link[1], 17);
-        io.send(k.link[1], "x");
-        k.step = 2;
-    } else if k.step == 2 && k.first(0, 'D') >= 0 {
-        k.expect(k.recs[k.first(0, 'D')].user == 41, "Data did not carry the user value set with set_user");
-        io.send(k.link[0], "y");
-        k.step = 3;
-    } else if k.step == 3 && k.first(1, 'D') >= 0 {
-        k.expect(k.recs[k.first(1, 'D')].user == 17, "Data on the accepted link did not carry its user value");
-        io.close(k.link[0]);
-        k.step = 4;
-    } else if k.step == 4 && k.first(0, 'C') >= 0 {
-        k.expect(k.recs[k.first(0, 'C')].user == 41, "Closed did not carry the user value");
+    } else if k.step == 1 && k.first(0, 'C') >= 0 {
+        k.expect(k.kinds(0) == "C", "a dial that failed at once did not give exactly one Closed");
         k.finish();
     }
 }
 
-// --- 108: the user value survives an immediate dial failure ---------------------------------------
+// --- 108: slots are dense -------------------------------------------------------------------------
 
-fn c_owner_user_after_failed_dial<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+// The slots of every link of a check are below 4: no check holds more than two pairs of links at once, so a loop that
+// reuses a freed slot before it issues a new one never goes above that.
+fn c_slots_dense<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
-        let link = k.dial_to(io, "not an address", 0, 0);
-        io.set_user(link, 7);
+        k.connect_local(io, 0);
+        k.connect_local(io, 1);
         k.step = 1;
-    } else if k.step == 1 && k.first(0, 'C') >= 0 {
-        k.expect(k.recs[k.first(0, 'C')].user == 7, "the Closed of a dial that failed at once did not carry the user value set after dial");
+    } else if k.step == 1 && k.pair_open(0) && k.pair_open(1) {
+        for r in 4 { k.prev[r] = k.link[r]; k.expect(k.link[r].slot < 4, "a link of the first round had a slot of 4 or more"); io.close(k.link[r]); }
+        k.step = 2;
+    } else if k.step == 2 && k.first(0, 'C') >= 0 && k.first(1, 'C') >= 0 && k.first(2, 'C') >= 0 && k.first(3, 'C') >= 0 {
+        // a second round once every Closed has been handled: their slots are free
+        k.recs.clear();
+        k.live = 0;
+        k.connect_local(io, 0);
+        k.connect_local(io, 1);
+        k.step = 3;
+    } else if k.step == 3 && k.pair_open(0) && k.pair_open(1) {
+        for r in 4 {
+            k.expect(k.link[r].slot < 4, "a slot freed by a closed link was not used before a new one: a link of the second round had a slot of 4 or more");
+            for p in 4 {
+                if k.link[r].slot == k.prev[p].slot { k.expect(k.link[r].gen != k.prev[p].gen, "a reused slot had the same generation"); }
+            }
+            io.close(k.link[r]);
+        }
+        k.step = 4;
+        k.finish();
+    }
+}
+
+// --- 117: a slot is not freed until the handlers of its Closed have returned --------------------------
+
+fn c_slot_kept_during_closed<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        k.connect_local(io, 0);
+        k.step = 1;
+    } else if k.step == 1 && k.pair_open(0) {
+        k.old = k.link[0];
+        io.close(k.old);
+        k.step = 2;
+    } else if k.step == 2 {
+        match ev {
+            Closed e => {
+                if goose_io::same(e.link, k.old) {
+                    // a link made inside the handler of the Closed does not take the slot of the link being closed
+                    let fresh = io.dial("not an address", 0);
+                    k.issued(fresh);
+                    k.expect(fresh.slot != e.link.slot, "a link made inside a Closed handler took the slot of the link being closed");
+                    k.link[2] = fresh;
+                    k.live++;
+                    k.step = 3;
+                }
+            },
+            _ => {},
+        }
+    } else if k.step == 3 && k.first(1, 'C') >= 0 && k.first(2, 'C') >= 0 {
+        k.finish();
+    }
+}
+
+// --- 118: dial does not deliver an event before it returns -----------------------------------------
+
+fn c_dial_no_event_inside<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        k.flag = false;
+        k.dial_to(io, "not an address", 0, 0);       // fails at once
+        k.flag = true;
+        k.step = 1;
+    } else if k.step == 1 {
+        match ev {
+            Closed e => { k.expect(k.flag, "Closed of a failed dial was delivered from inside dial"); },
+            _ => {},
+        }
+        if k.first(0, 'C') >= 0 { k.finish(); }
+    }
+}
+
+// --- 119: a slot and generation pair is never issued twice ---------------------------------------------------------
+
+// Opens and closes a pair of links five times in a row, so that slots are reused. The driver records every handle it
+// is given (`k.issued`, `k.sight`): this check fails when any pair was issued twice or a link had generation 0, in this
+// part or earlier in it, and also that every link issued is valid.
+fn c_handles_pair_unique<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        k.connect_local(io, 0);
+        k.step = 1;
+    } else if k.step == 1 && k.pair_open(0) {
+        k.expect(goose_io::is_valid(k.link[0]) && goose_io::is_valid(k.link[1]), "a link the loop issued was not valid");
+        io.close(k.link[0]);
+        k.step = 2;
+    } else if k.step == 2 && k.first(0, 'C') >= 0 && k.first(1, 'C') >= 0 {
+        k.n++;
+        if k.n < 5 {
+            k.recs.clear();
+            k.live = 0;
+            k.connect_local(io, 0);
+            k.step = 1;
+        } else {
+            k.expect(!k.pair_bad, k.pair_why[..]);
+            k.finish();
+        }
+    }
+}
+
+// --- 120: a slot is held until its Closed is delivered -------------------------------------------------------------
+
+// A library closes a link and dials in the same handler: the new link is not in the closed link's slot.
+fn c_handles_slot_held<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        k.connect_local(io, 0);
+        k.step = 1;
+    } else if k.step == 1 && k.pair_open(0) {
+        let closing = k.link[0];
+        io.close(closing);
+        let fresh = k.dial_to(io, "not an address", 1, 0);
+        k.expect(fresh.slot != closing.slot, "a link dialled right after close was issued in the slot of the link still closing");
+        k.expect(!k.slot_bad, k.slot_why[..]);
+        k.step = 2;
+    } else if k.step == 2 && k.first(0, 'C') >= 0 && k.first(1, 'C') >= 0 && k.first(2, 'C') >= 0 {
+        k.finish();
+    }
+}
+
+// --- 90: what the entry point sets up before serve is delivered by serve ---------------------------------------------------
+
+// Called by the driver before serve (part 0 of the core): listens and dials, and keeps the handles for the check below.
+fn setup_before_serve_hook<Io>(k: Case&, io: Io&) {
+    let l, err = io.listen("127.0.0.1:0");
+    if !goose_io::is_listener(l) { return; }
+    var text: u8[>..] = [];
+    format(text, "127.0.0.1:", io.listener_port(l));
+    let link = io.dial(text[..], 0);
+    k.issued(link);
+    k.pre_l = l;
+    k.pre_link = link;
+    k.pre_done = true;
+}
+
+// The check runs first in part 0: the links made before serve open, both ends, and the events arrive from serve.
+fn c_setup_before_serve<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        k.expect(k.pre_done && goose_io::is_listener(k.pre_l) && goose_io::is_valid(k.pre_link), "the entry point could not listen and dial before serve");
+        k.l = k.pre_l;
+        k.link[0] = k.pre_link;
+        k.live = 1;
+        k.step = 1;
+    } else if k.step == 1 && k.pair_open(0) {
+        io.close(k.link[0]);
         k.finish();
     }
 }
@@ -392,9 +514,14 @@ fn handles_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) ->
     if k.id == 103 { c_events_not_reentrant(k, io, ev); return true; }
     if k.id == 104 { c_order_accepted_link(k, io, ev); return true; }
     if k.id == 105 { c_order_failed_dial(k, fx, io, ev); return true; }
-    if k.id == 106 { c_owner_tags(k, io, ev); return true; }
-    if k.id == 107 { c_owner_user_value(k, io, ev); return true; }
-    if k.id == 108 { c_owner_user_after_failed_dial(k, io, ev); return true; }
+    if k.id == 106 { c_owner_listener_named(k, io, ev); return true; }
+    if k.id == 107 { c_owner_dial_found_by_link(k, io, ev); return true; }
+    if k.id == 108 { c_slots_dense(k, io, ev); return true; }
+    if k.id == 117 { c_slot_kept_during_closed(k, io, ev); return true; }
+    if k.id == 90 { c_setup_before_serve(k, io, ev); return true; }
+    if k.id == 119 { c_handles_pair_unique(k, io, ev); return true; }
+    if k.id == 120 { c_handles_slot_held(k, io, ev); return true; }
+    if k.id == 118 { c_dial_no_event_inside(k, io, ev); return true; }
     return false;
 }
 
@@ -422,7 +549,7 @@ fn handles_abort_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -
 // Runs the checks of the inspection group: true if the check is one of them.
 fn handles_inspection_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 102 { c_handles_valid_in_closed(k, io, ev); return true; }
-    if k.id == 111 { c_handles_stale_user(k, io, ev); return true; }
+    if k.id == 111 { c_handles_stale_peer_address(k, io, ev); return true; }
     if k.id == 115 { c_handles_unset_inspection(k, io, ev); return true; }
     return false;
 }

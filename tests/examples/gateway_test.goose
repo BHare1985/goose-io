@@ -16,9 +16,9 @@ fn answered<Io>(io: Io&) {
     var back = lineserver::LineServer { .. };
     var client = lineclient::LineClient { .. };
     var table = gateway::Table { .. };
-    kit::check(front.start(io, "127.0.0.1:9000", 1), "the front server listens");
-    kit::check(back.start(io, "127.0.0.1:9100", 2), "the backend server listens");
-    kit::check(client.start(io, "127.0.0.1:9100", 3, 2, 100), "the client dials the backend");
+    kit::check(front.start(io, "127.0.0.1:9000"), "the front server listens");
+    kit::check(back.start(io, "127.0.0.1:9100"), "the backend server listens");
+    kit::check(client.start(io, "127.0.0.1:9100", 2, 100), "the client dials the backend");
     let p = io.add_peer();
     io.peer_connect(p, "127.0.0.1:9000", 150);
     io.peer_send(p, 5, "hello\nsecond\n");

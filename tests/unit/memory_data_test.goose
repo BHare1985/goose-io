@@ -303,7 +303,7 @@ fn no_writable_after_shutdown_write() {
     var io = goose_io_memory::Loop { .. };
     small_buffers(io);
     var k = WriteShut { .. };
-    let l, err = io.listen("10.0.0.1:80", 1);
+    let l, err = io.listen("10.0.0.1:80");
     let p = io.add_peer();
     io.peer_connect(p, "10.0.0.1:80", 0);
     io.peer_stop_reading(p, 0);
@@ -326,7 +326,7 @@ fn shutdown_straight_after_full() {
     io.peer_accept(p, "10.0.0.2:80");
     io.peer_stop_reading(p, 0);
     io.peer_resume_reading(p, 50);
-    let link = io.dial("10.0.0.2:80", 1, 0);
+    let link = io.dial("10.0.0.2:80", 0);
     io.serve() { io, ev =>
         match ev {
             Opened e => { fill_then_refuse(io, e.link); io.shutdown_write(e.link); closed_status = io.send(e.link, "z"); },
@@ -361,7 +361,7 @@ fn full_when_the_peer_closes() {
     io.peer_accept(p, "10.0.0.3:80");
     io.peer_stop_reading(p, 0);
     io.peer_close(p, 200);
-    io.dial("10.0.0.3:80", 1, 0);
+    io.dial("10.0.0.3:80", 0);
     io.serve() { io, ev => vanish_event(k, io, ev); };
     kit::check(k.refused && k.eof == 1, "fixture: the library was refused, then the peer closed");
     let resolved = k.writables == 1 || (k.closed && k.why != goose_io::CloseReason.Shutdown);
@@ -382,7 +382,7 @@ fn default_link_closes_when_the_peer_closes() {
     io.peer_accept(p, "10.0.0.5:80");
     io.peer_stop_reading(p, 0);
     io.peer_close(p, 200);
-    io.dial("10.0.0.5:80", 1, 0);
+    io.dial("10.0.0.5:80", 0);
     io.serve() { io, ev =>
         match ev {
             Opened e => { fill_then_refuse(io, e.link); },
@@ -402,7 +402,7 @@ fn library_closes_while_the_peer_is_refused() {
     var io = goose_io_memory::Loop { .. };
     small_buffers(io);
     var b = Blocked { .. };
-    let l, err = io.listen("10.0.0.4:80", 1);
+    let l, err = io.listen("10.0.0.4:80");
     let p = io.add_peer();
     io.peer_connect(p, "10.0.0.4:80", 0);
     io.peer_send(p, 0, pattern(10000));
@@ -417,7 +417,33 @@ fn library_closes_while_the_peer_is_refused() {
     kit::check(io.peer_closed(p), "a peer whose send was refused is not left waiting when the library closes");
 }
 
+// --- sizing on a write-shut link (the cell the sizing suite cannot reach without half-close) ---------------------------------
+
+struct ShutSizing { p: kit::Pair = kit::Pair { .. }, send2: goose_io::SendStatus = goose_io::SendStatus.Sent, room: i64 = -1, done: bool = false }
+
+fn shut_sizing_event(s: ShutSizing&, log: kit::Log&, io: goose_io_memory::Loop&, ev: goose_io::Event) {
+    if kit::track(s.p, log, io, ev) {
+        io.shutdown_write(s.p.client);
+        s.send2 = io.send2(s.p.client, "a", "b");
+        s.room = io.send_room(s.p.client);
+        s.done = true;
+    }
+    kit::stop_after(io, ev, 100);
+}
+
+fn sizing_on_a_write_shut_link() {
+    var io = goose_io_memory::Loop { .. };
+    var log = kit::Log { .. };
+    var s = ShutSizing { .. };
+    kit::connect(io, s.p, "127.0.0.1:8130");
+    io.serve() { io, ev => shut_sizing_event(s, log, io, ev); };
+    kit::check(s.done, "fixture: the pair opened");
+    kit::check(s.send2 == goose_io::SendStatus.Closed, "send2 on a write-shut link returns Closed");
+    kit::check(s.room == 0, "send_room of a write-shut link is 0");
+}
+
 fn main() {
+    sizing_on_a_write_shut_link();
     basics();
     large_transfer();
     backpressure();

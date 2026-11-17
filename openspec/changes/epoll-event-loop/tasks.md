@@ -17,17 +17,17 @@ Ground rules for every group: work on a branch of goose-io, never on `main`; do 
 ## 3. The core, tests first
 
 - [ ] 3.1 Write `examples/loops/epoll/conformance.goose`, the runner of the suite with its fixture (D4: a full accept queue that drops connects, a held listener, a released port, an accepting listener for `answers`), that takes a part and a group as the in-memory runner does and calls `goose_io::require_core`; verify it fails to build because the loop lacks the core's operations, and the error names the first one
-- [ ] 3.2 Add the core's missing operations one at a time, each after a check of the suite that fails for it: `listen(address, tag)` at run time with a never-reused `Listener` table, `listener_port`, `now_ms`, `tick_by` as one earliest-wake field shared with dial deadlines, `max_send` of at least 4096; verify `require_core` compiles and the core parts that need them pass
-- [ ] 3.3 Move to the contract's names: `Conn` to `Link`, `send` to `SendStatus` (`TooLarge`, `Full`, `NotOpen`, `Closed` mapped one to one), every event with `tag` and `user`, `Opened` with the listener, close reasons to the portable set plus `LoopSpecific`; verify the imported tests still pass through a thin compatibility shim kept in `tests/imported/`
-- [ ] 3.4 Make `Writable` follow the largest refused send (remember the size that was refused), settle the user value of a dial that failed inside `dial` (keep the slot until its `Closed` is delivered), and make `close` finish sending and drain input before the final close; verify the checks of the suite for each fail before and pass after
-- [ ] 3.5 Verify every part of the core passes on the loop and `run.sh`-style `--repeat 50` has no failure; verify the core runs on the loop with nothing else supplied (a build of the core entry point only); tick off the core of the mapping document's rows with the commit
+- [ ] 3.2 Add the core's missing operations one at a time, each after a check of the suite that fails for it: `listen(address)` at run time with a never-reused `Listener` table, `listener_port`, `now_ms`, `tick_by` as one earliest-wake field shared with dial deadlines, `max_send` of at least 4096, and a free list over the slot table so that a freed slot is reused before the table is extended (design D9); verify `require_core` compiles and the core parts that need them pass
+- [ ] 3.3 Move to the contract's names: `Conn` to `Link`, `send` to `SendStatus` (`TooLarge`, `Full`, `NotOpen`, `Closed` mapped one to one), every event carrying the link and nothing attached to it (no `tag`, no `user`), `Opened` with the listener, close reasons to the portable set plus `LoopSpecific`; verify the imported tests still pass through a thin compatibility shim kept in `tests/imported/`
+- [ ] 3.4 Make `Writable` follow the largest refused send (remember the size that was refused), keep the slot of every link, a dial that failed inside `dial` included, until every handler of its `Closed` has returned (design D9), and make `close` finish sending and drain input before the final close; verify the checks of the suite for each fail before and pass after (for the slot, `slots_dense`, `slot_kept_during_closed` and `dial_no_event_inside`)
+- [ ] 3.5 Verify every part of the core passes on the loop, the new checks `owner_listener_named`, `owner_dial_found_by_link`, `slots_dense`, `slot_kept_during_closed` and `dial_no_event_inside` among them, and `run.sh`-style `--repeat 50` has no failure; verify the core runs on the loop with nothing else supplied (a build of the core entry point only); tick off the core of the mapping document's rows with the commit
 
 ## 4. The groups
 
 - [ ] 4.1 Half-close: check `require_half_close` compiles, `set_keep_open_on_eof`, `shutdown_write` and `PeerEof` map to tcprouter's, and the half-close entry point passes; verify with fifty repetitions
 - [ ] 4.2 Abort: add `reset` (`SO_LINGER` 0, then close); verify the abort entry point passes and the peer sees `PeerReset`
 - [ ] 4.3 Sizing: keep `send_room` and add `send2` (both parts or neither, bounded as the sum), reading the `Full` and `TooLarge` rules of the contract; verify the sizing entry point passes
-- [ ] 4.4 Inspection: add `peer_address` (`getpeername`, the contract's text, IPv6 shortened as the contract says), `stop_listening`, and `user` valid inside the handler of `Closed`; verify the inspection entry point passes
+- [ ] 4.4 Inspection: add `peer_address` (`getpeername`, the contract's text, IPv6 shortened as the contract says), `stop_listening`, with `peer_address` valid inside the handler of `Closed`; verify the inspection entry point passes
 - [ ] 4.5 Batching: verify `PassEnd` as tcprouter delivers it passes the batching entry point, and that a pass of only a `Tick` delivers none
 - [ ] 4.6 Verify the loop's root program calls the check of the core and of each group it supplies and that removing one operation of a group fails the build naming it; verify with a scratch copy
 
@@ -35,9 +35,9 @@ Ground rules for every group: work on a branch of goose-io, never on `main`; do 
 
 - [ ] 5.1 Write `tests/net/ext_join_test.py` and `examples/loops/epoll/tests/ext_join_server.goose`: a test extension in its own namespace that takes an accepted socket, connects a second and copies both ways using only the seam's facilities; checks: bytes intact both ways, memory flat against a peer that does not read, both sockets closed when either ends, no contract event for the joined link; verify it fails to build
 - [ ] 5.2 Add `serve<X, F>` with the empty default extension and the hooks and facilities of design D5; verify 5.1 passes
-- [ ] 5.3 Move the proxy layer (routes, SNI inspection, forward pump, retry, policy hooks, tags, deadlines, fences, `forward()`) out of the loop behind the seam into `tests/imported/proxy_ext/`, leaving the loop with no reference to routes, `Target`, `Hello`, `Pick` or tag deadlines; verify `grep -rn "Target\|match_route\|parse_hello\|_tag_allows\|Pick\." examples/loops/epoll/` prints nothing
+- [ ] 5.3 Move the proxy layer (routes, SNI inspection, forward pump, retry, policy hooks, route tags and their deadlines, fences, `forward()`) out of the loop, the tags and deadlines into the extension's own per-slot state, behind the seam into `tests/imported/proxy_ext/`, leaving the loop with no reference to routes, `Target`, `Hello`, `Pick` or tag deadlines; verify `grep -rn "Target\|match_route\|parse_hello\|_tag_allows\|Pick\." examples/loops/epoll/` prints nothing
 - [ ] 5.4 Verify the whole imported suite from 2.2 passes with the proxy layer as an extension and the same pass counts; record any difference and its cause in `design.md` before continuing
-- [ ] 5.5 Add `tests/net/ext_gate_test.py`: an extension whose `allows` turns false for a tag; a following send transmits nothing and the link closes with a `LoopSpecific` reason; verify it passes
+- [ ] 5.5 Add `tests/net/ext_gate_test.py`: an extension whose `allows`, given a slot, turns false for the link in it; a following send transmits nothing and the link closes with a `LoopSpecific` reason; verify it passes
 - [ ] 5.6 Write `docs/extending.md`: each hook, when it is called, what an extension may and may not do inside it, the named-namespace rule, and the join extension as a worked example whose code is the file built by 5.1 (checked by `tests/checks/docs.sh`); verify the check passes
 
 ## 6. Workers, limits, drain and statistics
@@ -81,6 +81,6 @@ Ground rules for every group: work on a branch of goose-io, never on `main`; do 
 ## Workflow follow-up
 
 - Review `bench/forward_ext/` and `tests/imported/proxy_ext/` with the owner before any push: they hold tcprouter's proxy code.
-- Merge, push and tag only with the owner's approval, after `contract-v1` and `simplify-contract` have merged.
+- Merge, push and tag only with the owner's approval, after `link-keyed-state` (archived) and `lifecycle-guarantees` have merged.
 - Archive this change once merged.
 - Next change: an io_uring loop from c_proxy, admitted by the same suite. Separate project: refactor tcprouter onto goose-io following `docs/tcprouter-adoption.md`.

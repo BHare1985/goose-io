@@ -76,13 +76,12 @@ fn c_data_slice_stable_in_handler<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     } else if k.step == 2 {
         match ev {
             Data d => {
-                if k.owns(d.tag) && goose_io::same(d.link, k.link[1]) && k.flag == false {
+                if goose_io::same(d.link, k.link[1]) && k.flag == false {
                     // while this handler runs, make the event loop busy with the same link and others
                     var copy: u8[>..] = [];
                     copy.append(d.bytes);
                     io.send(k.link[1], "reply while handling");
                     io.send(k.link[0], pattern(500)[..]);
-                    io.set_user(k.link[1], 5);
                     var same = d.bytes.len == copy.len;
                     if same { for i in copy.len { if d.bytes[i] != copy[i] { same = false; } } }
                     k.expect(same, "the bytes of a Data event changed while its handler was running");
@@ -446,9 +445,9 @@ fn c_full_not_writable_after_shutdown_write<Io>(k: Case&, io: Io&, ev: goose_io:
 fn c_full_resolved_when_peer_closes<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
         k.connect_local(io, 0);
+        io.set_keep_open_on_eof(k.link[0], true);       // while it is dialling
         k.step = 1;
     } else if k.step == 1 && k.pair_open(0) {
-        io.set_keep_open_on_eof(k.link[0], true);
         io.pause_reading(k.link[1], true);
         k.expect(fill(io, k.link[0], 64 * 1024 * 1024) >= 0, "could not fill the link");
         k.expect(io.send(k.link[0], pattern(io.max_send())[..]) == goose_io::SendStatus.Full, "a send on a full link did not return Full");

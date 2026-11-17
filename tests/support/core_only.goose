@@ -22,17 +22,17 @@ fn _prepare(io: Core&) {
     if !io.ready {
         io.ready = true;
         inner.cfg = io.cfg;
+        inner.cfg.unix_paths = false;     // the unix group is not part of the core
     }
 }
 
-fn listen(io: Core&, address: const u8[:], tag: u16) -> goose_io::Listener, goose_io::ListenError { io._prepare(); return inner.listen(address, tag); }
+fn listen(io: Core&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError { io._prepare(); return inner.listen(address); }
 fn listener_port(io: Core&, l: goose_io::Listener) -> u16 { inner.listener_port(l) }
-fn dial(io: Core&, address: const u8[:], tag: u16, connect_ms: i64) -> goose_io::Link { io._prepare(); inner.dial(address, tag, connect_ms) }
+fn dial(io: Core&, address: const u8[:], connect_ms: i64) -> goose_io::Link { io._prepare(); inner.dial(address, connect_ms) }
 fn send(io: Core&, link: goose_io::Link, bytes: const u8[:]) -> goose_io::SendStatus { inner.send(link, bytes) }
 fn max_send(io: Core&) -> i64 { io._prepare(); inner.max_send() }
 fn pause_reading(io: Core&, link: goose_io::Link, paused: bool) { inner.pause_reading(link, paused); }
 fn close(io: Core&, link: goose_io::Link) { inner.close(link); }
-fn set_user(io: Core&, link: goose_io::Link, user: u32) { inner.set_user(link, user); }
 fn now_ms(io: Core&) -> i64 { inner.now_ms() }
 fn tick_by(io: Core&, at_ms: i64) { inner.tick_by(at_ms); }
 fn stop(io: Core&, grace_ms: i64) { inner.stop(grace_ms); }
