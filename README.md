@@ -5,35 +5,45 @@
 [![macos-arm64](https://img.shields.io/github/actions/workflow/status/BHare1985/goose-io/ci.yml?branch=main&job=macos-arm64&label=macos-arm64)](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml)
 [![windows-x64](https://img.shields.io/github/actions/workflow/status/BHare1985/goose-io/ci.yml?branch=main&job=windows-x64&label=windows-x64)](https://github.com/BHare1985/goose-io/actions/workflows/ci.yml)
 
-### Write your network code once. Run it on any event loop.
+An event loop moves bytes over sockets. A library speaks a protocol on top of it: a Postgres client, a Redis client,
+an HTTP server, a proxy. **goose-io is the contract between the two, in pure Goose**: a small set of types, operations
+and events, with the rules that make them mean the same on every event loop. A library written against it does not
+know which event loop is underneath, and an event loop does not know which libraries run on it.
 
-goose-io is a small, pure-Goose contract between **the code that talks to the network** (a server, a client, a proxy:
-a *library*) and **the engine underneath that moves the bytes** (an epoll loop, io_uring, libuv, uSockets: an *event
-loop*). Your code says "send these bytes" and "here is what arrived". It never names epoll, never holds a callback,
-and never learns which engine it is on. Swap the engine and your code does not change.
+### Write network code once, run it on any event loop
+
+- **Library authors** write a server or a client once, and it runs on every event loop that meets the contract.
+- **Event loop authors** supply the contract once, and every library written for it runs on their loop.
+- **Flexible by design.** The core is what most networking code needs from a stream connection: listen, dial, send,
+  receive, close and timers. It fits servers, clients, proxies, pooled connections and request/response or streaming
+  protocols alike. It does not care how the event loop gets its events (epoll, io_uring, libuv, uSockets, or
+  nothing at all, as in the in-memory loop used for tests), and event loops can be layered over one another. What
+  goes beyond the core (half-close, sizing, abort, inspection, batching) is an optional group that a library asks
+  for by name and an event loop supplies if it can.
+- **Not covered:** name resolution, TLS, UDP and Unix sockets (see `docs/contract.md`, "What the contract does not
+  cover").
 
 **Which of these are you?**
 
-| | **I am writing something that talks over the network** | **I am writing an event loop** (the engine) |
+| | **I am writing something that talks over the network** | **I am writing an event loop** |
 |---|---|---|
-| You want | a server, a client or a protocol that works on every engine, and tests that need no network | to put an engine under every library written for the contract |
 | You write | a library: a state struct and one function that handles events | the 13 operations of the core, on top of your sockets |
-| You get | portability, a virtual clock for deterministic tests, and a compile error that names what an engine lacks | every library for free, and a conformance suite that tells you when you are done |
-| Start with | [The echo server](#i-am-writing-something-that-talks-over-the-network) | [The smallest event loop](#i-am-writing-an-event-loop) |
+| You get | code that is not tied to an event loop, and tests that need no network | every library written for the contract, and a conformance suite that tells you when you are done |
+| Start with | [the echo server](#i-am-writing-something-that-talks-over-the-network) | [the smallest event loop](#i-am-writing-an-event-loop) |
 
 ## I am writing something that talks over the network
 
-**Write it once.** A library on goose-io handles five events (`Opened`, `Data`, `Writable`, `Closed`, `Tick`) and calls
-a handful of operations (`send`, `close`, `dial`, `listen`, ...). That is the whole interface to the network: no
-sockets, no file descriptors, no poll masks, no callbacks to register.
+A library handles five events (`Opened`, `Data`, `Writable`, `Closed`, `Tick`) and calls a handful of operations
+(`send`, `close`, `dial`, `listen`, ...). That is its whole interface to the network: no sockets, file descriptors,
+poll masks or registered callbacks.
 
-- **Runs anywhere.** The same source runs on every event loop that meets the contract, today and later.
-- **Test without a network.** A test runs your library on an in-memory event loop with scripted peers and a clock that
-  moves only when nothing else can happen, so a test gives the same events at the same times on every run, and a
+- **Portable.** The same source runs on every event loop that meets the contract.
+- **Testable without a network.** A test runs your library on an in-memory event loop with scripted peers and a clock
+  that moves only when nothing else can happen, so a test gives the same events at the same times on every run, and a
   timeout test takes no time.
-- **Needs only what it says.** A library's header says what it uses (`Needs: core only`). On an event loop that lacks
-  one, it fails to compile and the error names the missing operation, not somewhere deep inside your code.
-- **Small.** The core is 13 operations and 5 events. No callbacks to register, no threads to manage: events come in, calls go out.
+- **Honest about what it needs.** A library's header says what it uses (`Needs: core only`). On an event loop that
+  lacks it, the library fails to compile and the error names the missing operation.
+- **Small.** The core is 13 operations and 5 events.
 
 ### The example: an echo server
 
@@ -88,10 +98,10 @@ both on one loop, neither knowing the other exists.
 
 ## I am writing an event loop
 
-**Plug in once, run every library.** An event loop owns the thread and the sockets. If yours supplies the contract,
+An event loop owns the thread and the sockets. If yours supplies the contract,
 every library written for it runs on yours, and you wrote none of them.
 
-- **A small job.** The core is 13 operations and 5 events. Anything else (half-close, sizing, abort, inspection,
+- **A bounded job.** The core is 13 operations and 5 events. Anything else (half-close, sizing, abort, inspection,
   batching) is an optional group: supply it when you can, leave it out when you cannot. Libraries that need a
   group you lack fail to build and say which operation is missing.
 - **You know when you are done.** The conformance suite checks the core and each group on its own, with both ends of
@@ -111,8 +121,8 @@ tests/conformance/run.sh                       # the core and every group, on th
 ```
 
 **Next:** [docs/event-loops.md](docs/event-loops.md) says what to supply, shows the program that runs the suite on
-your loop and how to read a failure. [docs/event-loops/](docs/event-loops/) maps tcprouter's engine, uSockets and
-io_uring onto the contract.
+your loop and how to read a failure. [docs/event-loops/](docs/event-loops/) maps candidate event loops (an epoll loop, uSockets,
+io_uring, libuv, libevent) onto the contract.
 
 ## Where it stands
 
@@ -126,7 +136,7 @@ a socket or builds C: the package is Goose source and links nothing.
 | core only (`tests/support/core_only.goose`) | 0.1 | yes | none | `650c8c5` | this repository |
 
 **Honestly:** the one working event loop today is the in-memory one, which is for tests. An event loop on real sockets
-(epoll, from tcprouter's engine) is planned as its own change (`openspec/changes/epoll-event-loop/`), and so are
+(an optimized epoll loop) is planned as its own change (`openspec/changes/epoll-event-loop/`), and so are
 uSockets and io_uring. A library written now runs on them when they land.
 
 **What it is not.** Not an event loop (those are separate; they are mapped here, not built). Not a protocol library:
