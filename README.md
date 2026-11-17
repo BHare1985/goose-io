@@ -222,14 +222,22 @@ echo.start(io, "0.0.0.0:7");                         // the library listens on p
 io.serve() { io, ev => echo.echo_event(io, ev); };   // run the loop; give every event to the library
 ```
 
-To use another event loop, change the first line. With two libraries, the application offers each event to each library in
-turn. A library says whether the event was for one of its own links, and an event that is not goes on to the next:
+To use another event loop, change the first line.
+
+With two libraries, the application offers each event to the libraries in turn:
 
 ```goose
 io.serve() { io, ev =>
-    if !server.server_event(io, ev) { client.client_event(io, ev); }
+    if !server.server_event(io, ev) {   // offered to the server; it returns false if the link is not its own
+        client.client_event(io, ev);    // so the client is offered it next
+    }
 };
 ```
+
+A library is **offered** an event but only **handles** the events of links it owns. The contract requires a library to
+return `false`, and to do nothing else, for an event about a link that it did not dial or accept itself. So the first
+library in the chain is offered every event and ignores the ones that are not its own, and a library never reads or changes
+another library's connection. A `Tick` is not about any link, so every library in turn is offered it.
 
 Connecting the libraries to each other, such as turning a request the server received into a query by the client, is
 ordinary code in the same handler. [`examples/gateway.goose`](examples/gateway.goose) does this with a line server and a
