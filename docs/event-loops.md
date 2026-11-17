@@ -147,6 +147,43 @@ While the contract is at major version 0 an event loop may find that a requireme
 then records what it tried, and the contract is changed only if no other way works (design D13 of the change that
 introduced it).
 
+## Candidate event loops and libraries
+
+These are candidates, not claims: today only the in-memory event loop exists, and `docs/event-loops/` maps the first
+few in detail. They show how much one contract could unify. They are not equivalent integration targets: some are
+whole event loops (libuv, libevent), some are lower-level interfaces an event loop would be built on (liburing), and
+TLS libraries and QUIC engines would be layers over an event loop, not event loops of their own.
+
+**Under it (event loops).** Anything that can deliver the five core events and perform the 12 operations.
+
+- Pollers and reactors: [uSockets](https://github.com/uNetworking/uSockets), [libuv](https://github.com/libuv/libuv),
+  [libevent](https://github.com/libevent/libevent), [libev](http://software.schmorp.de/pkg/libev.html),
+  [libhv](https://github.com/ithewei/libhv), [picoev](https://github.com/kazuho/picoev), the loop of
+  [Redis](https://github.com/redis/redis) (`src/ae.c`), the socket layer of [H2O](https://github.com/h2o/h2o)
+- Completion rings and thread-per-core engines: [liburing](https://github.com/axboe/liburing),
+  [libxev](https://github.com/mitchellh/libxev), [UCall](https://github.com/unum-cloud/UCall),
+  [Seastar](https://github.com/scylladb/seastar)
+- Userspace network stacks, with no operating-system sockets: [F-Stack](https://github.com/F-Stack/f-stack) (FreeBSD's
+  stack over DPDK), [lwIP](https://savannah.nongnu.org/projects/lwip/) (embedded), [mTCP](https://github.com/mtcp-stack/mtcp),
+  [smoltcp](https://github.com/smoltcp-rs/smoltcp), [gVisor's netstack](https://github.com/google/gvisor)
+- Layers over another event loop, which have no loop of their own: TLS ([BearSSL](https://www.bearssl.org/),
+  [s2n-tls](https://github.com/aws/s2n-tls), [Mbed TLS](https://github.com/Mbed-TLS/mbedtls),
+  [wolfSSL](https://github.com/wolfSSL/wolfssl)), and engines that present streams as links
+  ([MsQuic](https://github.com/microsoft/msquic), [LSQUIC](https://github.com/litespeedtech/lsquic),
+  [quiche](https://github.com/cloudflare/quiche)); also metering, rate limiting and fault injection
+- Simulators and fuzzers, for tests with a virtual clock and no network: the in-memory loop here,
+  [libEpollFuzzer](https://github.com/uNetworking/libEpollFuzzer) and [turmoil](https://github.com/tokio-rs/turmoil)
+  as the same idea elsewhere; [NNG](https://github.com/nanomsg/nng) is worth reading for how it separates transports,
+  listeners and dialers
+
+**On it (libraries).** Each is written once and runs on every event loop above.
+
+- Servers: HTTP/1.1 and HTTP/2, WebSocket, gRPC, MQTT, SSH, SMTP and IMAP
+- Clients: Postgres, MySQL, Redis, Memcached, NATS, Kafka
+- Infrastructure: reverse proxies, load balancers, connection pools, SOCKS5 and HTTP `CONNECT` forwarders, ACME clients
+- Distributed systems: Raft, gossip and other replication, tested on the in-memory loop with a virtual clock, so a
+  timeout, a slow peer or a silent one is a few lines of test and not a lab
+
 ## Layering one event loop over another
 
 An event loop may wrap another and present the same contract above it (*Event loops can be layered*): a TLS layer,

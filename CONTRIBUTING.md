@@ -43,3 +43,25 @@ the loop); `tests/checks/vocabulary.sh` fails on the old ones.
 
 The package stays pure Goose: no C, no `extern`, no build sidecar outside `examples/loops/`
 (`tests/checks/purity.sh`). Do not add HTTP, TLS, SQL, Redis, pooling, routing or health-check policy to the contract.
+
+## Repository layout
+
+- `goose_io.goose`: the contract: the types, the helpers, the version and `require_core` with one check for each group
+- `bench/`: micro-benchmarks, built with `goose build` and run by hand; `README.md` indexes them and holds their results (`link_map_bench.goose`: what a table keyed by link costs)
+- `deadlines.goose`: `Deadlines`, a bounded heap of deadlines for libraries that have many
+- `memory.goose`: the in-memory event loop, with scripted peers, a virtual clock and the named faults
+- `conformance/`: the conformance suite, which imports only the contract: `suite.goose` is the driver and the entry points, `support.goose` what every check shares, `handles`, `net`, `data`, `close` and `time` the checks
+- `examples/`: the example libraries: `echo/`, `lineserver/`, `lineclient/` and `gateway.goose`, which runs the last two on one loop
+- `docs/`: `contract.md`, `libraries.md`, `event-loops.md` and `history.md`
+- `docs/event-loops/`: how each candidate event loop maps onto the contract
+- `tests/unit/`: tests of the types, `Deadlines` and the in-memory event loop
+- `tests/examples/`: tests of the example libraries, and the scripts that run them over the wrapper
+- `tests/conformance/`: running the suite (`run.sh`, `faults.sh`, `table_check.sh`, `groups_check.sh`), the table of checks and faults (`checks.tsv`), and the driver's own tests
+- `tests/support/`: what tests share: `kit.goose` (the test kit), `wrapper.goose` (an event loop layered over another), `core_only.goose` (an event loop that supplies only the core) and `stub.goose`
+- `tests/checks/`: scripts that check the repository itself: quoted code, purity, vocabulary, event loop mappings, this layout
+- `tests/run_tests.sh`: runs every `*_test.goose` and `*_mustfail.goose`, the purity check and the vocabulary check
+- `openspec/`: the specification and the changes that made it
+- `Justfile`: `just check`, `just test`, `just fmt`
+- `CONTRIBUTING.md`: what to run before sending a change, and how to add an event loop
+- `README.md`: the front door: what goose-io is, where it stands, where to start
+- `LICENSE`: Apache-2.0
