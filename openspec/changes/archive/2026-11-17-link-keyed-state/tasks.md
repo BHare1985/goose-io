@@ -34,12 +34,12 @@ Ground rules for every task: work on a branch, not `main`, and start only after 
 ## 5. The candidate event loops and the other open change
 
 - [x] 5.1 In `docs/event-loops/` update every mapping document that names a tag, `set_user` or `user`, and add one line to each that says how it keeps slots dense (a freelist, a fixed-file table); verify `tests/checks/docs.sh` passes
-- [ ] 5.2 Do not edit `openspec/changes/epoll-event-loop`; add a note to this change's pull request that its tasks name the tag and the user value and need the slot rule, and that its owner updates them when this is applied
+- [x] 5.2 Do not edit `openspec/changes/epoll-event-loop`. Its tasks name the tag and the user value and need the slot rule; that follow-up has its own proposal, `align-epoll-with-contract-0-3`, which revises `epoll-event-loop`'s planning artifacts in confirmed steps; verify `openspec/changes/epoll-event-loop` is unchanged by this change and `align-epoll-with-contract-0-3` validates
 
 ## 6. Everything together
 
 - [x] 6.1 Run `just test` (every step of the `Justfile`) from a clean checkout of the branch; verify it exits zero
-- [ ] 6.2 Run `openspec validate link-keyed-state --strict`; verify it reports the change valid, and that every scenario of both spec files is named by a check, a unit test or a document step (list the mapping in the pull request description)
+- [x] 6.2 Run `openspec validate link-keyed-state --strict`; verify it reports the change valid, and that every scenario of both spec files is named by a check, a unit test or a document step (the mapping is the table "Scenarios added by the link-keyed state" in `docs/event-loops.md`, with `tests/conformance/table_check.sh` for the suite checks)
 - [x] 6.3 Search the tree for the old words (`grep -rniE "\btag\b|set_user|\buser value\b" --include=*.goose --include=*.md --include=*.tsv .` outside `openspec/changes/archive`); verify the only hits are the listing of what was removed in `docs/libraries.md` and this change's own documents
 
 ## Workflow follow-up

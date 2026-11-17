@@ -45,7 +45,7 @@ In the in-memory event loop, `listen` SHALL fail with `AddressInUse` when an act
 
 #### Scenario: Wildcard then specific
 - **WHEN** a library listens on `0.0.0.0:8080` and then on `127.0.0.1:8080`
-- **THEN** the second `listen` returns `AddressInUse` and a dial to `127.0.0.1:8080` opens a link carrying the first listener's tag
+- **THEN** the second `listen` returns `AddressInUse` and a dial to `127.0.0.1:8080` opens a link accepted by the first listener
 
 #### Scenario: Specific then wildcard
 - **WHEN** a library listens on `127.0.0.1:8080` and then on `0.0.0.0:8080`
@@ -250,3 +250,29 @@ The in-memory event loop SHALL be configurable to refuse `unix:/path` and `unix:
 #### Scenario: The core-only loop refuses it
 - **WHEN** a library dials `unix:/run/a.sock` on the core-only event loop
 - **THEN** the dial ends with one `Closed` with `ConnectFailed` of kind `BadAddress`
+
+### Requirement: The suite checks how events find their owner
+The suite SHALL have a check for each scenario about the event loop of *A link event is recognised by what the library holds*, *Slot numbers are dense*, *A slot is freed when its Closed has been handled* and *Dialling never blocks and always ends in one event*, each with a recorded fault of the in-memory event loop, or a note in `docs/event-loops.md` saying why none is possible (no event can be delivered from inside `dial` of a queue-based loop).
+
+#### Scenario: A loop that names the wrong listener fails
+- **WHEN** the in-memory loop is made to put the first listener's handle on every `Opened`
+- **THEN** the check that an accepted link names its listener fails
+
+#### Scenario: A loop that does not reuse slots fails
+- **WHEN** the in-memory loop is made to issue a new slot for every link
+- **THEN** the dense-slots check fails
+
+#### Scenario: A loop that reuses a slot while Closed is handled fails
+- **WHEN** the in-memory loop is made to give a freed slot to a new link before the handlers of its `Closed` have returned
+- **THEN** the check that a slot is not reused while `Closed` is handled fails
+
+#### Scenario: A map that ignores generations fails its unit test
+- **WHEN** `LinkMap.find` is made to compare slots only
+- **THEN** the test of a stale link finding nothing fails
+
+### Requirement: Library scenarios are shown by tests of this repository
+The scenarios about what a library does with an event (*A library claims only the events of links it owns*, a dialled link's `Opened`) depend on no event loop and SHALL be shown by tests of the example libraries. `LinkMap` SHALL be tested by unit tests written as one body that runs against any table with the same functions, so that a table written elsewhere can be run against it.
+
+#### Scenario: A table written elsewhere runs the same laws
+- **WHEN** the unit test body is run against a table of another layout with `put`, `find` and `drop`
+- **THEN** it checks the same scenarios as for `LinkMap`
