@@ -1,0 +1,16 @@
+# 2026-11-18T02:37:34Z  host: 7.0.0-42-generic, AMD Ryzen 5 3550H with Radeon Vega Mobile Gfx, 8 threads;  02:37:34 up 19 days, 35 min,  9 users,  load average: 0.36, 0.48, 2.99
+# baseline: tcprouter e021769; candidate: goose-io 330c21d
+
+64 connections, 7 alternating rounds (voided 0)
+  metric            baseline min      median         max    candidate median  verdict
+  requests/s            117421.5    118923.5    121295.9            120982.1  ok
+  p99 latency us          1010.0      1030.0      1050.0              1010.0  ok
+  cpu us/request             8.3         8.4         8.5                 8.3  ok
+
+512 connections, 7 alternating rounds (voided 0)
+  metric            baseline min      median         max    candidate median  verdict
+  requests/s             89256.1     93489.2     94626.9             95934.4  ok
+  p99 latency us          5860.0      6110.0      8220.0              5880.0  ok
+  cpu us/request            10.5        10.6        11.1                10.4  ok
+
+gate: PASS
