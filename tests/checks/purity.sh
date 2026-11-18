@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # The contract package is pure Goose: no C source or header, no build sidecar and no `extern` anywhere in it,
-# except under examples/loops/, where a later example event loop may need them.
+# except anywhere.
 # Usage: tests/checks/purity.sh   (run by tests/run_tests.sh)
 set -u
 cd "$(dirname "$0")/../.."
 
 # every file of the package, without tooling, planning and version-control directories (no git needed: the check
 # also runs on a plain copy of the tree)
-files=$(find . -type f -not -path './.git/*' -not -path './.agents/*' -not -path './.claude/*' -not -path './openspec/*' -not -path './examples/loops/*' -not -name 'skills-lock.json' | sed 's|^\./||')
+files=$(find . -type f -not -path './.git/*' -not -path './.agents/*' -not -path './.claude/*' -not -path './openspec/*' -not -path './.implementations/*' -not -name 'skills-lock.json' | sed 's|^\./||')
 bad=0
 
 native=$(echo "$files" | grep -E '\.(c|h|cc|cpp|hpp|build)$' || true)

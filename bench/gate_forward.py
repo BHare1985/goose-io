@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The seam proof: the epoll event loop with tcprouter's forward pump added back (examples/loops/forward_ext) against tcprouter's own
+"""The seam proof: the epoll event loop with tcprouter's forward pump added back (goose-io-epoll-ext) against tcprouter's own
 forward_server, on keep-alive workloads of 11 B, 16 KiB and 64 KiB responses through a C backend.
 
   python3 bench/gate_forward.py BASELINE CANDIDATE [--rounds 7] [--seconds 6] [--sizes 11,16384,65536]

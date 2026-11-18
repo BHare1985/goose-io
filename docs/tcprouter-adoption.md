@@ -1,7 +1,7 @@
 # Adopting the epoll event loop in tcprouter
 
 For the project that refactors tcprouter onto goose-io. Nothing here changes tcprouter; it says where tcprouter's code now lives in
-`examples/loops/epoll/` (the loop) and `examples/loops/forward_ext/epoll_forward/` (the loop with forwarding added back), what was left behind, and
+goose-io-epoll (the loop) and goose-io-epoll-ext (the loop with forwarding added back), what was left behind, and
 what that project has to keep true.
 
 ## Where tcprouter's files went
@@ -11,10 +11,10 @@ was left to the contract's names; the proxy's forwarding was added back in a cop
 
 | tcprouter | Here | What happened to it |
 |---|---|---|
-| `engine.goose`: `Worker`, `serve`, `Stats`, `spawn` | `examples/loops/epoll/engine.goose` (`Loop`, `serve`, `Stats`), `messages.goose` (`spawn`) | `Conn` is `goose_io::Link`; an `Event` carries its link and nothing attached (no `tag`, no `user`); `Opened` names the `Listener` |
+| `engine.goose`: `Worker`, `serve`, `Stats`, `spawn` | goose-io-epoll's `engine.goose` (`Loop`, `serve`, `Stats`), `messages.goose` (`spawn`) | `Conn` is `goose_io::Link`; an `Event` carries its link and nothing attached (no `tag`, no `user`); `Opened` names the `Listener` |
 | `handler.goose`: `send`, `dial`, `close`, `reset`, `pause_reading`, `shutdown_write`, `set_keep_open_on_eof`, `send_room`, `want_pass_end` | `engine.goose` | `send` returns `SendStatus`; `send2`, `peer_address`, `listen`, `listener_port`, `stop_listening`, `tick_by` and `stop` are new; `PassEnd` is always on |
 | `conn.goose`: slots, buffer pool, accept, interest, close | `engine.goose` | a slot is freed after its `Closed` is handled; `close` no longer resets a link with unread input |
-| `conn.goose`: `_pump`, `_pump_direction`, `_write_buffer`, `_run_ready`, `_connect_finished`, the forwarding arm of `_dispatch_event` | `examples/loops/forward_ext/epoll_forward/forward.goose` | copied with a fixed target and no routing, no retry, no policy, no tags; **owner review before this is pushed** |
+| `conn.goose`: `_pump`, `_pump_direction`, `_write_buffer`, `_run_ready`, `_connect_finished`, the forwarding arm of `_dispatch_event` | goose-io-epoll-ext's `forward.goose` | copied with a fixed target and no routing, no retry, no policy, no tags; **owner review before this is pushed** |
 | `messages.goose`: drain, statistics | `messages.goose` | kept; deadlines, close-by-tag, `SetAddr` and `Policy` messages are not carried |
 | `address.goose`, `sys.goose`, `src/c_sys.c` | `address.goose`, `sys.goose`, `src/sys.c` | port 0 for `listen`; `c_peek` and `c_set_rcvlowat` (SNI) dropped; `c_local_port`, `c_peer` and `c_linger0` added |
 | `config.goose`: `Limits` | `config.goose` | the proxy's limits dropped (`inspect_timeout_ms`); `buffers_per_worker` is `buffers_per_loop`, `max_conns_per_worker` is `max_links` |
@@ -22,7 +22,7 @@ was left to the contract's names; the proxy's forwarding was added back in a cop
 
 ## What the project starts from
 
-`examples/loops/forward_ext/epoll_forward/forward.goose` is the forwarding pump living in the loop's own links and slot table: a forwarded link
+goose-io-epoll-ext's `forward.goose` is the forwarding pump living in the loop's own links and slot table: a forwarded link
 takes a slot, is registered with epoll once (edge-triggered), and has no `Opened` and no `Closed` (the application is not told about it).
 It holds tcprouter's forwarding numbers on the workloads of `bench/gate_forward.sh` (see `bench/results/forward-*.txt`): that is the
 evidence that the loop's structure costs a proxy nothing. The loop has **no extension seam**: the owner asked for the proxy to be added
@@ -30,11 +30,11 @@ back to a copy of the loop, not plugged into it through hooks, so the project's 
 here, or hooks of its own); the loop's `serve` and `_dispatch_event` are the two places the pump enters.
 
 Routes, SNI inspection, retry, tags and deadlines have to be added on top, and tcprouter's own tests (its `tests/unit` and `tests/net`)
-are the judge of that: the loop's tests (`tests/net/`, the conformance suite) never exercised them.
+are the judge of that: the loop's tests (its network tests, the conformance suite) never exercised them.
 
 ## The gates the project holds
 
-- the conformance suite on the loop it builds, if it keeps the contract's handler path (`examples/loops/epoll/conformance.sh --repeat 50`)
+- the conformance suite on the loop it builds, if it keeps the contract's handler path (goose-io-epoll's `conformance.sh --repeat 50`)
 - the system calls per request of `bench/gate_syscalls.sh` and `bench/gate_forward.sh` equal to the baseline's
 - throughput, p99 latency and CPU per request of `bench/gate_http.sh` and `bench/gate_forward.sh` within or better than tcprouter's own range
 - memory of `bench/gate_memory.sh`: no more than tcprouter's, and at most 512 bytes per idle link

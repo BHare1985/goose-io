@@ -12,7 +12,7 @@ accepted, and is run on an idle host. Each file explains what it measures and ho
 | [`gate_syscalls.sh`](gate_syscalls.sh) | Does the epoll loop make the same system calls per request as tcprouter's engine on the same HTTP program? | `bench/gate_syscalls.sh` |
 | [`gate_http.sh`](gate_http.sh) | Does it match tcprouter's throughput, p99 latency and CPU per request (one worker, pinned CPUs, `wrk`, alternating rounds)? | `bench/gate_http.sh` |
 | [`gate_memory.sh`](gate_memory.sh) | Is its memory no more than tcprouter's, and at most 512 bytes per idle link? | `bench/gate_memory.sh` |
-| [`gate_forward.sh`](gate_forward.sh) | Does the loop with tcprouter's forward pump added back ([`examples/loops/forward_ext/`](../examples/loops/forward_ext/)) hold tcprouter's forwarding numbers on 11 B, 16 KiB and 64 KiB keep-alive workloads? | `bench/gate_forward.sh` |
+| [`gate_forward.sh`](gate_forward.sh) | Does the loop with tcprouter's forward pump added back (goose-io-epoll-ext) hold tcprouter's forwarding numbers on 11 B, 16 KiB and 64 KiB keep-alive workloads? | `bench/gate_forward.sh` |
 
 ## The gates of the epoll event loop
 
@@ -26,7 +26,7 @@ tcprouter's repository is private). Each stores its table under `results/` with 
 - **throughput, p99 latency and CPU per request**, one worker on a pinned CPU, `wrk` on others, at least seven alternating rounds, a round void
   when the server used under 90% of its core, the candidate's median within or better than the baseline's own min-to-max range;
 - **memory**: idle RSS, RSS with 10,000 idle links and under load no more than the baseline's (within 3%), and at most 512 bytes for a link that
-  holds no state of the program's own (`examples/loops/epoll/tests/idle_server.goose` against the same program on tcprouter).
+  holds no state of the program's own (goose-io-epoll's `tests/idle_server.goose` against the same program on tcprouter).
 
 ## Running a benchmark
 

@@ -9,7 +9,7 @@ tcprouter's handler API is the shape the contract was taken from (design D1), so
 new is `listen`, `listener_port`, `stop_listening`, `peer_address`, `send2`, `tick_by` and the `Link` and `Listener` types;
 what differs in behaviour is listed under *Adapter work*.
 
-**Applied.** The rows below are done in [`examples/loops/epoll/`](../../examples/loops/epoll/) at commit `2db84df`, which passes the core and each group of
+**Applied.** The rows below are done in goose-io-epoll at commit `2db84df`, which passes the core and each group of
 the suite except unix (not supplied), in fifty repetitions, and the system-call, throughput and memory gates against tcprouter `e021769`
 (`bench/BASELINE.md`, `bench/results/`). The loop was derived directly from tcprouter's generic layer rather than imported and adapted in steps;
 `close` ends the link at once and keeps the socket as an orphan until the peer ends (see *Closing*, and the design of the change); a Tick comes at least every 90 ms.

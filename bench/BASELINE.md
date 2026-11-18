@@ -1,6 +1,6 @@
 # The baseline the epoll event loop is measured against
 
-The loop under `examples/loops/epoll/` is made from tcprouter's engine, so tcprouter's engine is what it is measured against: the
+The loop under goose-io-epoll is made from tcprouter's engine, so tcprouter's engine is what it is measured against: the
 same program, on both, doing the same task.
 
 | | |

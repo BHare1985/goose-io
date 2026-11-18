@@ -25,12 +25,7 @@ tests/checks/layout.sh
 tests/checks/vocabulary.sh
 ```
 
-On Linux, with a C compiler and Python 3, the epoll event loop under `examples/loops/epoll/` is built and tested too (CI runs the same):
-
-```bash
-examples/loops/epoll/conformance.sh --repeat 3        # the core and each group of the suite on real sockets
-tests/net/run.sh                                      # the network tests: the example libraries, limits, closing, drain, hostile peers
-```
+The epoll event loops live in their own repositories ([goose-io-epoll](https://github.com/BHare1985/goose-io-epoll), [goose-io-epoll-ext](https://github.com/BHare1985/goose-io-epoll-ext)), which test themselves against this package.
 
 A change to that loop also holds the gates of `bench/` (`gate_syscalls.sh`, `gate_http.sh`, `gate_memory.sh`, `gate_forward.sh`; they need
 `strace`, `wrk` and an idle host, and are not run by CI).
@@ -38,7 +33,7 @@ A change to that loop also holds the gates of `bench/` (`gate_syscalls.sh`, `gat
 Write the test before the code it tests, and run it against the old code to see it fail. A test that fails once in
 any repetition is a failure until its cause is explained.
 
-Adding an event loop (it lives in its own repository or under `examples/loops/`):
+Adding an event loop (it lives in its own repository):
 
 1. Supply the core, and then any groups you want (`docs/contract.md`, section 2). Call `goose_io::require_core` and the
    check of each group you supply from its root program: a missing operation is then a compile error in one place.
@@ -51,7 +46,7 @@ Adding an event loop (it lives in its own repository or under `examples/loops/`)
 The words are "event loop" (what supplies the operations), "library" (what handles events) and "application" (what runs
 the loop); `tests/checks/vocabulary.sh` fails on the old ones.
 
-The package stays pure Goose: no C, no `extern`, no build sidecar outside `examples/loops/`
+The package stays pure Goose: no C, no `extern`, no build sidecar
 (`tests/checks/purity.sh`). Do not add HTTP, TLS, SQL, Redis, pooling, routing or health-check policy to the contract.
 
 ## Repository layout
@@ -62,13 +57,11 @@ The package stays pure Goose: no C, no `extern`, no build sidecar outside `examp
 - `memory.goose`: the in-memory event loop, with scripted peers, a virtual clock and the named faults
 - `conformance/`: the conformance suite, which imports only the contract: `suite.goose` is the driver and the entry points, `support.goose` what every check shares, `handles`, `net`, `data`, `close` and `time` the checks
 - `examples/`: the example libraries: `echo/`, `lineserver/`, `lineclient/` and `gateway.goose`, which runs the last two on one loop, and `dispatch.goose`, which sends each event to the library that owns its link
-- `examples/loops/epoll/`: the epoll event loop on real sockets (Linux; Goose and one C file), its runner of the conformance suite and the programs its tests drive; the one place that may hold native files
 - `docs/`: `contract.md`, `libraries.md`, `event-loops.md` and `history.md`
 - `docs/event-loops/`: how each candidate event loop maps onto the contract
 - `tests/unit/`: tests of the types, `Deadlines` and the in-memory event loop
 - `tests/examples/`: tests of the example libraries, and the scripts that run them over the wrapper
 - `tests/conformance/`: running the suite (`run.sh`, `faults.sh`, `table_check.sh`, `groups_check.sh`), the table of checks and faults (`checks.tsv`), and the driver's own tests
-- `tests/net/`: network tests, in Python against programs built on the epoll event loop; `run.sh` builds them and runs the drivers (`REPEAT=n`, a name filter)
 - `docs/tcprouter-adoption.md`: where tcprouter's engine went in the epoll event loop and what its refactor has to hold
 - `tests/support/`: what tests share: `kit.goose` (the test kit), `wrapper.goose` (an event loop layered over another), `core_only.goose` (an event loop that supplies only the core) and `stub.goose`
 - `tests/checks/`: scripts that check the repository itself: quoted code, purity, vocabulary, event loop mappings, this layout

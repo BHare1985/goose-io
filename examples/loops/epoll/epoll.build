@@ -1,3 +1,0 @@
-// The native part of the epoll event loop: one C file, compiled by Goose's own C driver.
-c_sources = ["src/sys.c"];
-exclude = ["tests"];
