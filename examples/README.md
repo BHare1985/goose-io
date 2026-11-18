@@ -18,6 +18,6 @@ What is here and where the others are. This list grows as examples are added; ad
 These are event loops on real sockets (Linux). They live next to this repository while they are examples; each has a README.
 
 - **goose-io-epoll**: the plain epoll loop. It supplies the core and the half-close, sizing, abort, inspection and batching groups and passes the conformance suite on them. It is the generic layer of tcprouter's engine with the proxy removed and the contract's names in place. Read it to see what a conforming loop is.
-- **goose-io-epoll-ext**: the same loop with what a performant TCP proxy needs added: forwarding between two sockets by the loop, and and whatever else tcprouter needs from a loop. tcprouter is meant to import this one. What it adds is loop-specific for now; the contract groups that could carry it are proposed in `openspec/changes/add-proxy-groups` and `add-stream-extras`, and not yet implemented here.
+- **goose-io-epoll-ext**: the same loop with what a performant TCP proxy needs added: forwarding between two sockets by the loop, and whatever else tcprouter needs from a loop. tcprouter is meant to import this one. What it adds is loop-specific for now; the contract groups that could carry it are proposed in `openspec/changes/add-proxy-groups` and `add-stream-extras`, and not yet implemented here.
 
 A library is written against the contract, not against either loop; both run the example libraries above unchanged.
