@@ -15,7 +15,7 @@
 **Non-Goals:**
 
 - Naming a kernel mechanism in the contract. `relay` does not say `splice`; `peek` does not say `MSG_PEEK`.
-- A fallback between groups ("use relay if present, else copy"): an open question (D6), and a separate change if wanted.
+- A fallback between groups ("use relay if present, else copy"): postponed to a later change (D6 item 2). Until then a library names the groups it needs with `require_*`, and a loop without one fails to build.
 - Implementing the groups on a real loop or in tcprouter, handing a link to another thread or process, datagrams, TLS, per-socket tuning.
 
 ## Decisions
@@ -47,7 +47,7 @@ A relayed link is a sixth state of the link table ("relayed", between open and c
 | `peer_address` | the address, as when open |
 | `relayed_bytes` | bytes carried from this link |
 
-The pair ends as one: when both streams have ended each link gets `Closed` with `PeerClosed`; an error, a reset or a limit on one link ends the other. The reason the other link carries is open (D6). Backpressure is the loop's: it stops reading a link when its partner cannot take more; the loop's memory for a pair is bounded by one buffer for each direction.
+The pair ends as one: when both streams have ended each link gets `Closed` with `PeerClosed`; an error, a reset or a limit on one link ends the other. The reasons are fixed by D6 item 1. Backpressure is the loop's: it stops reading a link when its partner cannot take more; the loop's memory for a pair is bounded by one buffer for each direction.
 
 ### D4. peek
 
@@ -59,12 +59,18 @@ A proxy's fences require that no byte is written after a deadline, including byt
 
 `waker()` returns a copyable fixed-size handle, and `wake` is the only operation callable from any thread. The contract states that a loop belongs to the thread that serves it; this group makes one stated exception. `Woken` goes to every library like `Tick`: the application's glue decides who handles it. Ordering is per calling thread.
 
-### D6. Open questions the first tasks settle
+### D6. Decisions taken (formerly the open questions)
 
-1. **What the partner of a failed relayed link carries.** Candidates: `PeerReset` for a reset and `Error` for any other failure; `Local` for the loop's own limit. Settled by reading how a proxy ends both sides today and by the in-memory loop's scripted failures; the spec is amended before the checks are written.
-2. **Compile-time detection of a group.** A library that wants relay when present and a `Data` and `send` path when not needs to ask whether a loop has `relay`. A spike with two overloads shows whether Goose resolves by the operations a type has. If not, the answer is a documented pattern (one library, two build variants chosen by the application) and not a contract feature.
-3. **Held bytes and the bound.** `peek` holds at most the loop's per-link bound; a hello over the bound ends in the library's hands. The spec states the bound as "the loop's bound for a link" and a loop documents it; the in-memory loop's bound is configurable so the suite can test the edge.
-4. **Whether `Input` carries the bytes.** A view in the event would save a call, but a held view that outlives the handler is what `peek` exists to avoid. The design keeps the event small.
+1. **What each link of a failed relayed pair carries.** The link where the failure happened carries the true cause, and the partner never carries `PeerReset` (it would blame the partner's peer and count one reset twice).
+   - A reset by one peer: that link `PeerReset`, the partner `Error`.
+   - Any other failure of one link (a transport error, a kernel timeout of a link that never reads): that link `Error`, the partner `Error`.
+   - A limit of the loop's own (a stall limit the loop enforces on a peer that never reads, the bound): both links `Local`.
+   - A `close` or `reset` by the library on one link: both `Local` (unchanged).
+   - Both streams ended: both `PeerClosed` (unchanged).
+   - The library sees both links' events, so the originating link gives it the root cause; the relay still ends the pair as one (the alternative, a relay that stops and leaves the other link to the library, was considered and rejected: it makes every proxy write the same cleanup). The in-memory loop scripts the cases: reset, error, a loop limit, a peer that never reads (with the loop's stall limit, and with a scripted kernel timeout).
+2. **Fallback when a loop lacks a group.** Postponed to a later change. For now a library that needs a group names it with its `require_*` check and a loop without the group fails to build; no spike is made and no overload mechanism is promised.
+3. **Held bytes and the bound.** The bound is configuration: every loop exposes it (the in-memory loop's is configurable so the suite can test the edge) and documents its default. At the bound the loop stops reading the link and delivers `Input` with `available` equal to the bound even when `n` is larger; the library then decides (close, relay, or `wait_input(link, 0)`). Nothing past the bound is read.
+4. **`Input` carries a count, not bytes.** `Input { link, available }` says that bytes are held; the bytes stay where they are (in the kernel for a loop that can leave them there) until the library calls `peek`, which shows them without consuming, or `relay`, which can carry them without a copy to user memory. A library that decides without looking (by listener or source address) pays no copy. A view in the event would force the loop to read every link's first bytes up front.
 
 ### D7. Implementation order (in this repository)
 
@@ -85,4 +91,4 @@ In the in-memory loop, in the order relay, peek, revoke, wake: spec scenario, su
 
 ## Open Questions
 
-- D6 items 1 to 4, settled by the first tasks.
+- None. D6 items 1 to 4 are decided; a fallback between groups is a later change.

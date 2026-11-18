@@ -4,9 +4,9 @@ Ground rules for every group: work on a branch of goose-io after `epoll-event-lo
 
 ## 1. Settle the open questions (spikes)
 
-- [ ] 1.1 Spike: can a generic Goose function choose between two bodies by whether the loop type has an operation (D6 item 2)? Write the smallest program that calls an operation when the loop has it and another when not; record the result and the pattern for libraries in `design.md`; verify with a program built against the in-memory loop and against the core-only loop of `tests/support/core_only.goose`
-- [ ] 1.2 Decide what the partner of a failed relayed link carries (D6 item 1): write the cases (reset, error, limit, a peer that never reads) as the scripted failures the in-memory loop will offer, record the reasons, and amend the relay requirement and scenarios of the spec to match; verify `openspec validate add-proxy-groups --strict` passes
-- [ ] 1.3 Decide D6 items 3 and 4 and record them; verify `design.md` has no open item left
+- [x] 1.1 Record that a fallback between groups is postponed to a later change and that libraries use `require_*` for now (D6 item 2); verified by `design.md` D6 and Non-Goals
+- [x] 1.2 Decide what each link of a failed relayed pair carries (D6 item 1): reasons recorded in `design.md` D6 and the relay requirement and scenarios of the spec amended; the scripted failures (reset, error, loop limit, peer that never reads with stall limit and with kernel timeout) are built in 3.1
+- [x] 1.3 Decide D6 items 3 and 4 and record them: the bound is configuration and `Input` carries a count; `design.md` has no open item left
 
 ## 2. The contract package
 
@@ -18,8 +18,8 @@ Ground rules for every group: work on a branch of goose-io after `epoll-event-lo
 
 Each of 3.1 to 3.4 is the same four steps: write the checks of the group in `conformance/` and add its entry point, see them fail to build against the loop without the group, add the group to `memory.goose` with its scripted-peer support, then add one fault for each check and show each check fails against its fault (`tests/conformance/faults.sh`). Every check's name and requirement go in `tests/conformance/checks.tsv`.
 
-- [ ] 3.1 relay: the checks of the spec's relay scenarios, the bounded-memory check with a peer that never reads, and the pair-end reasons of task 1.2; verify the suite's relay entry point passes in fifty repetitions and every fault fails its check
-- [ ] 3.2 peek: the checks of its scenarios, `wait_input` on a paused link and across the peer's end of stream, and the bound; verify as 3.1
+- [ ] 3.1 relay: the checks of the spec's relay scenarios, the bounded-memory check with a peer that never reads, and the pair-end reasons of D6 item 1 (reset, error, loop limit, stall limit, kernel timeout); verify the suite's relay entry point passes in fifty repetitions and every fault fails its check
+- [ ] 3.2 peek: the checks of its scenarios, `wait_input` on a paused link and across the peer's end of stream, and the configurable bound with `Input` delivered at it; verify as 3.1
 - [ ] 3.3 revoke: the checks of its scenarios, including the clock read at the write (the fault reads it at the start of the pass); verify as 3.1
 - [ ] 3.4 wake: the checks of its scenarios, with a test thread, including order from one thread and a wake during draining; verify as 3.1 and that the in-memory loop's output is the same in every repetition
 - [ ] 3.5 Add the checks of combinations (`write_deadline` on a relayed link, `peek` then `relay`, `wait_input` on a paused link) as tests outside the entry points; verify each fails against a loop that breaks the rule

@@ -64,9 +64,24 @@ A relay SHALL carry backpressure: a link whose peer does not read SHALL hold the
 - **WHEN** one peer ends its stream and the other peer then sends bytes
 - **THEN** the first peer's partner sees the end of stream after the bytes sent before it, the other direction still carries bytes, and the links end when both streams have ended
 
+### Requirement: A failed relay ends with the cause on the link that failed
+When a relayed pair ends by a failure, the link where the failure happened SHALL carry its cause: `PeerReset` for a reset by its peer, `Error` for any other failure, `Local` for a limit of the loop's own. The partner SHALL carry `Error` after a reset or an error and `Local` after a limit of the loop's own, and a link SHALL carry `PeerReset` only when its own peer reset.
+
 #### Scenario: A reset ends both links
 - **WHEN** one peer of a relayed pair resets its connection
-- **THEN** both links receive one `Closed` and no other event, and the loop holds nothing for either afterwards
+- **THEN** the link of that peer receives one `Closed` with reason `PeerReset`, its partner receives one `Closed` with reason `Error`, no other event is delivered, and the loop holds nothing for either afterwards
+
+#### Scenario: A transport error ends both links
+- **WHEN** one link of a relayed pair fails with a transport error
+- **THEN** both links receive one `Closed` with reason `Error`
+
+#### Scenario: A loop limit ends both links
+- **WHEN** one peer of a relayed pair never reads and the loop's own stall limit is reached
+- **THEN** both links receive one `Closed` with reason `Local`
+
+#### Scenario: The kernel gives up on a peer that never reads
+- **WHEN** the transport reports a timeout on the link whose peer never reads
+- **THEN** that link receives one `Closed` with reason `Error` and its partner one `Closed` with reason `Error`
 
 ### Requirement: A relayed link is owned by the relay
 The relay group SHALL offer `relayed_bytes(link)`, which returns the bytes carried from that link to its partner and 0 for a link never relayed or stale. While a link is relayed, `send`, `send2` and `send_room` SHALL return `Closed` and 0, as after `shutdown_write` (the relay owns the sending of the link); `pause_reading`, `set_keep_open_on_eof` and `shutdown_write` SHALL have no effect; and `close` and `reset` SHALL end both links of the pair.
@@ -95,7 +110,7 @@ The peek group SHALL offer `peek(link)`, which returns the bytes that have arriv
 - **THEN** no bytes are returned and nothing else is affected
 
 ### Requirement: Peek waits for enough bytes and then releases them
-The peek group SHALL offer `wait_input(link, n)` and the event `Input { link, available }`. With `n` greater than 0 it SHALL withhold `Data` until at least `n` bytes have arrived or the peer's stream has ended and then deliver one `Input`; `Data` SHALL stay withheld until `wait_input(link, 0)`, which SHALL deliver the held bytes unchanged and in order as `Data`. A link SHALL hold no more bytes than the loop's bound for a link and SHALL not read past it.
+The peek group SHALL offer `wait_input(link, n)` and the event `Input { link, available }`. With `n` greater than 0 it SHALL withhold `Data` until at least `n` bytes have arrived or the peer's stream has ended and then deliver one `Input`; `Data` SHALL stay withheld until `wait_input(link, 0)`, which SHALL deliver the held bytes unchanged and in order as `Data`. `Input` SHALL carry the number of bytes held and not the bytes: they stay with the loop until `peek` or `relay`.
 
 #### Scenario: Bytes are decided on, then delivered
 - **WHEN** a library calls `wait_input(link, 5)`, a peer sends 3 bytes, then 4 more, and the library calls `peek` in the handler of `Input` and then `wait_input(link, 0)`
@@ -104,6 +119,13 @@ The peek group SHALL offer `wait_input(link, n)` and the event `Input { link, av
 #### Scenario: The peer ends before enough bytes
 - **WHEN** a library calls `wait_input(link, 100)` and the peer sends 10 bytes and ends its stream
 - **THEN** `Input` is delivered with `available` 10, and the library still receives `PeerEof` or `Closed` as the link's settings say after it calls `wait_input(link, 0)`
+
+### Requirement: A link holds a bounded number of unread bytes
+A link SHALL hold no more bytes than the loop's bound for a link, a bound every loop SHALL expose as configuration. When the bound is reached the loop SHALL deliver `Input` with `available` equal to the bound even when `n` is larger, and SHALL read no more until the library calls `wait_input(link, 0)` or ends the link.
+
+#### Scenario: The bound is reached
+- **WHEN** the loop's bound for a link is 8 bytes, a library calls `wait_input(link, 20)`, and a peer sends 20 bytes
+- **THEN** `Input` is delivered with `available` 8, no more bytes are read until the library calls `wait_input(link, 0)` or ends the link, and `peek` shows the 8 bytes
 
 ### Requirement: Revoke takes back unsent bytes
 The revoke group SHALL offer `discard_unsent(link)`. It SHALL drop every byte the loop accepted on the link and has not handed to the transport, return how many it dropped, and treat any `Writable` owed to the link as if those bytes had been sent. Bytes already handed to the transport SHALL not be recalled.
