@@ -33,7 +33,6 @@ import .config;
 let _FREE:    u8 = 0;
 let _DIALING: u8 = 1;       // dial returned; the connect is in progress
 let _OPEN:    u8 = 2;       // open (also closing and write-shut: those are flags)
-let _EXT:     u8 = 4;       // owned by an extension (seam.goose): the loop keeps the slot, the extension everything else
 let _ENDED:   u8 = 3;       // its Closed is queued; the slot and the descriptor are kept until it has been handled
 
 let _EVENT_KIND_LISTENER: u64 = 1;
@@ -41,9 +40,6 @@ let _EVENT_KIND_LINK:     u64 = 2;
 let _EVENT_KIND_ORPHAN:   u64 = 3;    // a socket of a link that has ended, kept open to read and drop the peer's input (see _finish_close)
 let _EVENT_KIND_MESSAGE:  u64 = 4;
 let _WAITER_READER:       u64 = 1;    // in the low byte of a _waiting_reads entry: a read waits for a pool buffer
-let _EVENT_KIND_EXT2:     u64 = 5;    // an extension's second socket of a slot (seam.goose)
-let _WAITER_EXT_A:        u64 = 6;    // an extension's wait for a pool buffer (seam.goose), two kinds
-let _WAITER_EXT_B:        u64 = 7;
 let _WAITER_WRITER:       u64 = 2;    // a refused send waits for a pool buffer
 
 let _MAX_GEN: u32 = 0xffffff;         // a generation is 24 bits in the epoll data; a slot whose generations are used up is retired
@@ -163,7 +159,6 @@ root struct Loop {
     _orphans_open:       i64             = 0,
     _buffer_pool:        u8[>..]         = [], // buffers_per_loop buffers of buffer_size bytes, grown lazily
     _free_buffers:       i32[>..<]       = [],
-    _ext_woken:          u64[>..<]       = [], // extension waits whose buffer has come back, drained by the extension (seam.goose)
     _waiting_reads:      u64[>..<]       = [], // reads and sends waiting for a buffer, oldest first from _waiting_reads_head
     _waiting_reads_head: i64             = 0,
     _scratch:            u8[16384]       = [0; 16384], // where the input of an orphan socket is dropped
@@ -266,10 +261,6 @@ fn _wake_waiting(io: Loop&) {
         let gen = ((e >> 8) & 0xffffff) as u32;
         if slot < io._links.len {
             let s .= io._links[slot];
-            if s.state == _EXT && s.gen == gen && ((e & 0xff) == _WAITER_EXT_A || (e & 0xff) == _WAITER_EXT_B) {
-                io._ext_woken.push(e);
-                break;
-            }
             if s.state == _OPEN && s.gen == gen {
                 if (e & 0xff) == _WAITER_WRITER {
                     // A send refused for lack of pool buffers while its queue was empty (nothing else would ever wake it).
@@ -484,11 +475,11 @@ fn stop_listening(io: Loop&, l: goose_io::Listener) {
 // How long a listener is left alone after accept failed for lack of a resource (descriptors, memory, buffers).
 let _ACCEPT_PAUSE_MILLISECONDS: i64 = 100;
 
-fn _accept_ready<X>(io: Loop&, x: X&, k: i64) {
+fn _accept_ready(io: Loop&, k: i64) {
     for n in 64 {                                        // a bounded batch per wakeup keeps the loop fair
         if io._listeners[k].fd < 0 { return; }
         let fd = c_accept(io._listeners[k].fd);
-        if fd >= 0 { io._new_link(x, k, fd); continue; }
+        if fd >= 0 { io._new_link(k, fd); continue; }
         let error = -fd;
         if error == c_EAGAIN || error == c_EINTR { return; }              // nobody is waiting
         if error == c_ECONNABORTED || error == c_EPROTO { continue; }     // that client left
@@ -513,13 +504,12 @@ fn _resume_paused_listeners(io: Loop&, now: i64) {
     }
 }
 
-fn _new_link<X>(io: Loop&, x: X&, k: i64, fd: i32) {
+fn _new_link(io: Loop&, k: i64, fd: i32) {
     io._stats.accepted++;
     if io._live >= io.limits.max_links {                  // no slot for it: refused, never a link
         c_close(fd);
         return;
     }
-    if x.on_accept(io, (k + 1) as u32, fd) { return; }               // the extension took the socket (seam.goose)
     let i = io._fresh_link(fd, (k + 1) as u32, _OPEN);
     io._queue(_PENDING_OPENED, i);
     io._update_interest(i);
@@ -922,9 +912,8 @@ fn stats(io: Loop&) -> Stats {
 }
 
 // At the end of the grace period: every link still there ends (Shutdown, or Local for one the application closed).
-fn _enforce_stop<X>(io: Loop&, x: X&) {
+fn _enforce_stop(io: Loop&) {
     if !io._draining || io._live == 0 || io._now_ms < io._drain_deadline_ms { return; }
-    x.on_stop(io);
     for i in io._links.len {
         let s .= io._links[i];
         if s.state == _OPEN || s.state == _DIALING {
@@ -1083,23 +1072,21 @@ fn _sweep_timeouts(io: Loop&, now: i64) {
 
 // --- the event loop's dispatch -------------------------------------------------------------------
 
-fn _dispatch_event<X>(io: Loop&, x: X&, data: u64, events: u32) {
+fn _dispatch_event(io: Loop&, data: u64, events: u32) {
     let kind = data & 0xff;
     let gen = ((data >> 8) & 0xffffff) as u32;
     let slot = (data >> 32) as i64;
 
     // The kind and the slot come from the kernel's event data: check them, never trust them.
     if kind == _EVENT_KIND_LISTENER {
-        if slot < io._listeners.len { io._accept_ready(x, slot); } else { io._stats.bad_events++; }
+        if slot < io._listeners.len { io._accept_ready(slot); } else { io._stats.bad_events++; }
         return;
     }
     if kind == _EVENT_KIND_ORPHAN { io._drain_orphan(slot); return; }
-    if kind != _EVENT_KIND_LINK && kind != _EVENT_KIND_EXT2 { io._stats.bad_events++; return; }
+    if kind != _EVENT_KIND_LINK { io._stats.bad_events++; return; }
     if slot >= io._links.len { io._stats.bad_events++; return; }
     let s .= io._links[slot];
     if s.state == _FREE || s.gen != gen { io._stats.stale_events++; return; }     // an event for a link that has ended (and maybe whose slot is reused)
-    if s.state == _EXT { x.on_event(io, slot, kind == _EVENT_KIND_EXT2, events); return; }
-    if kind != _EVENT_KIND_LINK { return; }
     if s.state == _ENDED { return; }                                 // Closed is queued: the descriptor is closed when it has been handled
     if s.state == _DIALING { io._dial_finished(slot); return; }      // success, refusal or error: the socket says which
     if (events & c_EPOLLERR) != 0 { io._end(slot, goose_io::CloseReason.PeerReset); return; }
@@ -1147,16 +1134,6 @@ fn _batch_window(io: Loop&, events: c_EpollEvent[256]&, n: i32, last_tick: i64, 
 // (A `return` in the block leaves the function that contains it: call a named function from the block.) A loop that has finished
 // does nothing: a second serve returns at once and never calls the block.
 fn serve<F>(io: Loop&) {
-    var none = _NoExt {};
-    io._serve_loop(none, F);
-}
-
-// As serve, with an extension (seam.goose): the hooks of `x` are called where the loop would otherwise do nothing for a socket it does not own.
-fn serve<X, F>(io: Loop&, x: X&) {
-    io._serve_loop(x, F);
-}
-
-fn _serve_loop<X, F>(io: Loop&, x: X&) {
     if io._finished { return; }
     if !io._ensure() { io._finished = true; return; }
     var events:     c_EpollEvent[256] = [c_EpollEvent { 0, 0 }; 256];
@@ -1164,7 +1141,7 @@ fn _serve_loop<X, F>(io: Loop&, x: X&) {
     var last_sweep: i64               = 0;
     loop {
         // work left over (events queued by what was set up before serve, or by the last pass): do not sleep
-        let wait_ms: i32 = if io._pending_head < io._pending.len || x.has_work() { 0 } else { io._wait_limit(last_tick) };
+        let wait_ms: i32 = if io._pending_head < io._pending.len { 0 } else { io._wait_limit(last_tick) };
         var n = c_epoll_wait(io._epoll_fd, events[0], 256, wait_ms);
         io._now_ms = c_boottime_ms();
         if n > 0 && wait_ms > 0 { n += io._batch_window(events, n, last_tick, last_sweep); }
@@ -1173,11 +1150,10 @@ fn _serve_loop<X, F>(io: Loop&, x: X&) {
         if n < 0 {
             _pause_milliseconds(1);                     // an unexpected epoll error: do not spin
         } else {
-            for k in n { if (events[k].data & 0xff) != _EVENT_KIND_MESSAGE { io._dispatch_event(x, events[k].data, events[k].events); } }
+            for k in n { if (events[k].data & 0xff) != _EVENT_KIND_MESSAGE { io._dispatch_event(events[k].data, events[k].events); } }
         }
-        x.on_ready(io);
         io._deliver(F);
-        io._enforce_stop(x);
+        io._enforce_stop();
         io._deliver(F);
         let now = io._now_ms;
         if io._draining && io._live == 0 && io._pending_head >= io._pending.len {
@@ -1190,7 +1166,6 @@ fn _serve_loop<X, F>(io: Loop&, x: X&) {
             last_sweep = now;
             io._sweep_timeouts(now);
             io._sweep_orphans(now);
-            x.on_sweep(io, now);
         }
         if now - last_tick >= _TICK_PERIOD_MS || (io._wake_at != 0 && now >= io._wake_at) {
             last_tick = now;
