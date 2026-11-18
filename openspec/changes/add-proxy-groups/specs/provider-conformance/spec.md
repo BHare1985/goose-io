@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Each new group has its own suite
-The conformance suite SHALL have an entry point for each of the relay, peek, revoke and wake groups, each compiling and running against a loop that supplies the core and that group and nothing else. Every check of a group SHALL call no operation of another group.
+The conformance suite SHALL have an entry point for each of the relay, peek, revoke, wake and limits groups, each compiling and running against a loop that supplies the core and that group and nothing else. Every check of a group SHALL call no operation of another group.
 
 #### Scenario: A group suite on a loop that supplies only it
 - **WHEN** a root program passes a loop that supplies the core and the peek group to the peek entry point
@@ -23,7 +23,7 @@ The suite SHALL contain at least one check for every scenario of the `io-contrac
 - **THEN** a test of this repository that supplies both checks it
 
 ### Requirement: The in-memory loop supplies every new group
-The in-memory loop SHALL supply the relay, peek, revoke and wake groups, with scripted peers able to send, end, reset and not read, so that each group's suite runs against it with a virtual clock and no network. It SHALL be able to bound each group's buffers by configuration, as it bounds links and buffers now. 
+The in-memory loop SHALL supply the relay, peek, revoke, wake and limits groups, with scripted peers able to send, end, reset and not read, so that each group's suite runs against it with a virtual clock and no network. It SHALL be able to bound each group's buffers by configuration, as it bounds links and buffers now. 
 
 #### Scenario: The suite of a new group runs in memory
 - **WHEN** the relay suite is run against the in-memory loop
@@ -43,6 +43,10 @@ For every check of the new groups the in-memory loop SHALL have a named fault th
 #### Scenario: A write deadline that is read at the start of the pass
 - **WHEN** the loop is switched to the fault in which a write deadline is compared with the clock at the start of the pass and not at the write
 - **THEN** the check that no byte is written after the deadline fails
+
+#### Scenario: A limit that counts from arming
+- **WHEN** the loop is switched to the fault in which an idle limit is measured from the call and not from the last byte, or the fault in which `Stalled` also runs while nothing waits to be sent
+- **THEN** the check that activity moves the due time fails, or the check that nothing waiting never expires fails
 
 #### Scenario: A check with no fault
 - **WHEN** the table of checks is compared with the table of faults

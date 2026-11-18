@@ -4,7 +4,7 @@ After `add-proxy-groups`, the contract can express everything tcprouter needs. O
 
 ## What Changes
 
-- Add four optional groups to the contract (the core and the ten groups after `add-proxy-groups` are unchanged):
+- Add four optional groups to the contract (the core and the eleven groups after `add-proxy-groups` are unchanged):
   - **files**: an opaque `File`, `open_file`, `close_file` and `send_file(link, file, offset, len)`, which sends a range of a file as `send` does.
   - **loans**: `loan(size)`, `loan_bytes`, `send_loan(link, loan, len)` and `release_loan`: a send from a buffer the loop lent, so the loop may send it without copying.
   - **parts**: `send_parts(link, parts)`, `send2` for any number of parts.
@@ -22,7 +22,7 @@ None.
 
 ### Modified Capabilities
 
-- `io-contract`: the contract gains four groups and two handle types; the requirement that names the groups and the one that checks them change again (to fourteen), and each group has requirements of its own.
+- `io-contract`: the contract gains four groups and two handle types; the requirement that names the groups and the one that checks them change again (to fifteen), and each group has requirements of its own.
 - `provider-conformance`: the suite gains an entry point and checks for each group, and the in-memory loop supplies each with a fault for each check.
 
 ## Impact

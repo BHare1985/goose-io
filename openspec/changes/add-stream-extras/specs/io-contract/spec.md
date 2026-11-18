@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The contract is a core and groups of extras
-The contract SHALL be a core, which every event loop supplies, and fourteen groups of extras: half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke and wake, and files, loans, parts and addresses. An event loop MAY supply any group. A rule that belongs to a group SHALL bind only an event loop that supplies that group, and a rule of the core SHALL NOT depend on any group. No group SHALL replace an operation or event of the core: a group adds an operation, an event or an address form beside them.
+The contract SHALL be a core, which every event loop supplies, and fifteen groups of extras: half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake and limits, and files, loans, parts and addresses. An event loop MAY supply any group. A rule that belongs to a group SHALL bind only an event loop that supplies that group, and a rule of the core SHALL NOT depend on any group. No group SHALL replace an operation or event of the core: a group adds an operation, an event or an address form beside them.
 
 #### Scenario: A loop that supplies only the core
 - **WHEN** an event loop supplies the core and none of the groups

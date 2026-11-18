@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The contract is a core and groups of extras
-The contract SHALL be a core, which every event loop supplies, and ten groups of extras: half-close, sizing, abort, inspection, batching and unix, and relay, peek, revoke and wake. An event loop MAY supply any group. A rule that belongs to a group SHALL bind only an event loop that supplies that group, and a rule of the core SHALL NOT depend on any group. No group SHALL replace an operation or event of the core: a group adds an operation, an event or an address form beside them.
+The contract SHALL be a core, which every event loop supplies, and eleven groups of extras: half-close, sizing, abort, inspection, batching and unix, and relay, peek, revoke, wake and limits. An event loop MAY supply any group. A rule that belongs to a group SHALL bind only an event loop that supplies that group, and a rule of the core SHALL NOT depend on any group. No group SHALL replace an operation or event of the core: a group adds an operation, an event or an address form beside them.
 
 #### Scenario: A loop that supplies only the core
 - **WHEN** an event loop supplies the core and none of the groups
@@ -12,15 +12,15 @@ The contract SHALL be a core, which every event loop supplies, and ten groups of
 - **THEN** the build fails and the error names `send2` or `relay`
 
 #### Scenario: An event the loop never delivers
-- **WHEN** an event loop does not supply the half-close group, the peek group or the wake group
-- **THEN** it never delivers `PeerEof`, `Input` or `Woken`, and a library's handling of those events is never run
+- **WHEN** an event loop does not supply the half-close group, the peek group, the wake group or the limits group
+- **THEN** it never delivers `PeerEof`, `Input`, `Woken` or `Expired`, and a library's handling of those events is never run
 
 #### Scenario: A library that needs no group runs on a loop that supplies many
 - **WHEN** a library that uses only the core is built against a loop that supplies every group
 - **THEN** it builds and behaves as it does on a loop that supplies only the core
 
 ### Requirement: Each group is named and checked on its own
-The groups SHALL be half-close (`shutdown_write`, `set_keep_open_on_eof`, `PeerEof`), sizing (`send_room`, `send2`), abort (`reset`), inspection (`peer_address`, `stop_listening`), batching (`PassEnd`), unix (the address form `unix:/path`), relay (`relay`, `relayed_bytes`), peek (`peek`, `wait_input`, `Input`), revoke (`discard_unsent`, `write_deadline`) and wake (`waker`, `wake`, `Woken`). The contract package SHALL offer a compile-time check for the core and for each group that has operations, each naming every operation of its part. Batching has only an event, and unix has only an address form, and so neither has a check.
+The groups SHALL be half-close (`shutdown_write`, `set_keep_open_on_eof`, `PeerEof`), sizing (`send_room`, `send2`), abort (`reset`), inspection (`peer_address`, `stop_listening`), batching (`PassEnd`), unix (the address form `unix:/path`), relay (`relay`, `relayed_bytes`), peek (`peek`, `wait_input`, `Input`), revoke (`discard_unsent`, `write_deadline`) wake (`waker`, `wake`, `Woken`) and limits (`set_limit`, `Expired`). The contract package SHALL offer a compile-time check for the core and for each group that has operations, each naming every operation of its part. Batching has only an event, and unix has only an address form, and so neither has a check.
 
 #### Scenario: The core check
 - **WHEN** an event loop's root program calls the core check
@@ -163,8 +163,8 @@ The loop SHALL deliver one `Woken` for each `wake`, on the loop's thread, in the
 - **WHEN** one thread calls `wake` with 1, 2 and 3
 - **THEN** the loop delivers `Woken` with 1, 2 and 3 in that order, and none is lost
 
-### Requirement: Input is a link event and Woken is for every library
-`Input` SHALL be a link event for the link it names, recognised by a library as it recognises `Data`. `Woken` SHALL carry no link and SHALL be offered to every library, as `Tick` and `PassEnd` are. The `Event` type SHALL grow by these two variants, and a library that matches on `Event` without a catch-all arm SHALL name them to build.
+### Requirement: Input and Expired are link events and Woken is for every library
+`Input` and `Expired` SHALL be link events for the link they name, recognised by a library as it recognises `Data`. `Woken` SHALL carry no link and SHALL be offered to every library, as `Tick` and `PassEnd` are. The `Event` type SHALL grow by these three variants, and a library that matches on `Event` without a catch-all arm SHALL name them to build.
 
 #### Scenario: A library claims only the Input of its own link
 - **WHEN** two libraries run on one loop and one calls `wait_input` on its link
@@ -173,3 +173,82 @@ The loop SHALL deliver one `Woken` for each `wake`, on the loop's thread, in the
 #### Scenario: A match without a catch-all
 - **WHEN** a library matches on `Event` and names neither `Input` nor `Woken` and has no catch-all arm
 - **THEN** the build fails and the error names the missing variant
+
+### Requirement: A limit tells the library that a link has run too long in a state
+The limits group SHALL offer `set_limit(link, kind, ms)` and the event `Expired { link, limit }`, with `kind` and `limit` one of `Idle`, `Silent`, `Stalled`, `HalfOpen` and `Age`. With `ms` greater than 0 on an open link the loop SHALL deliver `Expired` with that kind once, when the link has been in the kind's state for `ms` of the loop's clock. A second call for the same kind SHALL replace it, `ms` 0 SHALL turn it off, and the kinds SHALL be independent of one another.
+
+#### Scenario: Two kinds on one link
+- **WHEN** a library arms `Idle` with 1000 and `Age` with 60000 on a link and the peer sends nothing
+- **THEN** `Expired` with `Idle` is delivered at 1000 ms, and `Expired` with `Age` at 60000 ms if the link is still open
+
+#### Scenario: Replacing and turning off
+- **WHEN** a library arms `Idle` with 1000 and then arms it with 5000, or with 0, before 1000 ms have passed
+- **THEN** `Expired` is delivered 5000 ms after the second call in the first case and never in the second
+
+### Requirement: Idle, Silent and Age measure quiet and lifetime
+`Idle` SHALL run from the last byte read from or written to the link's transport, `Silent` from the last byte read (or from the call or the opening if none), and `Age` from the link's opening, whatever happens on it. A byte a relay carries SHALL count for both links of the pair, and a byte the transport accepts while a send queue drains SHALL count as written.
+
+#### Scenario: Activity moves the due time of Idle
+- **WHEN** a peer sends a byte 900 ms after `Idle` was armed with 1000 and then nothing more
+- **THEN** `Expired` is delivered 1000 ms after the byte and not before
+
+#### Scenario: A peer that connects and says nothing
+- **WHEN** `Silent` is armed with 2000 on an opened link and the peer sends nothing, while the library sends a byte every 500 ms
+- **THEN** `Expired` with `Silent` is delivered 2000 ms after the opening and no `Expired` with `Idle` is delivered
+
+#### Scenario: A connection with a lifetime
+- **WHEN** `Age` is armed with 10000 and the peer keeps sending throughout
+- **THEN** `Expired` with `Age` is delivered 10000 ms after the link opened
+
+#### Scenario: A relayed pair counts as one
+- **WHEN** a library relays two links, arms `Idle` on one, and bytes cross only in the other direction every 500 ms
+- **THEN** no `Expired` is delivered, and when the bytes stop `Expired` is delivered for the armed link only
+
+### Requirement: Stalled bounds a link whose peer does not read
+`Stalled` SHALL run while the loop holds bytes to send on the link, or for a relayed link bytes carried from its partner, and the transport has accepted none; it SHALL run from the moment the bytes began to wait or from the last byte the transport accepted, and SHALL stop when nothing waits.
+
+#### Scenario: A peer that never reads
+- **WHEN** a library has queued more than the peer reads and arms `Stalled` with 1000
+- **THEN** `Expired` with `Stalled` is delivered 1000 ms after the transport last accepted a byte, even if the peer keeps sending to the library
+
+#### Scenario: A slow reader that keeps reading
+- **WHEN** the peer reads a little every 500 ms with `Stalled` armed with 1000 and a large send queued
+- **THEN** no `Expired` is delivered while the transport keeps accepting bytes
+
+#### Scenario: Nothing waits
+- **WHEN** `Stalled` is armed on a link with nothing to send and the peer sends nothing
+- **THEN** no `Expired` with `Stalled` is delivered
+
+#### Scenario: A relayed pair whose one peer never reads
+- **WHEN** one peer of a relayed pair never reads and `Stalled` is armed on its link
+- **THEN** `Expired` with `Stalled` is delivered for that link after the period
+
+### Requirement: A half-closed link is bounded
+`HalfOpen` SHALL run from the end of the peer's stream on a link that stays open (kept open by `set_keep_open_on_eof`, or relayed), whatever bytes cross afterwards; if the stream has ended already it SHALL run from the call.
+
+#### Scenario: A kept-open link that never finishes
+- **WHEN** a peer ends its stream, the library keeps the link open and arms `HalfOpen` with 2000, and keeps sending
+- **THEN** `Expired` with `HalfOpen` is delivered 2000 ms after the end of the peer's stream although bytes were sent throughout
+
+#### Scenario: A relayed pair left half-open
+- **WHEN** a relayed pair's one peer ends its stream and the other never does, with `HalfOpen` armed on one link
+- **THEN** `Expired` with `HalfOpen` is delivered for that link after the period
+
+#### Scenario: A link whose stream has not ended
+- **WHEN** `HalfOpen` is armed and the peer's stream does not end
+- **THEN** no `Expired` with `HalfOpen` is delivered
+
+### Requirement: Expired reports and the library decides
+`Expired` SHALL NOT end the link. It SHALL be delivered once for each arming, in the first pass that begins at or after the due time, and never for a link after its `Closed` or for a stale or unopened link. Activity in a pass SHALL move the due time before limits are checked.
+
+#### Scenario: A byte in the pass in which the limit falls due
+- **WHEN** a byte arrives in the pass whose clock is the due time of an `Idle` limit
+- **THEN** no `Expired` is delivered in that pass
+
+#### Scenario: One event for each arming
+- **WHEN** `Expired` has been delivered and the library neither closes the link nor arms again
+- **THEN** no further `Expired` is delivered for it
+
+#### Scenario: A closed link
+- **WHEN** a library closes a link that has a limit armed
+- **THEN** `Closed` is delivered and no `Expired` is delivered for the link afterwards
