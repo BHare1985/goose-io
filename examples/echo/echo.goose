@@ -92,6 +92,9 @@ fn echo_event<Io>(e: Echo&, io: Io&, ev: goose_io::Event) -> bool {
             return false;
         },
         PassEnd => { return false; },
+        Input i => { return false; },
+        Expired x => { return false; },
+        Woken w => { return false; },
         Opened o => {
             guard goose_io::is_listener(o.listener) && goose_io::same(o.listener, e.listener) else { return false; }
             var i = 0;

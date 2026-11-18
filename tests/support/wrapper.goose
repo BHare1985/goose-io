@@ -209,6 +209,9 @@ fn _on_event(w: Layer&, ev: goose_io::Event) {
             w.pass++;
             w._end_pass();
         },
+        Input i => {},      // the wrapper supplies none of the groups that give these
+        Expired x => {},
+        Woken w => {},
         Opened e => {
             inner.set_keep_open_on_eof(e.link, true);
             if w._mode(e.link) < 0 { w.modes.push(Mode { link: e.link, live: true, .. }); }       // an accepted link; a dialled one has its mode already

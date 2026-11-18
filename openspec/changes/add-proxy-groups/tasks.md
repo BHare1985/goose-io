@@ -10,7 +10,7 @@ Ground rules for every group: work on a branch of goose-io after `epoll-event-lo
 
 ## 2. The contract package
 
-- [ ] 2.1 Add the types and events to `goose_io.goose`: `RelayStatus`, `Waker`, `Limit` (`Idle`, `Silent`, `Stalled`, `HalfOpen`, `Age`), the events `Input`, `Woken` and `Expired`; extend `is_link_event` and `link_of` for `Input` and `Expired`; raise the version to 0.3; verify `goose check goose_io.goose` passes and the example libraries still build (their matches end in a catch-all arm)
+- [x] 2.1 Add the types and events to `goose_io.goose`: `RelayStatus`, `Waker`, `Limit` (`Idle`, `Silent`, `Stalled`, `HalfOpen`, `Age`), the events `Input`, `Woken` and `Expired`; extend `is_link_event` and `link_of` for `Input` and `Expired`; raise the version to 0.3; verify `goose check goose_io.goose` passes and the example libraries still build (their matches end in a catch-all arm)
 - [ ] 2.2 Add `require_relay`, `require_peek`, `require_revoke`, `require_wake` and `require_limits`, each naming every operation of its group once with the contract's types; verify each fails to compile on the core-only loop naming its first operation (new `*_mustfail` tests) and passes on the in-memory loop once 3.x lands
 - [ ] 2.3 Add the five groups, the relayed state and the combination rules (D3, D4, D5b) to `docs/contract.md`; verify `tests/checks/docs.sh` and `tests/checks/vocabulary.sh` pass
 

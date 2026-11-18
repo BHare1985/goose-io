@@ -4,8 +4,9 @@
 // owns the thread and the sockets, delivers events and performs operations; a library handles events and
 // calls operations; the application runs the loop and passes each event to its libraries.
 //
-// The contract is a core, which every event loop supplies, and six groups of extras it may add:
-// half-close, sizing, abort, inspection, batching and unix (the address forms `unix:/path` and `unix:///path`). A library uses what
+// The contract is a core, which every event loop supplies, and eleven groups of extras it may add:
+// half-close, sizing, abort, inspection, batching and unix (the address forms `unix:/path` and `unix:///path`), and
+// relay, peek, revoke, wake and limits. A library uses what
 // it needs, and fails to compile on a loop that lacks an operation; a loop without unix answers BadAddress.
 //
 // This file is the whole contract surface: the shared types, pure helpers over them, the version, and
@@ -20,7 +21,7 @@ import std;
 
 // While the major number is 0 a minor increase may change or remove behaviour.
 let VERSION_MAJOR = 0;
-let VERSION_MINOR = 2;
+let VERSION_MINOR = 3;
 
 // --- handles -------------------------------------------------------------------------------------
 
@@ -98,6 +99,26 @@ fn is_portable(why: CloseReason) -> bool {
     }
 }
 
+// What relay returns. Only Started means the two links are joined; every other value means nothing changed.
+enum RelayStatus {
+    Started,        // the loop now carries the bytes of each link to the other
+    NotOpen,        // a link has not opened yet (a dial in progress)
+    Closed,         // a link is closing, closed, or the handle is stale
+    AlreadyRelayed, // a link is joined already
+}
+
+// A handle that wakes a loop from another thread (the wake group). Fixed size: it may be copied to any thread.
+struct Waker { id: u32 = 0, gen: u32 = 0 }
+
+// The kinds of limit a link can run too long in (the limits group).
+enum Limit {
+    Idle,       // no byte read from or written to the link's transport
+    Silent,     // no byte read
+    Stalled,    // bytes wait to be sent and the transport accepts none
+    HalfOpen,   // the peer's stream has ended and the link stays open
+    Age,        // since the link opened
+}
+
 // Why listen failed. None means it did not fail.
 enum ListenErrorKind { None, AddressInUse, BadAddress, Denied, NoResources, Other }
 struct ListenError { kind: ListenErrorKind = ListenErrorKind.None, code: i32 = 0 }
@@ -135,18 +156,26 @@ enum Event {
     // The end of a pass that delivered at least one link event: the moment to send what was batched.
     // Always the last event of its pass.
     PassEnd {},
+    // The peek group. Bytes are held for the link: `available` of them, which stay with the loop until peek or relay.
+    // Delivered once for each wait_input(link, n) with n > 0, when n bytes or the peer's end have arrived, or the bound is reached.
+    Input { link: Link, available: i64 },
+    // The wake group. One for each wake, on the loop's thread, in the order one thread made them.
+    Woken { value: i64 },
+    // The limits group. The link has been in the state of `limit` for the time it was armed with; the library decides.
+    Expired { link: Link, limit: Limit },
 }
 
-// True for Opened, Data, Writable, PeerEof and Closed. Tick and PassEnd belong to every library.
+// True for Opened, Data, Writable, PeerEof, Closed, Input and Expired. Tick, PassEnd and Woken belong to every library.
 fn is_link_event(ev: Event) -> bool {
     match ev {
         Tick t => false,
         PassEnd => false,
+        Woken w => false,
         _ => true,
     }
 }
 
-// The link of a link event, an invalid Link for Tick and PassEnd.
+// The link of a link event, an invalid Link for Tick, PassEnd and Woken.
 fn link_of(ev: Event) -> Link {
     match ev {
         Opened e => e.link,
@@ -154,6 +183,8 @@ fn link_of(ev: Event) -> Link {
         Writable e => e.link,
         PeerEof e => e.link,
         Closed e => e.link,
+        Input e => e.link,
+        Expired e => e.link,
         _ => Link { .. },
     }
 }
@@ -207,7 +238,7 @@ fn drop<T>(m: LinkMap<T>&, link: Link) {
 
 // --- what an event loop must supply ---------------------------------------------------------------
 
-// The contract is a core and six groups (docs/contract.md). Each check below names every operation of its part
+// The contract is a core and eleven groups (docs/contract.md). Each check below names every operation of its part
 // once, with the contract's argument and result types, and never runs anything. An event loop's root program calls
 // require_core and the check of each group it supplies, so that a missing or mistyped operation is a compile error
 // here, naming the operation, and not somewhere inside a library. The batching group has no operation, only the

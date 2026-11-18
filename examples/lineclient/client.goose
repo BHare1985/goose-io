@@ -386,6 +386,9 @@ fn client_event<Io>(c: LineClient&, io: Io&, ev: goose_io::Event) -> bool {
             return false;
         },
         PassEnd => { return false; },
+        Input i => { return false; },
+        Expired x => { return false; },
+        Woken w => { return false; },
         Opened e => {
             // the pool only dials: an accepted link (one that names a listener) is another library's
             guard !goose_io::is_listener(e.listener) else { return false; }
