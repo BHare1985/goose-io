@@ -81,6 +81,9 @@ fn server_event<Io>(s: LineServer&, io: Io&, ev: goose_io::Event) -> bool {
             return false;
         },
         PassEnd => { return false; },
+        Input i => { return false; },
+        Expired x => { return false; },
+        Woken w => { return false; },
         Opened e => {
             guard goose_io::is_listener(e.listener) && goose_io::same(e.listener, s.listener) else { return false; }
             s._on_opened(io, e.link);
