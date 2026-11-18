@@ -278,6 +278,11 @@ let _EV_INPUT = 6;
 let _EV_EXPIRED = 7;
 
 let _FOREVER = 0x7fffffffffffffff;
+let _EV_LIMIT = 16;      // a pending record of kind 16 + k is the Expired of limit k
+
+// What wake carries across threads: flat.
+struct _WakeMsg { id: u32 = 0, value: i64 = 0 }
+var _loops_made: u32 = 0;
 let _EPHEMERAL_PORTS = 16384;     // 49152 to 65535
 
 // One end of a connection. Bytes sent to this end wait in its region of Loop.inbuf until its
@@ -416,6 +421,10 @@ root struct Loop {
     _captured:      u8[>..]        = [], // what scripted peers received, in the pieces of _chunks
     _chunks:        _Chunk[>..]    = [],
     _last_remote:   _Addr          = _Addr { .. },   // fault StalePeerAddress
+    _wid:           u32            = 0,     // the wake group: this loop's id, 0 until waker() is first called
+    _woken:         i64[>..<]      = [],    // values taken from the queue, to be delivered as Woken
+    _woken_head:    i64            = 0,
+    _expect_wakes:  i64            = 0,     // scripting: wakes a test thread will still make; an idle loop waits for them
     _hint:          bool           = false, // the close in progress is an abort (the relay group ends a partner the same way)
     _fault:         i64            = 0,  // a deliberately broken behaviour, for showing that a check fails (set_fault)
 }
@@ -744,6 +753,7 @@ fn _send(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:
     }
     p.in_len += total;
     p.rx += total;
+    p.act_in = io._clock; p.act_any = io._clock; s.act_any = io._clock;
     if io._fault == 22 { p.in_len--; }                                      // fault SendDropsLastByte
     return goose_io::SendStatus.Sent;
 }
@@ -896,6 +906,198 @@ fn _pump_relays(io: Loop&) {
     }
 }
 
+// --- the contract: peek, revoke, limits, wake ------------------------------------------------------
+
+fn _bound(io: Loop&) -> i64 {
+    let b = if io.cfg.peek_bound < 1 { 1 } else { io.cfg.peek_bound };
+    return if b > io.cfg.link_buffer { io.cfg.link_buffer } else { b };
+}
+
+// The bytes that have arrived and not been delivered, up to the bound; consumes nothing.
+fn peek(io: Loop&, link: goose_io::Link) -> const u8[:] {
+    let i = io._slot_of(link);
+    guard i >= 0 && io._slots[i].state == _OPEN && io._slots[i].relay < 0 else { return ""; }
+    let n = if io._slots[i].in_len < io._bound() { io._slots[i].in_len } else { io._bound() };
+    let base = i * io.cfg.link_buffer;
+    return io._inbuf[base..base + n];
+}
+
+// n > 0: hold the link's bytes and deliver one Input when n have arrived, the peer's stream ended, or the bound is reached.
+// 0: deliver what is held as Data.
+fn wait_input(io: Loop&, link: goose_io::Link, n: i64) {
+    if io._finished { return; }
+    let i = io._slot_of(link);
+    guard i >= 0 && io._slots[i].state != _CLOSED && io._slots[i].relay < 0 else { return; }
+    let s .= io._slots[i];
+    s.wait_n = if n < 0 { 0 } else { n };
+    s.input_given = false;
+}
+
+// Whether the Input of slot s is due now.
+fn _input_ready(io: Loop&, s: _Slot) -> bool {
+    guard s.state == _OPEN && s.relay < 0 && s.wait_n > 0 && !s.input_given && !s.paused else { return false; }
+    let want = if s.wait_n < io._bound() { s.wait_n } else { io._bound() };
+    return s.in_len >= want || s.peer_fin;
+}
+
+// Drops what was accepted on this link and not read by the other end; a Writable owed counts as if it had been sent.
+fn discard_unsent(io: Loop&, link: goose_io::Link) -> i64 {
+    let i = io._slot_of(link);
+    guard i >= 0 && io._slots[i].state == _OPEN && io._slots[i].peer >= 0 else { return 0; }
+    let p .= io._slots[io._slots[i].peer];
+    let n = p.in_len;
+    if io._fault == 97 { return n; }      // fault DiscardKeepsBytes
+    p.in_len = 0;
+    io._room_opened(i);
+    return n;
+}
+
+fn write_deadline(io: Loop&, link: goose_io::Link, at_ms: i64) {
+    let i = io._slot_of(link);
+    guard i >= 0 && io._slots[i].state != _CLOSED else { return; }
+    io._slots[i].wd = if at_ms < 0 { 0 } else { at_ms };
+}
+
+// Scripting, not part of the contract: time passes inside the handler that calls this, as when the process is stopped.
+fn pause_process(io: Loop&, ms: i64) { io._clock += ms; }
+
+fn _limit_index(limit: goose_io::Limit) -> i64 {
+    return match limit {
+        Idle => 0,
+        Silent => 1,
+        Stalled => 2,
+        HalfOpen => 3,
+        Age => 4,
+    };
+}
+
+fn _limit_value(k: i64) -> goose_io::Limit {
+    if k == 0 { return goose_io::Limit.Idle; }
+    if k == 1 { return goose_io::Limit.Silent; }
+    if k == 2 { return goose_io::Limit.Stalled; }
+    if k == 3 { return goose_io::Limit.HalfOpen; }
+    return goose_io::Limit.Age;
+}
+
+fn set_limit(io: Loop&, link: goose_io::Link, limit: goose_io::Limit, ms: i64) {
+    if io._finished { return; }
+    let i = io._slot_of(link);
+    guard i >= 0 && io._slots[i].state != _CLOSED else { return; }
+    let s .= io._slots[i];
+    let k = _limit_index(limit);
+    if ms <= 0 { s.lim_ms[k] = 0; s.lim_fired[k] = false; return; }
+    if s.lim_fired[k] { s.lim_at[k] = io._clock; }      // armed again after it expired: counted from now
+    s.lim_ms[k] = ms;
+    s.lim_fired[k] = false;
+}
+
+// When limit k of slot s falls due, or _FOREVER.
+fn _limit_due(s: _Slot, k: i64, stall_ms: i64) -> i64 {
+    guard s.lim_ms[k] > 0 && !s.lim_fired[k] else { return _FOREVER; }
+    let floor = s.lim_at[k];
+    var from = 0;
+    if k == 0 { from = if s.act_any > s.opened_at { s.act_any } else { s.opened_at }; }
+    else if k == 1 { from = if s.act_in > s.opened_at { s.act_in } else { s.opened_at }; }
+    else if k == 2 { guard s.stall_since >= 0 else { return _FOREVER; } from = s.stall_since; }
+    else if k == 3 { guard s.halfopen_at >= 0 else { return _FOREVER; } from = s.halfopen_at; }
+    else { from = s.opened_at; }
+    if from < floor { from = floor; }
+    return from + s.lim_ms[k];
+}
+
+// Tracks activity and stalls of the open library links; applies the relay's own timeouts.
+fn _watch(io: Loop&) {
+    for i in io._slots.len {
+        let s .= io._slots[i];
+        guard s.state == _OPEN && s.script < 0 else { continue; }
+        var waiting = false;
+        var moved = s.consumed;
+        if s.peer >= 0 {
+            waiting = io._slots[s.peer].in_len > 0;
+            moved = io._slots[s.peer].consumed;
+        }
+        if s.relay >= 0 {
+            if io._slots[s.relay].in_len > 0 { waiting = true; }
+            moved += io._slots[s.relay].carried;
+        }
+        if moved != s.seen_consumed {
+            s.seen_consumed = moved;
+            s.act_any = io._clock;
+            if waiting { s.stall_since = io._clock; }
+        }
+        if waiting && s.stall_since < 0 { s.stall_since = io._clock; }
+        if !waiting { s.stall_since = -1; }
+        if s.relay >= 0 && s.stall_since >= 0 {
+            if io.cfg.kernel_timeout_ms > 0 && io._clock - s.stall_since >= io.cfg.kernel_timeout_ms {
+                io._close(i, goose_io::CloseReason.Error, true);
+            } else if io.cfg.relay_stall_ms > 0 && io._clock - s.stall_since >= io.cfg.relay_stall_ms {
+                io._close(i, goose_io::CloseReason.Local, false);
+            }
+        }
+    }
+}
+
+// Queues an Expired for every limit that is due and not yet reported.
+fn _limits_check(io: Loop&) {
+    for i in io._slots.len {
+        let s .= io._slots[i];
+        guard s.state == _OPEN && s.script < 0 && s.configured else { continue; }
+        for k in 5 {
+            if io._clock >= _limit_due(s, k, io.cfg.relay_stall_ms) {
+                s.lim_fired[k] = true;
+                io._pending.push(_Pending { kind: (_EV_LIMIT + k) as u8, slot: i, gen: s.gen });
+            }
+        }
+    }
+}
+
+// The next time something of limits or write deadlines falls due.
+fn _next_due(io: Loop&) -> i64 {
+    var next = _FOREVER;
+    for i in io._slots.len {
+        let s .= io._slots[i];
+        guard s.state == _OPEN && s.script < 0 else { continue; }
+        if s.wd > 0 && s.wd < next { next = s.wd; }
+        for k in 5 {
+            let d = _limit_due(s, k, 0);
+            if d < next { next = d; }
+        }
+        if s.relay >= 0 && s.stall_since >= 0 {
+            if io.cfg.relay_stall_ms > 0 && s.stall_since + io.cfg.relay_stall_ms < next { next = s.stall_since + io.cfg.relay_stall_ms; }
+            if io.cfg.kernel_timeout_ms > 0 && s.stall_since + io.cfg.kernel_timeout_ms < next { next = s.stall_since + io.cfg.kernel_timeout_ms; }
+        }
+    }
+    return next;
+}
+
+fn waker(io: Loop&) -> goose_io::Waker {
+    if io._wid == 0 { _loops_made++; io._wid = _loops_made; }
+    return goose_io::Waker { id: io._wid, gen: 1 };
+}
+
+// From any thread: one Woken on the loop's thread.
+fn wake(io: Loop&, w: goose_io::Waker, value: i64) {
+    qput(_WakeMsg { id: w.id, value: value });
+}
+
+// Scripting, not part of the contract: a test thread will make n more wakes; an idle loop waits for them instead of moving its clock.
+fn expect_wakes(io: Loop&, n: i64) { io._expect_wakes = n; }
+
+fn _take_wakes(io: Loop&, wait: bool) {
+    guard io._wid != 0 else { return; }
+    loop {
+        var m = qpoll<_WakeMsg>();
+        if m.id == 0 {
+            guard wait && io._expect_wakes > 0 else { return; }
+            m = qget<_WakeMsg>();
+        }
+        if m.id != io._wid { qput(m); return; }
+        io._woken.push(m.value);
+        if io._expect_wakes > 0 { io._expect_wakes--; }
+        if wait { return; }
+    }
+}
+
 // --- the contract: time and the application side --------------------------------------------------
 
 fn now_ms(io: Loop&) -> i64 { io._clock }
@@ -934,6 +1136,9 @@ fn serve<F>(io: Loop&) {
         io._passes++;
         io._run_due();
         io._pump_relays();
+        io._take_wakes(false);
+        io._watch();
+        io._limits_check();
         io._queue_reads();
         if io._fault == 82 && io._passes == 1 { io._pending.clear(); io._pending_head = 0; }      // fault SetupEventsDropped: the events of what was set up before serve are discarded
         // The order of one pass: a Tick if one is due, the link events, then PassEnd, always last.
@@ -944,12 +1149,21 @@ fn serve<F>(io: Loop&) {
             let e: goose_io::Event = goose_io::Event.Tick { now_ms: io._clock };
             F(io, e);
         }
+        while io._woken_head < io._woken.len {
+            let v = io._woken[io._woken_head];
+            io._woken_head++;
+            let e: goose_io::Event = goose_io::Event.Woken { value: v };
+            F(io, e);
+        }
+        io._woken.clear();
+        io._woken_head = 0;
         let link_events = io._deliver(F);
         if (link_events > 0 || (io._fault == 48 && ticked)) && io._fault != 47 {      // faults NoPassEnd and IdlePassEnd
             let e: goose_io::Event = goose_io::Event.PassEnd {};
             F(io, e);
         }
-        if io._draining && io._library_links == 0 && io._pending_head >= io._pending.len && !io._peer_read_work() && (io._fault != 49 || io._clock >= io._stop_deadline) { break; }      // fault StopWaitsForGrace
+        if io._draining && io._library_links == 0 && io._pending_head >= io._pending.len && io._expect_wakes == 0 && !io._peer_read_work() && (io._fault != 49 || io._clock >= io._stop_deadline) { break; }      // fault StopWaitsForGrace
+        io._watch();
         io._advance();
         if io._hit_limit { break; }
     }
@@ -970,6 +1184,10 @@ fn _run_due(io: Loop&) {
             if !io._slots[i].silent && io._clock >= io._slots[i].connect_at { io._connect(i); }
             else if io._clock >= io._slots[i].connect_deadline { io._close(i, _failed(goose_io::ConnectFailure.TimedOut), false); }
         }
+    }
+    for i in io._slots.len {
+        let s .= io._slots[i];
+        if s.state == _OPEN && s.script < 0 && s.wd > 0 && io._clock >= s.wd && io._fault != 99 { io._expire_deadline(i); }      // fault DeadlineOnlyAtSend
     }
     for k in io._scripts.len { io._run_script(k); }
 }
@@ -1027,6 +1245,10 @@ fn _queue_reads(io: Loop&) {
         let s .= io._slots[i];
         // An end of stream seen before the handler of the link's Opened has returned waits: the decision is made once the
         // link is configured (here: only an open, configured link is read).
+        if io._input_ready(s) && io._fault != 98 {      // fault InputNeverDelivered
+            s.input_given = true;
+            io._queue(_EV_INPUT, i);
+        }
         if s.state == _OPEN && s.configured && !s.data_queued && s.relay < 0 && s.wait_n == 0 {
             if io._fault == 43 && s.keep_open && s.peer_fin && !s.eof_seen && s.in_len > 0 {      // fault PeerEofBeforeData
                 s.eof_seen = true;
@@ -1037,6 +1259,7 @@ fn _queue_reads(io: Loop&) {
             } else if s.peer_fin && !s.eof_seen {
                 s.eof_seen = true;
                 if s.keep_open {
+                    s.halfopen_at = io._clock;
                     io._queue(_EV_PEER_EOF, i);
                     // A refused send must not wait for ever on a peer that is gone: the retry is
                     // accepted and lost, and resets the link, as a send to a gone peer does.
@@ -1069,6 +1292,7 @@ fn _deliver<F>(io: Loop&) -> i64 {
                 if !s.local_closed || io._fault == 38 {
                     if s.state == _OPENING { s.state = _OPEN; }
                     s.opened = true;
+                    s.opened_at = io._clock; s.act_in = io._clock; s.act_any = io._clock;
                     let e: goose_io::Event = goose_io::Event.Opened { link: link, listener: goose_io::Listener { id: if io._fault == 9 { 0 } else if io._fault == 6 && s.listener != 0 { 1 } else { s.listener } } };      // faults OpenedWithoutListener and WrongListenerNamed
                     delivered++;
                     F(io, e);
@@ -1087,6 +1311,18 @@ fn _deliver<F>(io: Loop&) -> i64 {
                     io._room_opened(s.peer);
                     if io._fault == 20 { io._scratch[0] = io._scratch[0] ^ 1; }      // fault DataCorrupted
                     let e: goose_io::Event = goose_io::Event.Data { link: link, bytes: io._scratch[..n] };
+                    delivered++;
+                    F(io, e);
+                }
+            } else if r.kind == _EV_INPUT {
+                if s.state == _OPEN && s.wait_n > 0 && !s.paused {
+                    let e: goose_io::Event = goose_io::Event.Input { link: link, available: if s.in_len < io._bound() { s.in_len } else { io._bound() } };
+                    delivered++;
+                    F(io, e);
+                }
+            } else if r.kind >= _EV_LIMIT {
+                if s.state == _OPEN {
+                    let e: goose_io::Event = goose_io::Event.Expired { link: link, limit: _limit_value(r.kind as i64 - _EV_LIMIT) };
                     delivered++;
                     F(io, e);
                 }
@@ -1201,13 +1437,16 @@ fn _advance(io: Loop&) {
     for i in io._slots.len {
         let s .= io._slots[i];
         if s.state == _OPEN {
-            if _has_read_work(s) || _relay_work(s) { busy = true; }
+            if _has_read_work(s) || _relay_work(s) || io._input_ready(s) { busy = true; }
         } else if s.state == _DIALING {
             let due = if s.silent { s.connect_deadline } else { s.connect_at };
             if due <= io._clock { busy = true; }
             else if due < next { next = due; }
         }
     }
+    let due_at = io._next_due();
+    if due_at <= io._clock { busy = true; } else if due_at < next { next = due_at; }
+    if io._woken_head < io._woken.len { busy = true; }
     for k in io._scripts.len {
         let sc .= io._scripts[k];
         let n = io._next_step(k);
@@ -1219,6 +1458,7 @@ fn _advance(io: Loop&) {
             else if due < next { next = due; }
         }
     }
+    if !busy && io._expect_wakes > 0 { io._take_wakes(true); if io._woken_head < io._woken.len { busy = true; } }
     if busy {
         io._busy_passes++;
         if io._busy_passes >= io.cfg.passes_per_ms { io._busy_passes = 0; io._clock++; }
@@ -1515,7 +1755,7 @@ fn _fault_named(name: const u8[:]) -> i64 {
         "UnixLongestRefused", "UnixTripleSlashRefused", "UnixAliasNotHeld", "SlotsNeverReused",
         "GenerationNotAdvanced", "SlotFreedOnClose", "PauseBeforeOpenIgnored", "SecondCloseClosesAgain", "WritableAfterClosedResult", "ClosedResultNotFinal",
         "KeepOpenWhileDiallingIgnored", "KeepOpenLateHonoured", "EarlyEofActedOn", "ShutdownBeforeOpenRemembered", "ClosedResultEndsShutLink", "ResetDialOpens", "ResetAfterCloseClosesAgain", "PeerAddressGoneOnClose", "SendAfterFinishSent", "FinishedDialIssues", "SecondServeRuns", "SetupEventsDropped", "PeerAddressAfterFinish", "ShutdownOverridesLocal",
-        "RelayDropsLastByte", "RelayedSendAccepted", "", "RelayPartnerPeerReset", "", "", "", "RelayCloseEndsOne", "", "WriteAfterDeadline",
+        "RelayDropsLastByte", "RelayedSendAccepted", "", "RelayPartnerPeerReset", "", "", "", "RelayCloseEndsOne", "", "WriteAfterDeadline", "", "", "DiscardKeepsBytes", "InputNeverDelivered", "DeadlineOnlyAtSend",
     ];
     for n, i in names { if n == name { return i + 1; } }
     return 0;

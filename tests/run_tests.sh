@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs every *_test.goose and *_mustfail.goose under tests/ with `goose run`.
+# Runs every *_test.goose and *_mustfail.goose under tests/ with `goose run` (`goose build` for a file that needs threads).
 # A *_test.goose file passes when it exits 0. A *_mustfail.goose file passes when it exits
 # non-zero and its output contains the text after "// expect: " on its first line.
 # Prints one line per file and exits non-zero if any file fails.
@@ -28,6 +28,13 @@ failed=0
 for f in "${files[@]}"; do
     out=$(goose run "$f" 2>&1)
     code=$?
+    # the in-memory loop's wake group uses a thread queue: `goose run` (JIT) refuses it, so such a file is built and run
+    if [ $code -ne 0 ] && grep -q "JIT mode does not support threads" <<<"$out"; then
+        bin=$(mktemp "${TMPDIR:-/tmp}/goose-io-test.XXXXXX")
+        out=$(goose build "$f" -o "$bin" 2>&1 && "$bin" 2>&1)
+        code=$?
+        rm -f "$bin"
+    fi
     if [[ "$f" == *_mustfail.goose ]]; then
         want=$(head -n 1 "$f" | sed -n 's|^// expect: ||p')
         if [ $code -ne 0 ] && [ -n "$want" ] && grep -qF -- "$want" <<<"$out"; then
