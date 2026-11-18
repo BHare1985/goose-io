@@ -837,7 +837,7 @@ fn relay(io: Loop&, a: goose_io::Link, b: goose_io::Link) -> goose_io::RelayStat
     let sb .= io._slots[ib];
     guard sa.state != _CLOSED && sb.state != _CLOSED else { return goose_io::RelayStatus.Closed; }
     guard sa.state == _OPEN && sb.state == _OPEN else { return goose_io::RelayStatus.NotOpen; }
-    guard sa.relay < 0 && sb.relay < 0 else { return goose_io::RelayStatus.AlreadyRelayed; }
+    guard (sa.relay < 0 && sb.relay < 0) || io._fault == 89 else { return goose_io::RelayStatus.AlreadyRelayed; }      // fault RelayJoinsRelayed
     guard !sa.wr_shut && !sb.wr_shut else { return goose_io::RelayStatus.Closed; }
     sa.relay = ib; sb.relay = ia;
     sa.paused = false; sb.paused = false;
@@ -849,6 +849,7 @@ fn relay(io: Loop&, a: goose_io::Link, b: goose_io::Link) -> goose_io::RelayStat
 fn relayed_bytes(io: Loop&, link: goose_io::Link) -> i64 {
     let i = io._slot_of(link);
     guard i >= 0 else { return 0; }
+    if io._fault == 87 { return io._slots[i].carried + io._slots[i].in_len; }      // fault RelayedCountsHeld
     return io._slots[i].carried;
 }
 
@@ -909,6 +910,7 @@ fn _pump_relays(io: Loop&) {
 // --- the contract: peek, revoke, limits, wake ------------------------------------------------------
 
 fn _bound(io: Loop&) -> i64 {
+    if io._fault == 91 { return io.cfg.link_buffer; }      // fault BoundIgnored
     let b = if io.cfg.peek_bound < 1 { 1 } else { io.cfg.peek_bound };
     return if b > io.cfg.link_buffer { io.cfg.link_buffer } else { b };
 }
@@ -937,7 +939,8 @@ fn wait_input(io: Loop&, link: goose_io::Link, n: i64) {
 fn _input_ready(io: Loop&, s: _Slot) -> bool {
     guard s.state == _OPEN && s.relay < 0 && s.wait_n > 0 && !s.input_given && !s.paused else { return false; }
     let want = if s.wait_n < io._bound() { s.wait_n } else { io._bound() };
-    return s.in_len >= want || s.peer_fin;
+    if io._fault == 100 { return s.in_len > 0; }      // fault InputEarly
+    return s.in_len >= want || (s.peer_fin && io._fault != 101);      // fault PeerEndIgnored
 }
 
 // Drops what was accepted on this link and not read by the other end; a Writable owed counts as if it had been sent.
@@ -955,6 +958,7 @@ fn discard_unsent(io: Loop&, link: goose_io::Link) -> i64 {
 fn write_deadline(io: Loop&, link: goose_io::Link, at_ms: i64) {
     let i = io._slot_of(link);
     guard i >= 0 && io._slots[i].state != _CLOSED else { return; }
+    if io._fault == 96 && io._slots[i].wd > 0 && at_ms > io._slots[i].wd { return; }      // fault DeadlineNotReplaced
     io._slots[i].wd = if at_ms < 0 { 0 } else { at_ms };
 }
 
@@ -985,23 +989,36 @@ fn set_limit(io: Loop&, link: goose_io::Link, limit: goose_io::Limit, ms: i64) {
     guard i >= 0 && io._slots[i].state != _CLOSED else { return; }
     let s .= io._slots[i];
     let k = _limit_index(limit);
+    if io._fault == 102 && s.lim_ms[k] > 0 && ms > 0 { return; }      // fault ReplaceKeepsFirst
     if ms <= 0 { s.lim_ms[k] = 0; s.lim_fired[k] = false; return; }
     if s.lim_fired[k] { s.lim_at[k] = io._clock; }      // armed again after it expired: counted from now
     s.lim_ms[k] = ms;
     s.lim_fired[k] = false;
 }
 
-// When limit k of slot s falls due, or _FOREVER.
-fn _limit_due(s: _Slot, k: i64, stall_ms: i64) -> i64 {
+// When limit k of slot s falls due, or _FOREVER. `fault` is the loop's fault, so that the checks of the limits can be shown to fail.
+fn _limit_due(s: _Slot, k: i64, fault: i64) -> i64 {
     guard s.lim_ms[k] > 0 && !s.lim_fired[k] else { return _FOREVER; }
-    let floor = s.lim_at[k];
     var from = 0;
-    if k == 0 { from = if s.act_any > s.opened_at { s.act_any } else { s.opened_at }; }
-    else if k == 1 { from = if s.act_in > s.opened_at { s.act_in } else { s.opened_at }; }
-    else if k == 2 { guard s.stall_since >= 0 else { return _FOREVER; } from = s.stall_since; }
-    else if k == 3 { guard s.halfopen_at >= 0 else { return _FOREVER; } from = s.halfopen_at; }
-    else { from = s.opened_at; }
-    if from < floor { from = floor; }
+    if k == 0 {
+        from = if s.act_any > s.opened_at { s.act_any } else { s.opened_at };
+        if fault == 103 { from = s.lim_at[0]; }      // fault IdleFromArming
+    } else if k == 1 {
+        from = if s.act_in > s.opened_at { s.act_in } else { s.opened_at };
+        if fault == 104 { from = if s.act_any > s.opened_at { s.act_any } else { s.opened_at }; }      // fault SilentCountsWrites
+    } else if k == 2 {
+        if s.stall_since >= 0 { from = s.stall_since; }
+        else if fault == 108 { from = s.opened_at; }      // fault StalledAlways
+        else { return _FOREVER; }
+    } else if k == 3 {
+        if s.halfopen_at >= 0 { from = s.halfopen_at; }
+        else if fault == 109 { from = s.opened_at; }      // fault HalfOpenAlways
+        else { return _FOREVER; }
+    } else {
+        if fault == 112 { return _FOREVER; }      // fault AgeNeverExpires
+        from = if fault == 105 && s.act_any > s.opened_at { s.act_any } else { s.opened_at };      // fault AgeResetByActivity
+    }
+    if from < s.lim_at[k] { from = s.lim_at[k]; }
     return from + s.lim_ms[k];
 }
 
@@ -1020,13 +1037,15 @@ fn _watch(io: Loop&) {
             if io._slots[s.relay].in_len > 0 { waiting = true; }
             moved += io._slots[s.relay].carried;
         }
-        if moved != s.seen_consumed {
+        if io._fault == 106 { moved += s.rx; }      // fault StalledResetByReads
+        if moved != s.seen_consumed && io._fault != 107 {      // fault StalledNoProgressReset
             s.seen_consumed = moved;
             s.act_any = io._clock;
             if waiting { s.stall_since = io._clock; }
         }
         if waiting && s.stall_since < 0 { s.stall_since = io._clock; }
         if !waiting { s.stall_since = -1; }
+        if io._fault == 107 && waiting && s.stall_since < 0 { s.stall_since = io._clock; }
         if s.relay >= 0 && s.stall_since >= 0 {
             if io.cfg.kernel_timeout_ms > 0 && io._clock - s.stall_since >= io.cfg.kernel_timeout_ms {
                 io._close(i, goose_io::CloseReason.Error, true);
@@ -1043,8 +1062,8 @@ fn _limits_check(io: Loop&) {
         let s .= io._slots[i];
         guard s.state == _OPEN && s.script < 0 && s.configured else { continue; }
         for k in 5 {
-            if io._clock >= _limit_due(s, k, io.cfg.relay_stall_ms) {
-                s.lim_fired[k] = true;
+            if io._clock >= _limit_due(s, k, io._fault) {
+                if io._fault != 110 { s.lim_fired[k] = true; }      // fault ExpiredRepeats
                 io._pending.push(_Pending { kind: (_EV_LIMIT + k) as u8, slot: i, gen: s.gen });
             }
         }
@@ -1059,7 +1078,7 @@ fn _next_due(io: Loop&) -> i64 {
         guard s.state == _OPEN && s.script < 0 else { continue; }
         if s.wd > 0 && s.wd < next { next = s.wd; }
         for k in 5 {
-            let d = _limit_due(s, k, 0);
+            let d = _limit_due(s, k, io._fault);
             if d < next { next = d; }
         }
         if s.relay >= 0 && s.stall_since >= 0 {
@@ -1150,7 +1169,7 @@ fn serve<F>(io: Loop&) {
             F(io, e);
         }
         while io._woken_head < io._woken.len {
-            let v = io._woken[io._woken_head];
+            let v = if io._fault == 113 { io._woken[io._woken.len - 1 - io._woken_head] } else { io._woken[io._woken_head] };      // fault WakeOrderReversed
             io._woken_head++;
             let e: goose_io::Event = goose_io::Event.Woken { value: v };
             F(io, e);
@@ -1321,7 +1340,7 @@ fn _deliver<F>(io: Loop&) -> i64 {
                     F(io, e);
                 }
             } else if r.kind >= _EV_LIMIT {
-                if s.state == _OPEN {
+                if s.state == _OPEN || io._fault == 111 {      // fault ExpiredAfterClose
                     let e: goose_io::Event = goose_io::Event.Expired { link: link, limit: _limit_value(r.kind as i64 - _EV_LIMIT) };
                     delivered++;
                     F(io, e);
@@ -1755,7 +1774,9 @@ fn _fault_named(name: const u8[:]) -> i64 {
         "UnixLongestRefused", "UnixTripleSlashRefused", "UnixAliasNotHeld", "SlotsNeverReused",
         "GenerationNotAdvanced", "SlotFreedOnClose", "PauseBeforeOpenIgnored", "SecondCloseClosesAgain", "WritableAfterClosedResult", "ClosedResultNotFinal",
         "KeepOpenWhileDiallingIgnored", "KeepOpenLateHonoured", "EarlyEofActedOn", "ShutdownBeforeOpenRemembered", "ClosedResultEndsShutLink", "ResetDialOpens", "ResetAfterCloseClosesAgain", "PeerAddressGoneOnClose", "SendAfterFinishSent", "FinishedDialIssues", "SecondServeRuns", "SetupEventsDropped", "PeerAddressAfterFinish", "ShutdownOverridesLocal",
-        "RelayDropsLastByte", "RelayedSendAccepted", "", "RelayPartnerPeerReset", "", "", "", "RelayCloseEndsOne", "", "WriteAfterDeadline", "", "", "DiscardKeepsBytes", "InputNeverDelivered", "DeadlineOnlyAtSend",
+        "RelayDropsLastByte", "RelayedSendAccepted", "RelayedCountsHeld", "RelayPartnerPeerReset", "RelayJoinsRelayed", "", "BoundIgnored", "RelayCloseEndsOne", "", "WriteAfterDeadline",
+        "", "DeadlineNotReplaced", "DiscardKeepsBytes", "InputNeverDelivered", "DeadlineOnlyAtSend", "InputEarly", "PeerEndIgnored", "ReplaceKeepsFirst", "IdleFromArming", "SilentCountsWrites",
+        "AgeResetByActivity", "StalledResetByReads", "StalledNoProgressReset", "StalledAlways", "HalfOpenAlways", "ExpiredRepeats", "ExpiredAfterClose", "AgeNeverExpires", "WakeOrderReversed",
     ];
     for n, i in names { if n == name { return i + 1; } }
     return 0;
