@@ -160,10 +160,18 @@ client behind it. HTTP and Postgres libraries are separate projects; this reposi
 | The conformance suite | Implemented: the core and each group, with a fault for every check |
 | The in-memory event loop | Implemented, for tests: scripted peers and a virtual clock |
 | Example libraries | Implemented: echo, a line server, a pooled line client |
-| An event loop on real sockets | **Not yet.** An epoll loop is planned as its own change (`openspec/changes/epoll-event-loop/`), then io_uring and uSockets |
+| An event loop on real sockets | Implemented for Linux: the epoll event loop in [`examples/loops/epoll/`](examples/loops/epoll/) (below). io_uring and uSockets are next |
 
-So today a library runs on the in-memory loop (and over the test layers below), and runs on the real loops when they
-land. Built and tested on linux-x64, macos-x64, macos-arm64 and windows-x64; the package is Goose source and builds no C.
+So today a library runs on the in-memory loop (and over the test layers below) and, on Linux, on real sockets through the epoll
+loop. Built and tested on linux-x64, macos-x64, macos-arm64 and windows-x64; the package is Goose source and builds no C (the epoll
+loop is not part of the package: it needs C and lives under `examples/loops/`).
+
+**Event loops that conform** (the core is `listen`, `dial`, `send` and the rest of section 2 of [`docs/contract.md`](docs/contract.md); a group is listed only when its entry point of the suite passed):
+
+| Event loop | Platform | Core | Groups | Contract | Passed at |
+|---|---|---|---|---|---|
+| In-memory ([`memory.goose`](memory.goose)) | any | yes | half-close, sizing, abort, inspection, batching, unix | 0.2 | the tests of this repository (a loop for tests: it opens no socket) |
+| epoll ([`examples/loops/epoll/`](examples/loops/epoll/)) | Linux | yes | half-close, sizing, abort, inspection, batching (not unix) | 0.2 | `2db84df`, fifty repetitions, with the system-call, throughput and memory gates against tcprouter's engine in [`bench/`](bench/) |
 
 ## I am writing a library
 

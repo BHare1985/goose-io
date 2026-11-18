@@ -19,7 +19,7 @@ c.close()
 # the backend answers real peers too, and its own clients are not the front's
 b = socket.create_connection(("127.0.0.1", back), 3)
 b.sendall(b"direct\n")
-check(read_until(b, b"\n") == b"echo direct\n", "the backend is a line server of its own")
+check(read_until(b, b"\n") == b"backend: direct\n", "the backend is a line server of its own")
 b.close()
 
 code, out = stop(p)

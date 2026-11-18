@@ -121,6 +121,18 @@ except OSError: d = b""
 idle = time.time() - t0
 check(d == b"" and 1.0 <= idle <= 1.35, f"an idle link ends between the limit and the limit plus 250 ms ({idle:.3f} s)")
 c.close()
+# activity resets the idle timer: a byte at 0.6 s moves the end from 1.0 s to about 1.6 s
+c = socket.create_connection(("127.0.0.1", port), 3)
+t0 = time.time()
+time.sleep(0.6)
+c.sendall(b"ping\n")
+check(read_until(c, b"\n", 2) == b"ping\n", "the link answers before its idle limit")
+c.settimeout(5)
+try: d = c.recv(10)
+except OSError: d = b"error"
+total = time.time() - t0
+check(d == b"" and 1.6 <= total <= 1.95, f"activity resets the idle timer: the link ends between 1.6 s and 1.85 s after it was opened, not at 1.0 s ({total:.3f} s)")
+c.close()
 c = socket.create_connection(("127.0.0.1", port), 3)
 c.sendall(b"abc"); c.shutdown(socket.SHUT_WR)
 t0 = time.time()

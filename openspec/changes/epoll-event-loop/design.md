@@ -135,3 +135,57 @@ bench/                       syscalls, http, memory, forward_ext, results/
 ### D9. Dense slots, held until `Closed` has been handled
 
 Contract 0.2 requires that a freed slot is reused before a new one is issued (so no slot is as large as the greatest number of links valid at once) and that a slot is freed only when every handler of its `Closed` has returned. The loop keeps a free list over its slot table and takes from it before it extends the table. The slot goes back on the list in the place where the engine bumps the generation after delivering `Closed`, not when it queues `Closed` (the engine does the latter today, which is why `peer_address` inside the handler of a `Closed` is empty and a link made there can take the slot, and why a dial that fails inside `dial` loses its slot at once). A slot whose generations are used up is retired and not put back (the rule of `lifecycle-guarantees`). The suite's checks `slots_dense`, `slot_kept_during_closed`, `owner_listener_named`, `owner_dial_found_by_link` and `dial_no_event_inside` are the conformance expectations, and a unit test shows that a link opened inside the handler of a failed dial's `Closed` does not take that slot.
+
+## Applied: what was built, and where it differs from the plan above
+
+Written while applying the change, on the branch `epoll-event-loop`. The plan above stays as it was written; this section says what the code
+is and where the owner's instruction at apply time, or what the work found, took it elsewhere.
+
+**The loop was derived directly, not imported and then separated (D2).** The owner's instruction was to make the loop from the current
+tcprouter, removing everything of the proxy, so that both engines do the same task in the same way. So there is no import commit of the
+unmodified files and no copy of tcprouter's tests under `tests/imported/` (tasks 2.1 to 2.3, 5.3 and 5.4, and the ports of 6.1 are not
+done as written). The generic layer of tcprouter's `conn.goose`, `handler.goose`, `engine.goose`, `messages.goose`, `address.goose`,
+`sys.goose` and `src/c_sys.c` was edited straight into `examples/loops/epoll/`; what stands in for the imported suite is the conformance suite
+(the behaviour of the contract) and the system-call, throughput and memory gates (the behaviour of tcprouter's handler path, which is what
+"the same" was to mean). `tests/net/` has new tests, not tcprouter's, apart from the checks of tcprouter's `examples_test.py` that
+`http_hello_test.py` repeats.
+
+**The baseline is tcprouter `e021769`, not `05995d1`** (`bench/BASELINE.md`): the owner asked for the current tcprouter. The difference is
+the early-close retry of the proxy (`RT-21`), which the loop does not carry; the handler path is as it was.
+
+**There is no extension seam (D5), and so no seam to prove free (D8, point 4).** The owner's instruction was that the forwarding features be
+added back to a copy of the loop for the comparison. `examples/loops/forward_ext/epoll_forward/` is that copy: the loop with tcprouter's forward pump
+(`forward.goose`) added, a fixed target and nothing of routing, SNI, retry, policy, tags or deadlines (it is under `examples/loops/` because the
+purity check allows native files only there). Tasks 5.1 to 5.6 (the seam, its test extensions and `docs/extending.md`), 5.5 and 8.5 (free when
+empty) are therefore not done, and the requirements of the delta spec that name an extension (*An extension seam for specialised engines*,
+*The seam is free when unused*, *An extension's own identity for a link is its own state*) are not met. If the seam is wanted after all, the
+two places a proxy enters the loop are `_dispatch_event` and `serve` (see `docs/tcprouter-adoption.md`); the comparison of 9.2 and 9.3 held on the
+first try, so the reserved alternative of 9.4 (a generic slot payload) was not needed.
+
+**Decisions the work made.**
+
+- *Close.* The design's D3 says `close` keeps the link in a closing state that reads and drops input. The suite showed that is not enough: the check
+  `states_inspection` needs the closing side's `Closed` before the peer's, and a link held until the peer ends also holds its slot. So `close` finishes
+  sending, shuts the write side and ends the link at once (the `Closed`, reason `Local`, is delivered after the handler that called it has returned),
+  and the socket is kept as an orphan (`_Orphan`: a descriptor and a time, no slot, no event) that reads and drops the peer's input until the peer
+  ends its stream or `half_close_timeout_ms` passes. The peer sees an end of stream and never a reset. Both `close_with_unread_input` (suite) and
+  `tests/net/close_test.py` fail if the loop does a plain `close(2)` there.
+- *`peer_address` inside the handler of `Closed`.* The descriptor is closed only when the `Closed` has been handled (`_release`). A socket forgets its
+  peer once it has been reset or both directions have finished, so the address is asked for (`getpeername`) just before a reset is reported, before
+  `shutdown` of the write side, and in no other case: it costs no system call on the path of a request.
+- *Peer end of stream.* The loop does not decide what the end of the peer's stream means when it reads it: it queues a record, and the decision (end the
+  link, or `PeerEof`) is taken when the record is reached, after the handler of `Opened` has returned, so that `set_keep_open_on_eof` in that handler
+  applies even if the stream had already ended. Nothing is registered with epoll differently in the usual case (one `epoll_ctl` per connection fewer than the
+  first version, which the system-call gate caught).
+- *Ticks.* The loop aims at 90 ms between Ticks (`_TICK_PERIOD_MS`), not 100: `ticks_are_regular` allows at most 100 ms between two, and a 100 ms
+  wait plus the millisecond rounding of `epoll_wait` and the scheduler gave 101 and 102. D6's one earliest-wake field is two (`_dial_due` for connects,
+  `_wake_at` for `tick_by`); the wait is the least of them and of the next Tick.
+- *Slots.* A free list gives a freed slot to the next link before the table is extended; a slot is freed (and its generation advanced) after its `Closed` has
+  been handled, and retired when its 24-bit generation is used up (the epoll data carries 24 bits).
+- *Writable.* A link remembers the largest send it refused and gets its one `Writable` when `send_room` reaches that. A send that waits for a pool buffer
+  is counted in `buffer_waits`, as a read that waits is.
+- *Limits and workers.* `listen` uses `SO_REUSEPORT` (as tcprouter does) so that loops share a port; `epoll::probe(address)` is the plain bind that tcprouter's
+  `spawn` did, to be called before `spawn`, so that a port held by another process is an error.
+- *The unix group is not supplied* (the open decision of the proposal): a `unix:` address is `BadAddress`.
+- *Fixture.* `examples/loops/epoll/conformance.goose` gives the suite its four addresses in one array: the language refuses to call a loop that shrinks one of
+  its own arrays while the suite holds views of several arrays, so the loop's arrays that shrink are grow-shrink (`[>..<]`) and the fixture is four slices of one.
