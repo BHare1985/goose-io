@@ -310,7 +310,51 @@ fn require_inspection<Io>(io: Io&) {
     }
 }
 
+// Relay: relay(a, b) -> RelayStatus, relayed_bytes(link) -> i64.
+fn require_relay<Io>(io: Io&) {
+    if _never() {
+        let link = Link { .. };
+        _is_relay_status_type(io.relay(link, link));
+        _is_i64(io.relayed_bytes(link));
+    }
+}
+
+// Peek: peek(link) -> const u8[:], wait_input(link, n), and the event Input.
+fn require_peek<Io>(io: Io&) {
+    if _never() {
+        let link = Link { .. };
+        io.wait_input(link, 0);
+        let seen: const u8[:] = io.peek(link);
+        _is_i64(seen.len);
+    }
+}
+
+// Revoke: discard_unsent(link) -> i64, write_deadline(link, at_ms).
+fn require_revoke<Io>(io: Io&) {
+    if _never() {
+        let link = Link { .. };
+        _is_i64(io.discard_unsent(link));
+        io.write_deadline(link, 0);
+    }
+}
+
+// Wake: waker() -> Waker, wake(waker, value), and the event Woken. A Waker may be used from any thread.
+fn require_wake<Io>(io: Io&) {
+    if _never() {
+        let w: Waker = io.waker();
+        io.wake(w, 0);
+    }
+}
+
+// Limits: set_limit(link, kind, ms), and the event Expired.
+fn require_limits<Io>(io: Io&) {
+    if _never() {
+        io.set_limit(Link { .. }, Limit.Idle, 0);
+    }
+}
+
 fn _never() -> bool { false }
+fn _is_relay_status_type(v: RelayStatus) {}
 fn _is_listener_type(v: Listener) {}
 fn _is_listen_error_type(v: ListenError) {}
 fn _is_link_type(v: Link) {}
