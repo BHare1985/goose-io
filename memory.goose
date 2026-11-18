@@ -34,6 +34,9 @@ struct Config {
     exit_on_time_limit: bool = true,    // false: serve returns instead and hit_time_limit() is true
     passes_per_ms:      i64  = 64,      // busy passes at one instant before the clock moves 1 ms
     unix_paths:         bool = true,    // supply the unix group; false: unix:/path is refused with BadAddress, as by a loop without it
+    peek_bound:         i64  = 4096,    // the peek group: most bytes held for a link that waits for input; Input is delivered at it
+    relay_stall_ms:     i64  = 0,       // the relay group: a relayed pair whose bytes cannot move for this long ends with Local on both links (0: never)
+    kernel_timeout_ms:  i64  = 0,       // the relay group: a relayed link whose peer takes none of its bytes for this long ends with Error (the transport's timeout; 0: never)
 }
 
 // --- internals: addresses ------------------------------------------------------------------------
@@ -271,6 +274,8 @@ let _EV_DATA = 2;
 let _EV_WRITABLE = 3;
 let _EV_PEER_EOF = 4;
 let _EV_CLOSED = 5;
+let _EV_INPUT = 6;
+let _EV_EXPIRED = 7;
 
 let _FOREVER = 0x7fffffffffffffff;
 let _EPHEMERAL_PORTS = 16384;     // 49152 to 65535
@@ -306,6 +311,25 @@ struct _Slot {
     remote:           _Addr                 = _Addr { .. }, // the other end's address
     connect_at:       i64                   = 0,
     connect_deadline: i64                   = 0,
+    relay:            i64                   = -1,    // the relay group: the slot this one is joined to, -1 when it is not relayed
+    relay_fin:        bool                  = false, // its stream ended and the end was carried to the partner
+    carried:          i64                   = 0,     // bytes carried from this link by a relay
+    consumed:         i64                   = 0,     // bytes taken out of this end's region, ever
+    rx:               i64                   = 0,     // bytes put into this end's region, ever
+    wait_n:           i64                   = 0,     // the peek group: wait_input's n, 0 when not waiting
+    input_given:      bool                  = false, // the Input for the current wait_input was queued
+    wd:               i64                   = 0,     // the revoke group: write_deadline, 0 for none
+    lim_ms:           i64[5]                = [0, 0, 0, 0, 0],   // the limits group: set_limit by kind, 0 for off
+    lim_at:           i64[5]                = [0, 0, 0, 0, 0],   // when it was armed
+    lim_fired:        bool[5]               = [false, false, false, false, false],
+    opened_at:        i64                   = 0,
+    act_in:           i64                   = 0,     // when a byte was last read from the link (or arrived)
+    act_any:          i64                   = 0,     // when a byte was last read or written (or carried by a relay)
+    halfopen_at:      i64                   = -1,    // when the peer's stream ended on a link that stays open
+    stall_since:      i64                   = -1,    // when bytes began to wait for the transport without moving
+    seen_rx:          i64                   = 0,
+    seen_consumed:    i64                   = 0,
+    seen_sig:         i64                   = 0,
 }
 
 struct _Listener { addr: _Addr = _Addr { .. }, active: bool = false }
@@ -392,6 +416,7 @@ root struct Loop {
     _captured:      u8[>..]        = [], // what scripted peers received, in the pieces of _chunks
     _chunks:        _Chunk[>..]    = [],
     _last_remote:   _Addr          = _Addr { .. },   // fault StalePeerAddress
+    _hint:          bool           = false, // the close in progress is an abort (the relay group ends a partner the same way)
     _fault:         i64            = 0,  // a deliberately broken behaviour, for showing that a check fails (set_fault)
 }
 
@@ -451,7 +476,7 @@ fn _queue(io: Loop&, kind: u8, i: i64) {
 }
 
 // Ends slot i only: its Closed is queued and nothing else will be delivered for it.
-fn _mark_closed(io: Loop&, i: i64, why: goose_io::CloseReason) {
+recursive fn _mark_closed(io: Loop&, i: i64, why: goose_io::CloseReason) {
     let s .= io._slots[i];
     guard s.state != _FREE && s.state != _CLOSED else { return; }
     // faults OpenedBeforeFailure and CancelledDialOpens: an Opened that must not be delivered
@@ -463,18 +488,36 @@ fn _mark_closed(io: Loop&, i: i64, why: goose_io::CloseReason) {
     s.want_writable = false;
     if s.script < 0 { io._live_slots--; }
     io._queue(_EV_CLOSED, i);
+    // A relayed pair ends as one (D3, D6 item 1): the partner gets the reason that fits it, never PeerReset.
+    if s.relay >= 0 {
+        let c = s.relay;
+        s.relay = -1;
+        let cs .= io._slots[c];
+        if cs.state != _FREE && cs.state != _CLOSED {
+            cs.relay = -1;
+            var w = goose_io::CloseReason.Error;
+            if why == goose_io::CloseReason.PeerClosed { w = goose_io::CloseReason.PeerClosed; }
+            else if why == goose_io::CloseReason.Local { w = goose_io::CloseReason.Local; }
+            else if why == goose_io::CloseReason.Shutdown { w = goose_io::CloseReason.Shutdown; }
+            if io._fault == 88 && why == goose_io::CloseReason.PeerReset { w = goose_io::CloseReason.PeerReset; }      // fault RelayPartnerPeerReset
+            if io._fault == 92 && why == goose_io::CloseReason.Local { return; }      // fault RelayCloseEndsOne: the partner stays open
+            io._close(c, w, io._hint || w == goose_io::CloseReason.Error || w == goose_io::CloseReason.PeerReset);
+        }
+    }
 }
 
 // Ends slot i and tells the other end. `abort` discards what the other end has not read and ends
 // it with PeerReset; otherwise the other end reads what is left and then sees end of stream.
-fn _close(io: Loop&, i: i64, why: goose_io::CloseReason, abort: bool) {
+recursive fn _close(io: Loop&, i: i64, why: goose_io::CloseReason, abort: bool) {
     let s .= io._slots[i];
     guard s.state != _FREE && s.state != _CLOSED else { return; }
     let p = s.peer;
     // fault ClosedNeverDelivered: a close with bytes the peer has not read never completes
     if io._fault == 41 && !abort && why == goose_io::CloseReason.Local && p >= 0 && io._slots[p].in_len > 0 { return; }
     s.peer = -1;
+    io._hint = abort;
     io._mark_closed(i, why);
+    io._hint = false;
     guard p >= 0 else { return; }
     let other .= io._slots[p];
     other.peer = -1;
@@ -629,6 +672,7 @@ fn send_room(io: Loop&, link: goose_io::Link) -> i64 {
     guard i >= 0 else { return 0; }
     let s .= io._slots[i];
     guard (s.state == _OPEN || (io._fault == 29 && s.state == _CLOSED)) && !s.wr_shut else { return 0; }      // fault RoomWhenClosed
+    guard s.relay < 0 else { return 0; }
     guard s.peer >= 0 else { return io.cfg.max_send; }
     let room = io.cfg.link_buffer - io._slots[s.peer].in_len;
     return if room < io.cfg.max_send { room } else { io.cfg.max_send };
@@ -643,6 +687,7 @@ fn max_send(io: Loop&) -> i64 {
 fn pause_reading(io: Loop&, link: goose_io::Link, paused: bool) {
     if io._finished { return; }
     let i = io._slot_of(link);
+    if i >= 0 && io._slots[i].relay >= 0 { return; }      // a relayed link is read by its relay
     if i >= 0 && io._fault != 34 && !(io._fault == 67 && io._slots[i].state == _DIALING) { io._slots[i].paused = paused; }      // faults PauseIgnored and PauseBeforeOpenIgnored
 }
 
@@ -661,6 +706,8 @@ fn _send(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:
         return goose_io::SendStatus.Closed;
     }
     if s.state != _OPEN { return if io._fault == 23 { goose_io::SendStatus.Sent } else { goose_io::SendStatus.NotOpen }; }      // fault SendBeforeOpenSent
+    if s.relay >= 0 && io._fault != 86 { return goose_io::SendStatus.Closed; }      // a relayed link is sent to by its relay only (fault RelayedSendAccepted)
+    if s.wd > 0 && io._now() >= s.wd && io._fault != 94 { io._expire_deadline(i); return goose_io::SendStatus.Closed; }      // fault WriteAfterDeadline
     let total = first.len + second.len;
     if total == 0 { return goose_io::SendStatus.Sent; }
     if total > io.cfg.max_send {
@@ -696,6 +743,7 @@ fn _send(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:
         if second.len > 0 { io._inbuf[base + first.len..base + total].move_from(second); }
     }
     p.in_len += total;
+    p.rx += total;
     if io._fault == 22 { p.in_len--; }                                      // fault SendDropsLastByte
     return goose_io::SendStatus.Sent;
 }
@@ -732,6 +780,7 @@ fn set_keep_open_on_eof(io: Loop&, link: goose_io::Link, keep: bool) {
     let i = io._slot_of(link);
     guard i >= 0 else { return; }
     let s .= io._slots[i];
+    if s.relay >= 0 { return; }
     if s.configured && io._fault != 72 { return; }                  // fault KeepOpenLateHonoured: a late call is applied
     if io._fault == 71 && s.state == _DIALING { return; }           // fault KeepOpenWhileDiallingIgnored: a call while dialling is dropped
     s.keep_open = keep;
@@ -744,7 +793,7 @@ fn shutdown_write(io: Loop&, link: goose_io::Link) {
     guard i >= 0 else { return; }
     let s .= io._slots[i];
     if io._fault == 74 && s.state == _DIALING { s.wr_shut = true; return; }      // fault ShutdownBeforeOpenRemembered
-    guard s.state == _OPEN && !s.wr_shut else { return; }
+    guard s.state == _OPEN && !s.wr_shut && s.relay < 0 else { return; }
     s.wr_shut = true;
     if io._fault != 35 { s.want_writable = false; }      // fault WritableAfterShutdown
     if s.peer >= 0 { io._slots[s.peer].peer_fin = true; }
@@ -753,6 +802,98 @@ fn shutdown_write(io: Loop&, link: goose_io::Link) {
     if io._fault == 73 && s.peer >= 0 && io._slots[s.peer].state == _OPENING && !io._slots[s.peer].keep_open { io._close(s.peer, goose_io::CloseReason.PeerClosed, false); }
     // The peer had finished already: both directions are done.
     if s.eof_seen { io._close(i, goose_io::CloseReason.PeerClosed, false); }
+}
+
+// --- the contract: the relay group -----------------------------------------------------------------
+
+fn _now(io: Loop&) -> i64 { io._clock }
+
+// The write deadline passed with bytes still unsent: they are discarded and the link ends Local.
+fn _expire_deadline(io: Loop&, i: i64) {
+    let s .= io._slots[i];
+    s.wd = 0;
+    if s.peer >= 0 { io._slots[s.peer].in_len = 0; }
+    s.local_closed = true;
+    io._close(i, goose_io::CloseReason.Local, false);
+}
+
+// Joins two open links: from now the loop moves each one's bytes to the other and carries the end of stream.
+fn relay(io: Loop&, a: goose_io::Link, b: goose_io::Link) -> goose_io::RelayStatus {
+    guard !io._finished else { return goose_io::RelayStatus.Closed; }
+    let ia = io._slot_of(a);
+    let ib = io._slot_of(b);
+    guard ia >= 0 && ib >= 0 && ia != ib else { return goose_io::RelayStatus.Closed; }
+    let sa .= io._slots[ia];
+    let sb .= io._slots[ib];
+    guard sa.state != _CLOSED && sb.state != _CLOSED else { return goose_io::RelayStatus.Closed; }
+    guard sa.state == _OPEN && sb.state == _OPEN else { return goose_io::RelayStatus.NotOpen; }
+    guard sa.relay < 0 && sb.relay < 0 else { return goose_io::RelayStatus.AlreadyRelayed; }
+    guard !sa.wr_shut && !sb.wr_shut else { return goose_io::RelayStatus.Closed; }
+    sa.relay = ib; sb.relay = ia;
+    sa.paused = false; sb.paused = false;
+    sa.wait_n = 0; sb.wait_n = 0;
+    return goose_io::RelayStatus.Started;
+}
+
+// Bytes the loop has carried from this link to its partner.
+fn relayed_bytes(io: Loop&, link: goose_io::Link) -> i64 {
+    let i = io._slot_of(link);
+    guard i >= 0 else { return 0; }
+    return io._slots[i].carried;
+}
+
+// Scripting, not part of the contract: the transport under a link fails (the link ends with Error, and its relay partner too).
+fn break_transport(io: Loop&, link: goose_io::Link) {
+    let i = io._slot_of(link);
+    guard i >= 0 && io._slots[i].state != _CLOSED else { return; }
+    io._close(i, goose_io::CloseReason.Error, true);
+}
+
+// True while a relayed link has bytes to carry or an end to pass on.
+fn _relay_work(s: _Slot) -> bool {
+    s.relay >= 0 && s.state == _OPEN && (s.in_len > 0 || (s.peer_fin && !s.relay_fin))
+}
+
+// Moves what relayed links have received to their partners, as far as the partner's buffer allows.
+fn _pump_relays(io: Loop&) {
+    for i in io._slots.len {
+        let a .= io._slots[i];
+        guard a.relay >= 0 && a.state == _OPEN else { continue; }
+        let b = a.relay;
+        let d .= io._slots[b];
+        if d.wd > 0 && io._clock >= d.wd { io._expire_deadline(b); continue; }
+        if a.in_len > 0 {
+            if d.peer < 0 { io._close(b, goose_io::CloseReason.PeerReset, false); continue; }
+            let pb = d.peer;
+            let room = io.cfg.link_buffer - io._slots[pb].in_len;
+            var n = if a.in_len < room { a.in_len } else { room };
+            if n > io.cfg.read_chunk { n = io.cfg.read_chunk; }
+            if n > 0 {
+                let from = i * io.cfg.link_buffer;
+                let to = pb * io.cfg.link_buffer + io._slots[pb].in_len;
+                io._inbuf[to..to + n].move_from(io._inbuf[from..from + n]);
+                let rest = a.in_len - n;
+                if rest > 0 { io._inbuf[from..from + rest].move_from(io._inbuf[from + n..from + n + rest]); }
+                a.in_len = rest;
+                a.consumed += n;
+                a.carried += n;
+                io._slots[pb].in_len += n;
+                io._slots[pb].rx += n;
+                if io._fault == 85 { io._slots[pb].in_len--; }      // fault RelayDropsLastByte
+                a.act_in = io._clock; a.act_any = io._clock;
+                d.act_any = io._clock;
+                io._room_opened(a.peer);
+            }
+        }
+        if a.in_len == 0 && a.peer_fin && !a.relay_fin {
+            a.relay_fin = true;
+            a.eof_seen = true;
+            d.wr_shut = true;
+            if d.peer >= 0 { io._slots[d.peer].peer_fin = true; }
+            a.halfopen_at = io._clock;
+            if d.relay_fin { io._close(i, goose_io::CloseReason.PeerClosed, false); }
+        }
+    }
 }
 
 // --- the contract: time and the application side --------------------------------------------------
@@ -792,6 +933,7 @@ fn serve<F>(io: Loop&) {
         var ticked = false;
         io._passes++;
         io._run_due();
+        io._pump_relays();
         io._queue_reads();
         if io._fault == 82 && io._passes == 1 { io._pending.clear(); io._pending_head = 0; }      // fault SetupEventsDropped: the events of what was set up before serve are discarded
         // The order of one pass: a Tick if one is due, the link events, then PassEnd, always last.
@@ -885,7 +1027,7 @@ fn _queue_reads(io: Loop&) {
         let s .= io._slots[i];
         // An end of stream seen before the handler of the link's Opened has returned waits: the decision is made once the
         // link is configured (here: only an open, configured link is read).
-        if s.state == _OPEN && s.configured && !s.data_queued {
+        if s.state == _OPEN && s.configured && !s.data_queued && s.relay < 0 && s.wait_n == 0 {
             if io._fault == 43 && s.keep_open && s.peer_fin && !s.eof_seen && s.in_len > 0 {      // fault PeerEofBeforeData
                 s.eof_seen = true;
                 io._queue(_EV_PEER_EOF, i);
@@ -941,6 +1083,7 @@ fn _deliver<F>(io: Loop&) -> i64 {
                     let rest = s.in_len - n;
                     if rest > 0 { io._inbuf[base..base + rest].move_from(io._inbuf[base + n..base + n + rest]); }
                     s.in_len = rest;
+                    s.consumed += n;
                     io._room_opened(s.peer);
                     if io._fault == 20 { io._scratch[0] = io._scratch[0] ^ 1; }      // fault DataCorrupted
                     let e: goose_io::Event = goose_io::Event.Data { link: link, bytes: io._scratch[..n] };
@@ -1024,7 +1167,7 @@ fn age_slot(io: Loop&, slot: i64, next_gen: u32) {
 
 // An open end with bytes it will be given, or an end of stream it has not been told of.
 fn _has_read_work(s: _Slot) -> bool {
-    (s.in_len > 0 && !s.paused) || (s.in_len == 0 && s.peer_fin && !s.eof_seen)
+    s.relay < 0 && s.wait_n == 0 && ((s.in_len > 0 && !s.paused) || (s.in_len == 0 && s.peer_fin && !s.eof_seen))
 }
 
 // Scripted peer k has nothing left to do, the library has finished sending, and it is about to hang up
@@ -1058,7 +1201,7 @@ fn _advance(io: Loop&) {
     for i in io._slots.len {
         let s .= io._slots[i];
         if s.state == _OPEN {
-            if _has_read_work(s) { busy = true; }
+            if _has_read_work(s) || _relay_work(s) { busy = true; }
         } else if s.state == _DIALING {
             let due = if s.silent { s.connect_deadline } else { s.connect_at };
             if due <= io._clock { busy = true; }
@@ -1297,6 +1440,7 @@ fn _peer_deliver(io: Loop&, kind: u8, i: i64) {
             let rest = s.in_len - n;
             if rest > 0 { io._inbuf[base..base + rest].move_from(io._inbuf[base + n..base + n + rest]); }
             s.in_len = rest;
+            s.consumed += n;
             io._room_opened(s.peer);
         }
     } else if kind == _EV_WRITABLE {
@@ -1371,6 +1515,7 @@ fn _fault_named(name: const u8[:]) -> i64 {
         "UnixLongestRefused", "UnixTripleSlashRefused", "UnixAliasNotHeld", "SlotsNeverReused",
         "GenerationNotAdvanced", "SlotFreedOnClose", "PauseBeforeOpenIgnored", "SecondCloseClosesAgain", "WritableAfterClosedResult", "ClosedResultNotFinal",
         "KeepOpenWhileDiallingIgnored", "KeepOpenLateHonoured", "EarlyEofActedOn", "ShutdownBeforeOpenRemembered", "ClosedResultEndsShutLink", "ResetDialOpens", "ResetAfterCloseClosesAgain", "PeerAddressGoneOnClose", "SendAfterFinishSent", "FinishedDialIssues", "SecondServeRuns", "SetupEventsDropped", "PeerAddressAfterFinish", "ShutdownOverridesLocal",
+        "RelayDropsLastByte", "RelayedSendAccepted", "", "RelayPartnerPeerReset", "", "", "", "RelayCloseEndsOne", "", "WriteAfterDeadline",
     ];
     for n, i in names { if n == name { return i + 1; } }
     return 0;
