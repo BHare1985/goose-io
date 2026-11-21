@@ -35,6 +35,11 @@ import conformance.data;
 import conformance.close;
 import conformance.time;
 import conformance.states;
+import conformance.relay;
+import conformance.peek;
+import conformance.revoke;
+import conformance.wake;
+import conformance.limits;
 
 // Part -1 holds two checks that exist to test the driver: one passes and one fails on purpose.
 let SELFTEST = -1;
@@ -47,6 +52,11 @@ fn info(id: i64) -> Info {
     if i.name.len == 0 { i = close_info(id); }
     if i.name.len == 0 { i = time_info(id); }
     if i.name.len == 0 { i = states_info(id); }
+    if i.name.len == 0 { i = relay_info(id); }
+    if i.name.len == 0 { i = peek_info(id); }
+    if i.name.len == 0 { i = revoke_info(id); }
+    if i.name.len == 0 { i = wake_info(id); }
+    if i.name.len == 0 { i = limits_info(id); }
     i.group = group_of(i.name);
     return i;
 }
@@ -61,6 +71,11 @@ fn group_of(name: const u8[:]) -> i64 {
     if name == "finished_loop_inspection" || name == "states_inspection" || name == "listen_stop_keeps_links" || name == "listener_handle_never_reused" || name == "peer_address_names_peer" || name == "peer_address_ipv6" || name == "handles_valid_in_closed" || name == "handles_stale_peer_address" || name == "handles_unset_inspection" { return GROUP_INSPECTION; }
     if name == "pass_end_follows_link_events" || name == "pass_end_not_on_idle_pass" { return GROUP_BATCHING; }
     if name == "unix_listen_dial" || name == "unix_held_path" || name == "unix_nothing_listens" || name == "unix_no_port" || name == "unix_malformed_paths" || name == "unix_longest_path" || name == "unix_url_spelling" || name == "unix_alias_held" { return GROUP_UNIX; }
+    if name == "relay_carries_bytes" || name == "relay_refusals" || name == "relay_holds_back_unread" || name == "relay_send_refused_and_close_ends_both" { return GROUP_RELAY; }
+    if name == "wait_input_gathers" || name == "wait_input_peer_ends" || name == "peek_bound" { return GROUP_PEEK; }
+    if name == "discard_unsent_drops" || name == "write_deadline_stops" || name == "write_deadline_moved" { return GROUP_REVOKE; }
+    if name == "wake_in_order" { return GROUP_WAKE; }
+    if name.len > 6 && starts_with(name, "limit_") { return GROUP_LIMITS; }
     return GROUP_NONE;
 }
 
@@ -142,6 +157,66 @@ fn takes(g: HalfCloseGroup&, i: Info) -> bool { i.group == GROUP_HALF_CLOSE }
 fn takes(g: InspectionGroup&, i: Info) -> bool { i.group == GROUP_INSPECTION }
 fn takes(g: AbortGroup&, i: Info) -> bool { i.group == GROUP_ABORT }
 fn takes(g: UnixGroup&, i: Info) -> bool { i.group == GROUP_UNIX }
+
+fn step<Io>(g: RelayGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if relay_group_step(k, fx, io, ev) { return; }
+    k.fail("the check is not known to the driver");
+}
+fn setup<Io>(g: RelayGroup&, k: Case&, io: Io&) {}
+fn after<Io>(g: RelayGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn takes(g: RelayGroup&, i: Info) -> bool { i.group == GROUP_RELAY }
+fn conformance_relay_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    var g = RelayGroup { .. };
+    return _run_part(g, io, fx, part);
+}
+
+fn step<Io>(g: PeekGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if peek_group_step(k, fx, io, ev) { return; }
+    k.fail("the check is not known to the driver");
+}
+fn setup<Io>(g: PeekGroup&, k: Case&, io: Io&) {}
+fn after<Io>(g: PeekGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn takes(g: PeekGroup&, i: Info) -> bool { i.group == GROUP_PEEK }
+fn conformance_peek_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    var g = PeekGroup { .. };
+    return _run_part(g, io, fx, part);
+}
+
+fn step<Io>(g: RevokeGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if revoke_group_step(k, fx, io, ev) { return; }
+    k.fail("the check is not known to the driver");
+}
+fn setup<Io>(g: RevokeGroup&, k: Case&, io: Io&) {}
+fn after<Io>(g: RevokeGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn takes(g: RevokeGroup&, i: Info) -> bool { i.group == GROUP_REVOKE }
+fn conformance_revoke_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    var g = RevokeGroup { .. };
+    return _run_part(g, io, fx, part);
+}
+
+fn step<Io>(g: WakeGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if wake_group_step(k, fx, io, ev) { return; }
+    k.fail("the check is not known to the driver");
+}
+fn setup<Io>(g: WakeGroup&, k: Case&, io: Io&) {}
+fn after<Io>(g: WakeGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn takes(g: WakeGroup&, i: Info) -> bool { i.group == GROUP_WAKE }
+fn conformance_wake_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    var g = WakeGroup { .. };
+    return _run_part(g, io, fx, part);
+}
+
+fn step<Io>(g: LimitsGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if limits_group_step(k, fx, io, ev) { return; }
+    k.fail("the check is not known to the driver");
+}
+fn setup<Io>(g: LimitsGroup&, k: Case&, io: Io&) {}
+fn after<Io>(g: LimitsGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn takes(g: LimitsGroup&, i: Info) -> bool { i.group == GROUP_LIMITS }
+fn conformance_limits_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    var g = LimitsGroup { .. };
+    return _run_part(g, io, fx, part);
+}
 
 struct Driver {
     part:     i64      = 0,

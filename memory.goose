@@ -879,7 +879,10 @@ fn _send(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:
         return goose_io::SendStatus.Sent;
     }
     let peer_end .= io._slots[link_end.peer];
-    let free_space = io.cfg.link_buffer - peer_end.unread_len;
+    // A link that waits for input reads no more than the peek bound into the library's view (see _input_ready), but the bytes
+    // beyond it stay in the region, which stands for the kernel's buffer: the sender is held back by that buffer, as with a socket.
+    let capacity = io.cfg.link_buffer;
+    let free_space = capacity - peer_end.unread_len;
     let base = link_end.peer * io.cfg.link_buffer + peer_end.unread_len;
     if total > free_space {
         if io._faulty(Fault.NeverFull) { return goose_io::SendStatus.Sent; }        // accepted and lost
@@ -997,14 +1000,14 @@ fn relay(io: Loop&, first: goose_io::Link, second: goose_io::Link) -> goose_io::
     let first_slot = io._slot_of(first);
     let second_slot = io._slot_of(second);
     guard first_slot >= 0 && second_slot >= 0 && first_slot != second_slot else { return goose_io::RelayStatus.Closed; }
-    // POSSIBLE BUG: nothing refuses two links that are the two ends of one connection (each other's peer).
-    // _pump_relays would then move a link's unread bytes into its own region, and the pair never makes progress.
+    // the two ends of one connection cannot be joined: the relay would move a link's bytes into its own region
     let first_end .= io._slots[first_slot];
     let second_end .= io._slots[second_slot];
     guard first_end.state != _SlotState.Closed && second_end.state != _SlotState.Closed else { return goose_io::RelayStatus.Closed; }
     guard first_end.state == _SlotState.Open && second_end.state == _SlotState.Open else { return goose_io::RelayStatus.NotOpen; }
     let neither_relayed = first_end.relay_partner < 0 && second_end.relay_partner < 0;
     guard neither_relayed || io._faulty(Fault.RelayJoinsRelayed) else { return goose_io::RelayStatus.AlreadyRelayed; }
+    guard first_end_peer_not(io, first_slot, second_slot) else { return goose_io::RelayStatus.Closed; }
     guard !first_end.write_shut && !second_end.write_shut else { return goose_io::RelayStatus.Closed; }
     first_end.relay_partner = second_slot;
     second_end.relay_partner = first_slot;
@@ -1031,14 +1034,18 @@ fn break_transport(io: Loop&, link: goose_io::Link) {
     io._abort(slot, goose_io::CloseReason.Error);
 }
 
-// True while a relayed link has bytes to carry or an end to pass on.
-//
-// POSSIBLE BUG: this counts bytes the partner has no room for. Such a link keeps the loop busy, so the
-// clock creeps forward 1 ms per cfg.passes_per_ms passes instead of jumping to the next due time. With
-// relay_stall_ms and kernel_timeout_ms both 0, a stalled relay spins until cfg.time_limit_ms.
-fn _relay_work(link_end: _Slot) -> bool {
+// True when the two slots are the two ends of one connection.
+fn first_end_peer_not(io: Loop&, first_slot: i64, second_slot: i64) -> bool { return io._slots[first_slot].peer != second_slot; }
+
+// True when the relay has something to move now: bytes the partner's far end has room for, or an end of stream to pass.
+// Bytes with no room wait without keeping the loop busy, so the clock can jump to the next due time.
+fn _relay_work(io: Loop&, link_end: _Slot) -> bool {
+    guard link_end.relay_partner >= 0 && link_end.state == _SlotState.Open else { return false; }
     let has_end_to_pass = link_end.peer_finished && !link_end.relay_finished;
-    return link_end.relay_partner >= 0 && link_end.state == _SlotState.Open && (link_end.unread_len > 0 || has_end_to_pass);
+    var has_room = false;
+    let out = io._slots[link_end.relay_partner].peer;
+    if link_end.unread_len > 0 { has_room = out < 0 || io._slots[out].unread_len < io.cfg.link_buffer; }
+    return has_room || has_end_to_pass && link_end.unread_len == 0;
 }
 
 // Moves what relayed links have received to their partners, as far as the partner's buffer allows.
@@ -1063,7 +1070,6 @@ fn _pump_relays(io: Loop&) {
                 io._slots[destination].unread_len += count;
                 io._slots[destination].received_total += count;
                 if io._faulty(Fault.RelayDropsLastByte) { io._slots[destination].unread_len--; }
-                source.last_input_at = io._clock;
                 source.last_activity_at = io._clock;
                 partner_end.last_activity_at = io._clock;
                 io._room_opened(source.peer);
@@ -1123,8 +1129,9 @@ fn _input_ready(io: Loop&, link_end: _Slot) -> bool {
 // POSSIBLE BUG: unlike the other operations this does not check io._finished, so it still changes a
 // finished loop (*A finished loop does nothing*). It also works on a relayed link, behind the relay's back.
 fn discard_unsent(io: Loop&, link: goose_io::Link) -> i64 {
+    if io._finished { return 0; }
     let slot = io._slot_of(link);
-    guard slot >= 0 && io._slots[slot].state == _SlotState.Open && io._slots[slot].peer >= 0 else { return 0; }
+    guard slot >= 0 && io._slots[slot].state == _SlotState.Open && io._slots[slot].peer >= 0 && io._slots[slot].relay_partner < 0 else { return 0; }
     let peer_end .= io._slots[io._slots[slot].peer];
     let discarded = peer_end.unread_len;
     if io._faulty(Fault.DiscardKeepsBytes) { return discarded; }
@@ -1135,6 +1142,7 @@ fn discard_unsent(io: Loop&, link: goose_io::Link) -> i64 {
 
 // POSSIBLE BUG: no io._finished check, so this still changes a finished loop.
 fn write_deadline(io: Loop&, link: goose_io::Link, at_ms: i64) {
+    if io._finished { return; }
     let slot = io._slot_of(link);
     guard slot >= 0 && io._slots[slot].state != _SlotState.Closed else { return; }
     let link_end .= io._slots[slot];
@@ -1175,7 +1183,7 @@ fn set_limit(io: Loop&, link: goose_io::Link, limit: goose_io::Limit, ms: i64) {
         link_end.limit_fired[index] = false;
         return;
     }
-    if link_end.limit_fired[index] { link_end.limit_armed_at[index] = io._clock; }      // armed again after it expired: counted from now
+    link_end.limit_armed_at[index] = io._clock;
     link_end.limit_ms[index] = ms;
     link_end.limit_fired[index] = false;
 }
@@ -1281,6 +1289,7 @@ fn waker(io: Loop&) -> goose_io::Waker {
 // POSSIBLE BUG: an unset Waker (id 0) sends a message that _take_wakes cannot tell from an empty
 // queue, so that wake is dropped without a trace.
 fn wake(io: Loop&, target: goose_io::Waker, value: i64) {
+    guard target.id != 0 else { return; }
     qput(_WakeMsg { id: target.id, value: value });
 }
 
@@ -1708,7 +1717,7 @@ fn _advance(io: Loop&) {
     }
     for link_end in io._slots {
         if link_end.state == _SlotState.Open {
-            if _has_read_work(link_end) || _relay_work(link_end) || io._input_ready(link_end) { busy = true; }
+            if _has_read_work(link_end) || _relay_work(io, link_end) || io._input_ready(link_end) { busy = true; }
         } else if link_end.state == _SlotState.Dialing {
             let due = if link_end.silent { link_end.connect_deadline } else { link_end.connect_at };
             if due <= io._clock { busy = true; }

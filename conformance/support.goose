@@ -32,6 +32,9 @@ struct Fixture {
     // The unix group only: an absolute path at which the loop may create a socket (without `unix:`); the checks derive
     // every other path from it. The loop creates and removes the file; the suite stops its listeners before it ends.
     unix: const u8[:] = "",
+    // The peek group only: the loop's bound on `peek` and `wait_input` (the bytes an `Input` can report); 0 when the loop's
+    // bound is not known to the runner, which skips the check of the bound.
+    peek_bound: i64 = 0,
 }
 
 // One recorded link event.
@@ -49,6 +52,11 @@ let GROUP_ABORT = 3;
 let GROUP_INSPECTION = 4;
 let GROUP_BATCHING = 5;
 let GROUP_UNIX = 6;
+let GROUP_RELAY = 7;
+let GROUP_PEEK = 8;
+let GROUP_REVOKE = 10;
+let GROUP_WAKE = 11;
+let GROUP_LIMITS = 12;
 let GROUP_NONE = 9;
 
 struct CoreGroup { n: i64 = 0 }
@@ -58,10 +66,15 @@ struct HalfCloseGroup { n: i64 = 0 }
 struct InspectionGroup { n: i64 = 0 }
 struct AbortGroup { n: i64 = 0 }
 struct UnixGroup { n: i64 = 0 }
+struct RelayGroup { n: i64 = 0 }
+struct PeekGroup { n: i64 = 0 }
+struct RevokeGroup { n: i64 = 0 }
+struct WakeGroup { n: i64 = 0 }
+struct LimitsGroup { n: i64 = 0 }
 
 struct Rec {
     role:     i64                   = 0,
-    kind:     u8                    = 0,    // 'O' 'D' 'W' 'E' 'C'
+    kind:     u8                    = 0,    // 'O' 'D' 'W' 'E' 'C'; 'I' Input (len = available), 'X' Expired (off = limit), 'K' Woken (len = value, role -1)
     at:       i64                   = 0,
     off:      i64                   = 0,    // Data: its bytes in Case.bytes
     len:      i64                   = 0,
@@ -207,6 +220,7 @@ fn sight(k: Case&, ev: goose_io::Event) {
         },
         Data e => { if k._issue_at(e.link.slot, e.link.gen) < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: false }); } },
         Writable e => { if k._issue_at(e.link.slot, e.link.gen) < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: false }); } },
+        Input e => { if k._issue_at(e.link.slot, e.link.gen) < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: false }); } },
         PeerEof e => { if k._issue_at(e.link.slot, e.link.gen) < 0 { k.issues.push(Issue { slot: e.link.slot, gen: e.link.gen, closed: false }); } },
         Closed e => {
             let i = k._issue_at(e.link.slot, e.link.gen);
@@ -327,6 +341,9 @@ fn track<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         },
         Writable e => { if k.role(e.link) >= 0 { k._record(e.link, Rec { kind: 'W', at: now, .. }); } },
         PeerEof e => { if k.role(e.link) >= 0 { k._record(e.link, Rec { kind: 'E', at: now, .. }); } },
+        Input e => { if k.role(e.link) >= 0 { k._record(e.link, Rec { kind: 'I', at: now, len: e.available, .. }); } },
+        Expired e => { if k.role(e.link) >= 0 { k._record(e.link, Rec { kind: 'X', at: now, off: limit_index(e.limit), .. }); } },
+        Woken e => { k.recs.push(Rec { role: -1, kind: 'K', at: now, len: e.value, .. }); },
         Closed e => {
             if k.role(e.link) >= 0 {
                 k._record(e.link, Rec { kind: 'C', at: now, why: e.why, .. });
@@ -398,4 +415,13 @@ fn starts_with(text: const u8[:], prefix: const u8[:]) -> bool {
     guard text.len >= prefix.len else { return false; }
     for i in prefix.len { if text[i] != prefix[i] { return false; } }
     return true;
+}
+
+// The position of a limit kind in the order of goose_io::Limit (Idle 0, Silent 1, Stalled 2, HalfOpen 3, Age 4).
+fn limit_index(l: goose_io::Limit) -> i64 {
+    if l == goose_io::Limit.Idle { return 0; }
+    if l == goose_io::Limit.Silent { return 1; }
+    if l == goose_io::Limit.Stalled { return 2; }
+    if l == goose_io::Limit.HalfOpen { return 3; }
+    return 4;
 }
