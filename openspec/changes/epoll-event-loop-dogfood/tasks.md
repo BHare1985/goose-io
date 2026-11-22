@@ -46,3 +46,14 @@ Work happens in `.implementations/tcprouter-goose-io` on a new branch; commits f
 ## Gap records
 
 <!-- one entry per gap: what the router needs, the nearest contract operation, why it cannot be built on it, the change that fixes it -->
+
+### Found while reading, before coding (2026-11-22)
+
+- G1 (predicted, confirm in 3.2): retry replays the ClientHello to a second server, then relays. `peek` consumes nothing and `relay` carries the
+  held bytes first, so the hello would reach the server twice. Needs a way to consume held input (for example `discard_input(link, n)` in the peek group),
+  or the router must route the hello through `wait_input(link, 0)` and `Data`, which is the workaround the design forbids. Fix: a small `add-peek-consume` change.
+- G2 (tests that look inside the engine; decision needed): `tests/net/harness/edges_server.goose` and `tests/unit/generation_test.goose` feed forged events to
+  the engine's own dispatch and read `stale_events`, `bad_events` (RT-2b, RT-2c); `buffers_in_use`, `buffers_total`, `buffer_waits`, `ready_len`,
+  `waiting_len` (RT-5g, RT-2a in `flat_memory_test`, `scale_test`, `queues_test`, `memory_test`) read the engine's own buffer pool. On the contract those belong to the
+  loop (link generations are checked by conformance; buffers are the loop's). The 46 files cannot all pass unedited unless the router keeps those counters
+  as fixed or derived values, which would pass without proving anything. To be decided with the user (and Charlie for tcprouter's rules).
