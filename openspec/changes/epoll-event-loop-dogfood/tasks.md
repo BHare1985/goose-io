@@ -57,3 +57,8 @@ Work happens in `.implementations/tcprouter-goose-io` on a new branch; commits f
   `waiting_len` (RT-5g, RT-2a in `flat_memory_test`, `scale_test`, `queues_test`, `memory_test`) read the engine's own buffer pool. On the contract those belong to the
   loop (link generations are checked by conformance; buffers are the loop's). The 46 files cannot all pass unedited unless the router keeps those counters
   as fixed or derived values, which would pass without proving anything. To be decided with the user (and Charlie for tcprouter's rules).
+
+### Decisions (2026-11-22, user)
+
+- D7: the router is a library in the contract's sense (docs/libraries.md): the application owns the loop, the router owns only its own state. `Router` is a root struct beside `epoll_ext::Loop`; neither nests the other (Goose forbids a root struct inside a root struct, and a plain struct allows one trailing resizable, which would limit a library's grow-only arrays; a library downstream of a loop must not be limited in how many it uses).
+- D8: existing tests may be edited only to accommodate this change (harness setup: create the loop, pass it to `start` and `serve`); their behavior and assertions must not change. Every edit is listed in the commit message.
