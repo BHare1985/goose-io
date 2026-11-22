@@ -39,6 +39,14 @@ stream means it is done, `Tick` and `tick_by` replace `PassEnd` for a library th
 fails to build on an event loop without it, naming the operation. `examples/lineclient/` needs only the core and its
 tests run on `tests/support/core_only.goose`; `examples/lineserver/` answers after the peer has finished sending, so it needs half-close.
 
+A proxy or a router needs more than the core, and each of these groups answers one need (`docs/contract.md`, section 2):
+`relay` joins two links so that the loop carries the bytes (a library never copies them), `peek` and `wait_input` let a
+library look at the first bytes of a link, to choose where to send it, without taking them, `discard_unsent` and
+`write_deadline` take back or bound what a slow peer has not read, `wake` lets another thread hand a value to the
+loop's thread, and `set_limit` with the `Expired` event has the loop report a link that has been idle, silent, stalled,
+half-open or open too long. A library lists the groups it needs in its `// Needs:` line and calls their `require_*`
+checks, as above.
+
 An event the loop never delivers is simply never handled: the `PeerEof` and `PassEnd` arms of the example libraries
 are never run on a loop without those groups.
 

@@ -1,5 +1,5 @@
 // Runs one part of the conformance suite against the in-memory event loop: `goose run tests/conformance/memory_conformance.goose -- 3 core`.
-// The part is the first argument (default 0) and the group the second (core, half-close, sizing, abort, inspection, batching or unix; default core).
+// The part is the first argument (default 0) and the group the second (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake or limits; default core).
 // The environment variable GOOSE_IO_FAULT, when set, switches the in-memory event loop to one of its named faults
 // (see tests/conformance/faults.sh).
 import std;

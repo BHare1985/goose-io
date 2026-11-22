@@ -863,7 +863,7 @@ fn _send(io: Loop&, link: goose_io::Link, first: const u8[:], second: const u8[:
     // a relayed link is sent to by its relay only
     if link_end.relay_partner >= 0 && !io._faulty(Fault.RelayedSendAccepted) { return goose_io::SendStatus.Closed; }
     let deadline_passed = link_end.write_deadline_at > 0 && io._clock >= link_end.write_deadline_at;
-    if deadline_passed && !io._faulty(Fault.WriteAfterDeadline) {
+    if deadline_passed {
         io._expire_deadline(slot);
         return goose_io::SendStatus.Closed;
     }
@@ -2068,7 +2068,7 @@ enum Fault {
     RelayDropsLastByte, RelayedSendAccepted, RelayedCountsHeld, RelayPartnerPeerReset, RelayJoinsRelayed,
     RelayCloseEndsOne,
     // the peek and revoke groups
-    BoundIgnored, WriteAfterDeadline, DeadlineNotReplaced, DiscardKeepsBytes, InputNeverDelivered,
+    BoundIgnored, DeadlineNotReplaced, DiscardKeepsBytes, InputNeverDelivered,
     DeadlineOnlyAtSend, InputEarly, PeerEndIgnored,
     // the limits group
     ReplaceKeepsFirst, IdleFromArming, SilentCountsWrites, AgeResetByActivity, StalledResetByReads,

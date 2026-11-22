@@ -230,12 +230,18 @@ fn c_limit_one_event_per_arming<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 
 fn c_limit_closed_link<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if limits_ready(k, io) {
+        // two limits fall due in one pass; the library closes the link in the handler of the first
+        io.set_limit(k.link[1], goose_io::Limit.Idle, 800);
         io.set_limit(k.link[1], goose_io::Limit.Age, 800);
-        io.close(k.link[1]);
         io.tick_by(k.t + 2000);
-    } else if k.step == 2 && io.now_ms() >= k.t + 2000 {
-        k.expect(k.count(1, 'X') == 0, "Expired was delivered for a link that was closing");
+    } else if k.step == 2 && k.count(1, 'X') == 1 {
+        io.close(k.link[1]);
+        k.step = 3;
+    } else if k.step == 3 && io.now_ms() >= k.t + 2000 {
+        k.expect(k.count(1, 'X') == 1, "Expired was delivered for a link that was closing");
         k.finish();
+    } else if k.step == 3 {
+        io.tick_by(k.t + 2000);
     }
 }
 

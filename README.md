@@ -156,7 +156,7 @@ client behind it. HTTP and Postgres libraries are separate projects; this reposi
 
 | | Status |
 |---|---|
-| The contract, version 0.2 | Implemented: 12 operations and 5 events in the core, and six optional groups (half-close, sizing, abort, inspection, batching, unix) |
+| The contract, version 0.2 | Implemented: the core and eleven optional groups (half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits) |
 | The conformance suite | Implemented: the core and each group, with a fault for every check |
 | The in-memory event loop | Implemented, for tests: scripted peers and a virtual clock |
 | Example libraries | Implemented: echo, a line server, a pooled line client |
@@ -170,7 +170,7 @@ loop is not part of the package: it needs C and lives in its own repository).
 
 | Event loop | Platform | Core | Groups | Contract | Passed at |
 |---|---|---|---|---|---|
-| In-memory ([`memory.goose`](memory.goose)) | any | yes | half-close, sizing, abort, inspection, batching, unix | 0.2 | the tests of this repository (a loop for tests: it opens no socket) |
+| In-memory ([`memory.goose`](memory.goose)) | any | yes | half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits | 0.3 | the tests of this repository (a loop for tests: it opens no socket) |
 | epoll ([goose-io-epoll](https://github.com/BHare1985/goose-io-epoll)) | Linux | yes | half-close, sizing, abort, inspection, batching (not unix) | 0.2 | `2db84df`, fifty repetitions, with the system-call, throughput and memory gates against tcprouter's engine in [`bench/`](bench/) |
 
 ## I am writing a library

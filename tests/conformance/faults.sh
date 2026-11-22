@@ -22,6 +22,11 @@ limited() {
     else "$@"; fi
 }
 
+bin=$(mktemp "${TMPDIR:-/tmp}/goose-io-faults.XXXXXX")
+trap 'rm -f "$bin"' EXIT
+# built once: the loops use threads, which `goose run` does not support
+goose build tests/conformance/memory_conformance.goose -o "$bin" || exit 2
+
 bad=0
 tested=0
 unfaulted=()
@@ -31,7 +36,7 @@ while IFS=$'\t' read -r check part req scenarios fault group; do
     if [ "$fault" = "-" ]; then unfaulted+=("$check"); continue; fi
     # the fault column holds one fault, or several separated by commas: the check must fail under each of them
     for one in ${fault//,/ }; do
-        out=$(GOOSE_IO_FAULT="$one" limited goose run tests/conformance/memory_conformance.goose -- "$part" "$group" 2>&1)
+        out=$(GOOSE_IO_FAULT="$one" limited "$bin" "$part" "$group" 2>&1)
         code=$?
         tested=$((tested + 1))
         if grep -q "^FAIL $check " <<<"$out"; then

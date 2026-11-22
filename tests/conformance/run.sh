@@ -27,8 +27,16 @@ done
 tsv=tests/conformance/checks.tsv
 # the groups and parts are the ones checks.tsv names (part is the second column, group the sixth)
 if [ -n "$only" ]; then groups=("$only"); else groups=($(grep -v '^#' "$tsv" | cut -f6 | sort -u)); fi
+# the wrapper supplies the core and the first six groups; the proxy groups run on the in-memory loop only
+if [ "$prog" = wrapped_conformance ] && [ -z "$only" ]; then
+    groups=($(printf '%s\n' "${groups[@]}" | grep -vxE 'relay|peek|revoke|wake|limits'))
+fi
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/goose-io-run.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
+
+# built once: the loops use threads, which `goose run` does not support
+bin="$tmp/$prog"
+goose build "tests/conformance/$prog.goose" -o "$bin" > "$tmp/build.log" 2>&1 || { cat "$tmp/build.log"; exit 2; }
 
 failed=0
 total=0
@@ -38,7 +46,7 @@ for g in "${groups[@]}"; do
     for ((i = 1; i <= repeat; i++)); do
         for p in "${parts[@]}"; do
             out="$tmp/out.$g.$p.$i"
-            goose run "tests/conformance/$prog.goose" -- "$p" "$g" > "$out" 2>&1
+            "$bin" "$p" "$g" > "$out" 2>&1
             code=$?
             if [ $code -ne 0 ]; then
                 echo "FAIL  $g part $p, repetition $i (exit $code)"

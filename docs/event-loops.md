@@ -1,7 +1,7 @@
 # Writing an event loop and running the conformance suite
 
 **In short:** you write the engine, and every library written for the contract runs on it. The job is the 13
-operations and 5 events of the core, and as many of the six optional groups as you like; the conformance suite tells
+operations and 5 events of the core, and as many of the eleven optional groups as you like; the conformance suite tells
 you when you are done. [`tests/support/core_only.goose`](../tests/support/core_only.goose) is the smallest example of
 the shape (it sits over the in-memory loop, where yours would sit over your sockets).
 
@@ -17,7 +17,7 @@ The **core**, which every event loop supplies: the operations `listen`, `listene
 events `Opened`, `Data`, `Writable`, `Closed` and `Tick`, with the types of `goose_io.goose`, as functions that a
 library calls by method syntax on the event loop's type.
 
-And any of six **groups**, which it may supply or leave out (`docs/contract.md`, section 2):
+And any of eleven **groups**, which it may supply or leave out (`docs/contract.md`, section 2):
 
 | Group | Operations | Events |
 |---|---|---|
@@ -27,9 +27,14 @@ And any of six **groups**, which it may supply or leave out (`docs/contract.md`,
 | inspection | `peer_address`, `stop_listening` | |
 | batching | | `PassEnd` |
 | unix | the address form `unix:/path`, no operation | |
+| relay | `relay`, `relayed_bytes` | |
+| peek | `peek`, `wait_input` | `Input` |
+| revoke | `discard_unsent`, `write_deadline` | |
+| wake | `waker`, `wake` | `Woken` |
+| limits | `set_limit` | `Expired` |
 
 Call `goose_io::require_core(io)` once from the event loop's root program, and the check of each group it supplies
-(`require_half_close`, `require_sizing`, `require_abort`, `require_inspection`; batching and unix have no operation and so no check). Each names every operation of its
+(`require_half_close`, `require_sizing`, `require_abort`, `require_inspection`, `require_relay`, `require_peek`, `require_revoke`, `require_wake`, `require_limits`; batching and unix have no operation and so no check). Each names every operation of its
 part with the contract's argument and result types and never runs, so a missing or mistyped operation is a compile
 error at that one line, naming the operation, and not deep inside a library. An event loop with nothing more than
 the core conforms; anything it adds (name resolution, TLS, other transports) is not part of the contract and no
@@ -44,13 +49,13 @@ a check listens on the loopback with port 0 and dials the port it was given, and
 contract calls (`close`, `pause_reading`, not sending; a check of a group also uses that group's operations). It therefore runs unchanged on any
 event loop, over IPv4 and IPv6 loopback.
 
-An event loop's root program constructs its loop, builds a fixture and calls the entry point of the core and of each group it supplies (`conformance_core_part`, `conformance_half_close_part`, `conformance_sizing_part`, `conformance_abort_part`, `conformance_inspection_part`, `conformance_batching_part`, `conformance_unix_part`) with a part number.
+An event loop's root program constructs its loop, builds a fixture and calls the entry point of the core and of each group it supplies (`conformance_core_part`, `conformance_half_close_part`, `conformance_sizing_part`, `conformance_abort_part`, `conformance_inspection_part`, `conformance_batching_part`, `conformance_unix_part`, `conformance_relay_part`, `conformance_peek_part`, `conformance_revoke_part`, `conformance_wake_part`, `conformance_limits_part`) with a part number.
 This is the program that runs the in-memory event loop, whose suite results the tests of this repository rely on:
 
 <!-- source: tests/conformance/memory_conformance.goose -->
 ```goose
 // Runs one part of the conformance suite against the in-memory event loop: `goose run tests/conformance/memory_conformance.goose -- 3 core`.
-// The part is the first argument (default 0) and the group the second (core, half-close, sizing, abort, inspection, batching or unix; default core).
+// The part is the first argument (default 0) and the group the second (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake or limits; default core).
 // The environment variable GOOSE_IO_FAULT, when set, switches the in-memory event loop to one of its named faults
 // (see tests/conformance/faults.sh).
 import std;
@@ -70,19 +75,25 @@ fn main() {
     var group: u8[>..] = [];
     if arg_count() > 2 { arg(2, group); }
     var io = goose_io_memory::Loop { .. };
+    io.cfg.peek_bound = 16;
     var fault: u8[>..] = [];
     if env("GOOSE_IO_FAULT", fault) && fault.len > 0 { io.set_fault(fault[..]); }
     io.silent("10.255.0.1:81");
     io.hold("127.0.0.1:9999");
     let up = io.add_peer();
     io.peer_accept(up, "10.255.0.2:80");
-    let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80", unix: "/run/goose-io-test.sock" };
+    let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80", unix: "/run/goose-io-test.sock", peek_bound: 16 };
     if group == "half-close" { exit(goose_io_conformance::conformance_half_close_part(io, fixture, part)); }
     if group == "sizing" { exit(goose_io_conformance::conformance_sizing_part(io, fixture, part)); }
     if group == "abort" { exit(goose_io_conformance::conformance_abort_part(io, fixture, part)); }
     if group == "inspection" { exit(goose_io_conformance::conformance_inspection_part(io, fixture, part)); }
     if group == "batching" { exit(goose_io_conformance::conformance_batching_part(io, fixture, part)); }
     if group == "unix" { exit(goose_io_conformance::conformance_unix_part(io, fixture, part)); }
+    if group == "relay" { exit(goose_io_conformance::conformance_relay_part(io, fixture, part)); }
+    if group == "peek" { exit(goose_io_conformance::conformance_peek_part(io, fixture, part)); }
+    if group == "revoke" { exit(goose_io_conformance::conformance_revoke_part(io, fixture, part)); }
+    if group == "wake" { exit(goose_io_conformance::conformance_wake_part(io, fixture, part)); }
+    if group == "limits" { exit(goose_io_conformance::conformance_limits_part(io, fixture, part)); }
     exit(goose_io_conformance::conformance_core_part(io, fixture, part));
 }
 ```
@@ -487,3 +498,34 @@ stops its listeners before it ends.
 `dial_while_draining` is complete only when the fixture supplies an address that still answers after `stop`
 (`Fixture.answers`): every listener of the loop has stopped by then, so no call can make one. Without it the check
 proves that the dial still ends in exactly one event and does not extend the grace period.
+
+### Scenarios added by the proxy groups
+
+The change add-proxy-groups added the groups relay, peek, revoke, wake and limits. Each has an entry point (`conformance_<group>_part`) and runs
+against a loop that supplies the core and the group (`tests/conformance/run.sh --group <group>`). Combinations of groups are held by
+`tests/unit/memory_relay_combo_test.goose` and `tests/unit/memory_relay_test.goose`.
+
+| Scenario | Proved by | Fault |
+|---|---|---|
+| Relay joins two links inside the loop | check `relay_carries_bytes` (relay group) | `RelayDropsLastByte` |
+| Relay joins two links inside the loop | check `relay_refusals` (relay group) | `RelayJoinsRelayed` |
+| A relay holds back and ends as a pair | check `relay_holds_back_unread` (relay group) | `RelayDropsLastByte`,`RelayedCountsHeld` |
+| A relayed link is owned by the relay | check `relay_send_refused_and_close_ends_both` (relay group) | `RelayDropsLastByte`,`RelayedSendAccepted`,`RelayCloseEndsOne` |
+| Peek waits for enough bytes and then releases them | check `wait_input_gathers` (peek group) | `InputNeverDelivered`,`InputEarly` |
+| Peek waits for enough bytes and then releases them | check `wait_input_peer_ends` (peek group) | `InputNeverDelivered`,`PeerEndIgnored` |
+| A link holds a bounded number of unread bytes | check `peek_bound` (peek group) | `BoundIgnored`,`InputNeverDelivered` |
+| Revoke takes back unsent bytes | check `discard_unsent_drops` (revoke group) | `DiscardKeepsBytes` |
+| A write deadline stops writes at a time | check `write_deadline_stops` (revoke group) | `DeadlineOnlyAtSend` |
+| A write deadline stops writes at a time | check `write_deadline_moved` (revoke group) | `DeadlineNotReplaced` |
+| Wakes are delivered in order and lost by no pass | check `wake_in_order` (wake group) | `WakeOrderReversed` |
+| A limit tells the library that a link has run too long in a state | check `limit_idle_and_age` (limits group) | `ExpiredRepeats`,`AgeNeverExpires` |
+| A limit tells the library that a link has run too long in a state | check `limit_replace_and_off` (limits group) | `ReplaceKeepsFirst` |
+| Idle, Silent and Age measure quiet and lifetime | check `limit_idle_activity_moves` (limits group) | `IdleFromArming` |
+| Idle, Silent and Age measure quiet and lifetime | check `limit_silent_while_sending` (limits group) | `SilentCountsWrites` |
+| Idle, Silent and Age measure quiet and lifetime | check `limit_age_not_moved` (limits group) | `AgeResetByActivity`,`AgeNeverExpires` |
+| Stalled bounds a link whose peer does not read | check `limit_stalled_never_reads` (limits group) | `StalledResetByReads` |
+| Stalled bounds a link whose peer does not read | check `limit_stalled_slow_reader` (limits group) | `StalledNoProgressReset` |
+| Stalled bounds a link whose peer does not read | check `limit_stalled_nothing_waits` (limits group) | `StalledAlways` |
+| A half-closed link is bounded | check `limit_halfopen_not_ended` (limits group) | `HalfOpenAlways` |
+| Expired reports and the library decides | check `limit_one_event_per_arming` (limits group) | `ReplaceKeepsFirst` |
+| Expired reports and the library decides | check `limit_closed_link` (limits group) | `ExpiredAfterClose` |
