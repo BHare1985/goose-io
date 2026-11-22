@@ -109,6 +109,7 @@ relay_send_refused_and_close_ends_both	0	A relayed link is owned by the relay	A 
 wait_input_gathers	0	Peek waits for enough bytes and then releases them	Peek waits for enough bytes and then releases them	InputNeverDelivered,InputEarly	peek
 wait_input_peer_ends	0	Peek waits for enough bytes and then releases them	Peek waits for enough bytes and then releases them	InputNeverDelivered,PeerEndIgnored	peek
 peek_bound	0	A link holds a bounded number of unread bytes	A link holds a bounded number of unread bytes	BoundIgnored,InputNeverDelivered	peek
+discard_input_drops	0	Peek waits for enough bytes and then releases them	Peek waits for enough bytes and then releases them	DiscardInputKeeps	peek
 discard_unsent_drops	0	Revoke takes back unsent bytes	Revoke takes back unsent bytes	DiscardKeepsBytes	revoke
 write_deadline_stops	0	A write deadline stops writes at a time	A write deadline stops writes at a time	DeadlineOnlyAtSend	revoke
 write_deadline_moved	0	A write deadline stops writes at a time	A write deadline stops writes at a time	DeadlineNotReplaced	revoke

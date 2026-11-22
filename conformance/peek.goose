@@ -9,6 +9,7 @@ fn peek_info(id: i64) -> Info {
     if id == 620 { return Info { name: "wait_input_gathers", req: "Peek waits for enough bytes and then releases them", part: 0 }; }
     if id == 621 { return Info { name: "wait_input_peer_ends", req: "Peek waits for enough bytes and then releases them", part: 0 }; }
     if id == 622 { return Info { name: "peek_bound", req: "A link holds a bounded number of unread bytes", part: 0 }; }
+    if id == 623 { return Info { name: "discard_input_drops", req: "Peek waits for enough bytes and then releases them", part: 0 }; }
     return Info { .. };
 }
 
@@ -88,9 +89,34 @@ fn c_peek_bound<Io>(k: Case&, io: Io&, fx: Fixture, ev: goose_io::Event) {
     }
 }
 
+fn c_discard_input_drops<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        k.connect_local(io, 0);
+        k.step = 1;
+    } else if k.step == 1 && k.pair_open(0) {
+        io.wait_input(k.link[1], 7);
+        io.send(k.link[0], "abcdefg");
+        k.step = 2;
+    } else if k.step == 2 && k.first(1, 'I') >= 0 {
+        k.expect(io.discard_input(k.link[1], 3) == 3, "discard_input did not report the 3 bytes dropped");
+        k.expect(io.peek(k.link[1]) == "defg", "the bytes after the dropped ones were not left held");
+        k.expect(io.discard_input(k.link[1], 100) == 4, "discard_input dropped more than was held");
+        k.expect(io.peek(k.link[1]).len == 0, "bytes were still held after all were dropped");
+        io.wait_input(k.link[1], 0);
+        io.send(k.link[0], "xy");
+        k.step = 3;
+    } else if k.step == 3 && k.received(1).len >= 2 {
+        k.expect(k.received(1) == "xy", "dropped bytes were delivered");
+        k.expect(k.count(1, 'I') == 1, "discard_input delivered an Input");
+        io.close(k.link[0]);
+        k.finish();
+    }
+}
+
 fn peek_group_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 620 { c_wait_input_gathers(k, io, ev); return true; }
     if k.id == 621 { c_wait_input_peer_ends(k, io, ev); return true; }
     if k.id == 622 { c_peek_bound(k, io, fx, ev); return true; }
+    if k.id == 623 { c_discard_input_drops(k, io, ev); return true; }
     return false;
 }

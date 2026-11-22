@@ -1104,6 +1104,21 @@ fn peek(io: Loop&, link: goose_io::Link) -> const u8[:] {
     return io._inbuf[base..base + count];
 }
 
+// Drops the first `byte_count` held bytes of an open, unrelayed link (at most what peek shows); returns how many.
+// Delivers no Input and no Data; the rest stays held.
+fn discard_input(io: Loop&, link: goose_io::Link, byte_count: i64) -> i64 {
+    if io._finished { return 0; }
+    let slot = io._slot_of(link);
+    guard slot >= 0 && io._slots[slot].state == _SlotState.Open && io._slots[slot].relay_partner < 0 else { return 0; }
+    let count = min(max(byte_count, 0), min(io._slots[slot].unread_len, io._peek_bound()));
+    if io._faulty(Fault.DiscardInputKeeps) { return count; }
+    if count > 0 {
+        io._consume(slot, count);
+        io._room_opened(io._slots[slot].peer);
+    }
+    return count;
+}
+
 // byte_count > 0: hold the link's bytes and deliver one Input when that many have arrived, the peer's stream ended,
 // or the bound is reached. 0: deliver what is held as Data.
 fn wait_input(io: Loop&, link: goose_io::Link, byte_count: i64) {
@@ -2068,7 +2083,7 @@ enum Fault {
     RelayDropsLastByte, RelayedSendAccepted, RelayedCountsHeld, RelayPartnerPeerReset, RelayJoinsRelayed,
     RelayCloseEndsOne,
     // the peek and revoke groups
-    BoundIgnored, DeadlineNotReplaced, DiscardKeepsBytes, InputNeverDelivered,
+    BoundIgnored, DeadlineNotReplaced, DiscardInputKeeps, DiscardKeepsBytes, InputNeverDelivered,
     DeadlineOnlyAtSend, InputEarly, PeerEndIgnored,
     // the limits group
     ReplaceKeepsFirst, IdleFromArming, SilentCountsWrites, AgeResetByActivity, StalledResetByReads,

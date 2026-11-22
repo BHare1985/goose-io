@@ -40,7 +40,7 @@ An event loop has to supply **the core**: 12 operations and 5 events, enough for
 | **Batching** | | `PassEnd` |
 | **Unix** | the address forms `unix:/path` and `unix:///path`; no operation | |
 | **Relay** | `relay`, `relayed_bytes` | |
-| **Peek** | `peek`, `wait_input` | `Input` |
+| **Peek** | `peek`, `wait_input`, `discard_input` | `Input` |
 | **Revoke** | `discard_unsent`, `write_deadline` | |
 | **Wake** | `waker`, `wake` | `Woken` |
 | **Limits** | `set_limit` | `Expired` |
@@ -383,10 +383,11 @@ A relayed link delivers no `Data` and no `Writable`. The pair ends as one. When 
 
 ### Peek
 
-Operations `peek(link)` and `wait_input(link, n)`, event `Input { link, available }`. For a library that has to look before it chooses, such as one that picks a handler from the first bytes of a connection.
+Operations `peek(link)`, `wait_input(link, n)` and `discard_input(link, n)`, event `Input { link, available }`. For a library that has to look before it chooses, such as one that picks a handler from the first bytes of a connection.
 
 - `peek` returns the bytes that have arrived on an open link and have not been delivered as `Data`, valid until the handler returns, and consumes nothing: calling it twice shows the same bytes. It returns none for a link that is not open or is stale.
 - `wait_input(link, n)` with `n` above 0 withholds `Data` and delivers one `Input` when `n` bytes have arrived, or the peer's stream has ended, or the loop's bound has been reached. `Data` stays withheld until `wait_input(link, 0)`, which delivers the held bytes unchanged and in order as `Data`.
+- `discard_input(link, n)` drops the first `n` held bytes of an open link that is not relayed, at most as many as `peek` shows, and returns how many it dropped (0 for any other link). It delivers no `Input` and no `Data`; the rest stays held, in order. A library that has sent the held bytes on itself, such as a router replaying a hello to a second server, drops them so that `relay` does not carry them again.
 - `Input` carries a count and not the bytes: they stay with the loop until `peek` or `relay`, so a library that decides without looking pays no copy.
 - **The bound** is configuration that every loop exposes, with a documented default. At the bound the loop stops reading the link and delivers `Input` with `available` equal to the bound even when `n` is larger; the library then closes, relays, or calls `wait_input(link, 0)`. Nothing past the bound is read.
 - A paused link holds its bytes and delivers no `Input` until it is resumed. The peer's end of stream is reported (`PeerEof` or `Closed`) after the released `Data`.

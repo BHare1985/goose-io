@@ -28,7 +28,7 @@ And any of eleven **groups**, which it may supply or leave out (`docs/contract.m
 | batching | | `PassEnd` |
 | unix | the address form `unix:/path`, no operation | |
 | relay | `relay`, `relayed_bytes` | |
-| peek | `peek`, `wait_input` | `Input` |
+| peek | `peek`, `wait_input`, `discard_input` | `Input` |
 | revoke | `discard_unsent`, `write_deadline` | |
 | wake | `waker`, `wake` | `Woken` |
 | limits | `set_limit` | `Expired` |
@@ -513,6 +513,7 @@ against a loop that supplies the core and the group (`tests/conformance/run.sh -
 | A relayed link is owned by the relay | check `relay_send_refused_and_close_ends_both` (relay group) | `RelayDropsLastByte`,`RelayedSendAccepted`,`RelayCloseEndsOne` |
 | Peek waits for enough bytes and then releases them | check `wait_input_gathers` (peek group) | `InputNeverDelivered`,`InputEarly` |
 | Peek waits for enough bytes and then releases them | check `wait_input_peer_ends` (peek group) | `InputNeverDelivered`,`PeerEndIgnored` |
+| Peek waits for enough bytes and then releases them | check `discard_input_drops` (peek group) | `DiscardInputKeeps` |
 | A link holds a bounded number of unread bytes | check `peek_bound` (peek group) | `BoundIgnored`,`InputNeverDelivered` |
 | Revoke takes back unsent bytes | check `discard_unsent_drops` (revoke group) | `DiscardKeepsBytes` |
 | A write deadline stops writes at a time | check `write_deadline_stops` (revoke group) | `DeadlineOnlyAtSend` |

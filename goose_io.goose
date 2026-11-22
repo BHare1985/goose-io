@@ -326,6 +326,7 @@ fn require_peek<Io>(io: Io&) {
         io.wait_input(link, 0);
         let seen: const u8[:] = io.peek(link);
         _is_i64(seen.len);
+        _is_i64(io.discard_input(link, 0));
     }
 }
 
