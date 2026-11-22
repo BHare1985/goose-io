@@ -172,6 +172,7 @@ fn c_limit_stalled_slow_reader<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     } else if k.step == 2 {
         // every 400 ms the peer reads for 100 ms and is then paused again, while the library keeps its link full (a real transport
         // releases its send buffer in lumps, so a single read per cycle is not progress it can be relied on to show)
+        if k.flag { fill(io, k.link[0], 64 << 20); }          // the library keeps its link full while the peer reads
         if k.flag && io.now_ms() >= k.p + 100 {
             io.pause_reading(k.link[1], true);
             fill(io, k.link[0], 64 << 20);
