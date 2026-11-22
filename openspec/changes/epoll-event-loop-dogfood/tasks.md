@@ -71,3 +71,5 @@ Work happens in `.implementations/tcprouter-goose-io` on a new branch; commits f
   Options: (a) a small `add-wake-payload` contract change (wake carries a fixed 64-byte record, as the pipe did); (b) the router keeps its own `qput`'d
   addressed records and uses `wake(waker, seq)` only as the doorbell, with the put-back limitation of the memory loop; (c) a mailbox group. Recommended: (a).
 - G3 resolved (user: do what is needed): option (a) built as `wake_with(waker, value, body)` and `Woken.body` (64 bytes), check `wake_carries_body`, fault `WakeBodyDropped`; goose-io a1172b7, ext d6c84f3 (80-byte pipe record). Conformance 19 checks on the memory loop, ext 17 groups x2 and net/run.sh 10 tests 0 failed. Not pushed; ext imports goose-io by hash a1172b7bfee6feb1ee8aef3b87af97269bd6232e, which exists on GitHub only after goose-io is pushed.
+
+- G4 (resolved, commit bfadab4): the router counts `bytes_in`/`bytes_out` from `relayed_bytes`, which must be readable while the link's `Closed` is handled. Contract text, check `relayed_bytes_in_closed`, fault `RelayedBytesLostAtClose`; memory loop and ext pass.
