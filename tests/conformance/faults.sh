@@ -48,8 +48,8 @@ done < tests/conformance/checks.tsv
 if [ ${#unfaulted[@]} -gt 0 ]; then echo "no fault possible, see docs/event-loops.md: ${unfaulted[*]}"; fi
 echo "$tested faults tried, $bad checks that did not fail"
 
-# an unknown fault name must not silently pass: the fault table in memory.goose has to know every name used
+# an unknown fault name must not silently pass: the Fault enum in memory.goose has to have every name used
 for f in $(grep -v '^#' tests/conformance/checks.tsv | cut -f5 | grep -v '^-$' | tr ',' '\n'); do
-    grep -q "\"$f\"" memory.goose || { echo "BAD   fault $f is not in memory.goose"; bad=$((bad + 1)); }
+    grep -qw "$f" <(sed -n '/^enum Fault {/,/^}/p' memory.goose) || { echo "BAD   fault $f is not in memory.goose"; bad=$((bad + 1)); }
 done
 [ $bad -eq 0 ]

@@ -498,10 +498,10 @@ root struct Loop {
     _chunks:        _Chunk[>..]    = [],
     // faults
     _last_remote:   _Addr          = _Addr { .. },   // fault StalePeerAddress
-    _fault:         Fault          = Fault.None,     // a deliberately broken behaviour (set_fault)
+    _fault:         u8[>..]        = [],            // str() of the broken behaviour set by set_fault, empty for none
 }
 
-fn _faulty(io: Loop&, fault: Fault) -> bool { io._fault == fault }
+fn _faulty(io: Loop&, fault: Fault) -> bool { io._fault.len > 0 && io._fault[..] == str(fault) }
 
 // The period of the regular Tick.
 fn _tick_period(io: Loop&) -> i64 { if io._faulty(Fault.TickEvery250) { 250 } else { io.cfg.tick_ms } }
@@ -2077,123 +2077,10 @@ enum Fault {
     WakeOrderReversed,
 }
 
-struct _FaultName { name: u8[], fault: Fault }
-
-let _FAULT_NAMES = [
-    _FaultName { "StaleHandleAccepted", Fault.StaleHandleAccepted },
-    _FaultName { "UnsetLinkHasRoom", Fault.UnsetLinkHasRoom },
-    _FaultName { "ClosedHandleStaleEarly", Fault.ClosedHandleStaleEarly },
-    _FaultName { "UnsetHandleAccepted", Fault.UnsetHandleAccepted },
-    _FaultName { "SlotsNeverReused", Fault.SlotsNeverReused },
-    _FaultName { "GenerationNotAdvanced", Fault.GenerationNotAdvanced },
-    _FaultName { "SlotFreedOnClose", Fault.SlotFreedOnClose },
-    _FaultName { "PeerCloseDropsData", Fault.PeerCloseDropsData },
-    _FaultName { "OpenedBeforeFailure", Fault.OpenedBeforeFailure },
-    _FaultName { "WrongListenerNamed", Fault.WrongListenerNamed },
-    _FaultName { "DialClosedLost", Fault.DialClosedLost },
-    _FaultName { "OpenedWithoutListener", Fault.OpenedWithoutListener },
-    _FaultName { "DialReturnsInvalid", Fault.DialReturnsInvalid },
-    _FaultName { "RefusedAsUnreachable", Fault.RefusedAsUnreachable },
-    _FaultName { "TimeoutEarly", Fault.TimeoutEarly },
-    _FaultName { "BadAddressAsRefused", Fault.BadAddressAsRefused },
-    _FaultName { "CancelledDialOpens", Fault.CancelledDialOpens },
-    _FaultName { "FinishedDialIssues", Fault.FinishedDialIssues },
-    _FaultName { "HeldIgnored", Fault.HeldIgnored },
-    _FaultName { "PortZeroReportsZero", Fault.PortZeroReportsZero },
-    _FaultName { "StopListeningClosesLinks", Fault.StopListeningClosesLinks },
-    _FaultName { "ListenerHandleReused", Fault.ListenerHandleReused },
-    _FaultName { "StalePeerAddress", Fault.StalePeerAddress },
-    _FaultName { "Ipv6Unsupported", Fault.Ipv6Unsupported },
-    _FaultName { "PeerAddressGoneOnClose", Fault.PeerAddressGoneOnClose },
-    _FaultName { "PeerAddressAfterFinish", Fault.PeerAddressAfterFinish },
-    _FaultName { "DataCorrupted", Fault.DataCorrupted },
-    _FaultName { "SendClobbersLentBytes", Fault.SendClobbersLentBytes },
-    _FaultName { "SendDropsLastByte", Fault.SendDropsLastByte },
-    _FaultName { "SendBeforeOpenSent", Fault.SendBeforeOpenSent },
-    _FaultName { "SendAfterCloseAccepted", Fault.SendAfterCloseAccepted },
-    _FaultName { "Send2SwapsParts", Fault.Send2SwapsParts },
-    _FaultName { "Send2TakesFirstPart", Fault.Send2TakesFirstPart },
-    _FaultName { "TooLargeGivesWritable", Fault.TooLargeGivesWritable },
-    _FaultName { "NeverFull", Fault.NeverFull },
-    _FaultName { "RoomWhenClosed", Fault.RoomWhenClosed },
-    _FaultName { "SendAfterShutdownAccepted", Fault.SendAfterShutdownAccepted },
-    _FaultName { "PauseIgnored", Fault.PauseIgnored },
-    _FaultName { "PauseBeforeOpenIgnored", Fault.PauseBeforeOpenIgnored },
-    _FaultName { "SendAfterFinishSent", Fault.SendAfterFinishSent },
-    _FaultName { "NoWritable", Fault.NoWritable },
-    _FaultName { "WritablePerRefusal", Fault.WritablePerRefusal },
-    _FaultName { "WritableOnFirstByte", Fault.WritableOnFirstByte },
-    _FaultName { "OneWritableOnly", Fault.OneWritableOnly },
-    _FaultName { "WritableAfterShutdown", Fault.WritableAfterShutdown },
-    _FaultName { "FullUnresolvedOnPeerClose", Fault.FullUnresolvedOnPeerClose },
-    _FaultName { "WritableAfterClose", Fault.WritableAfterClose },
-    _FaultName { "WritableAfterClosedResult", Fault.WritableAfterClosedResult },
-    _FaultName { "ClosedResultNotFinal", Fault.ClosedResultNotFinal },
-    _FaultName { "ResetIsGraceful", Fault.ResetIsGraceful },
-    _FaultName { "CloseWithUnreadResets", Fault.CloseWithUnreadResets },
-    _FaultName { "ClosedNeverDelivered", Fault.ClosedNeverDelivered },
-    _FaultName { "EofIgnoresDefault", Fault.EofIgnoresDefault },
-    _FaultName { "PeerEofBeforeData", Fault.PeerEofBeforeData },
-    _FaultName { "SecondCloseClosesAgain", Fault.SecondCloseClosesAgain },
-    _FaultName { "KeepOpenWhileDiallingIgnored", Fault.KeepOpenWhileDiallingIgnored },
-    _FaultName { "KeepOpenLateHonoured", Fault.KeepOpenLateHonoured },
-    _FaultName { "EarlyEofActedOn", Fault.EarlyEofActedOn },
-    _FaultName { "ShutdownBeforeOpenRemembered", Fault.ShutdownBeforeOpenRemembered },
-    _FaultName { "ClosedResultEndsShutLink", Fault.ClosedResultEndsShutLink },
-    _FaultName { "ResetDialOpens", Fault.ResetDialOpens },
-    _FaultName { "ResetAfterCloseClosesAgain", Fault.ResetAfterCloseClosesAgain },
-    _FaultName { "ShutdownOverridesLocal", Fault.ShutdownOverridesLocal },
-    _FaultName { "TickEvery250", Fault.TickEvery250 },
-    _FaultName { "TickByIgnored", Fault.TickByIgnored },
-    _FaultName { "TickByKeepsLatest", Fault.TickByKeepsLatest },
-    _FaultName { "NoPassEnd", Fault.NoPassEnd },
-    _FaultName { "IdlePassEnd", Fault.IdlePassEnd },
-    _FaultName { "StopWaitsForGrace", Fault.StopWaitsForGrace },
-    _FaultName { "ShutdownEarly", Fault.ShutdownEarly },
-    _FaultName { "ListenAfterStop", Fault.ListenAfterStop },
-    _FaultName { "DialFailsWhileDraining", Fault.DialFailsWhileDraining },
-    _FaultName { "StopLatestWins", Fault.StopLatestWins },
-    _FaultName { "SecondServeRuns", Fault.SecondServeRuns },
-    _FaultName { "SetupEventsDropped", Fault.SetupEventsDropped },
-    _FaultName { "UnixListenerIgnored", Fault.UnixListenerIgnored },
-    _FaultName { "UnixOverlapIgnored", Fault.UnixOverlapIgnored },
-    _FaultName { "UnixRefusedAsBadAddress", Fault.UnixRefusedAsBadAddress },
-    _FaultName { "UnixPortInvented", Fault.UnixPortInvented },
-    _FaultName { "UnixRelativeAccepted", Fault.UnixRelativeAccepted },
-    _FaultName { "UnixLongestRefused", Fault.UnixLongestRefused },
-    _FaultName { "UnixTripleSlashRefused", Fault.UnixTripleSlashRefused },
-    _FaultName { "UnixAliasNotHeld", Fault.UnixAliasNotHeld },
-    _FaultName { "RelayDropsLastByte", Fault.RelayDropsLastByte },
-    _FaultName { "RelayedSendAccepted", Fault.RelayedSendAccepted },
-    _FaultName { "RelayedCountsHeld", Fault.RelayedCountsHeld },
-    _FaultName { "RelayPartnerPeerReset", Fault.RelayPartnerPeerReset },
-    _FaultName { "RelayJoinsRelayed", Fault.RelayJoinsRelayed },
-    _FaultName { "RelayCloseEndsOne", Fault.RelayCloseEndsOne },
-    _FaultName { "BoundIgnored", Fault.BoundIgnored },
-    _FaultName { "WriteAfterDeadline", Fault.WriteAfterDeadline },
-    _FaultName { "DeadlineNotReplaced", Fault.DeadlineNotReplaced },
-    _FaultName { "DiscardKeepsBytes", Fault.DiscardKeepsBytes },
-    _FaultName { "InputNeverDelivered", Fault.InputNeverDelivered },
-    _FaultName { "DeadlineOnlyAtSend", Fault.DeadlineOnlyAtSend },
-    _FaultName { "InputEarly", Fault.InputEarly },
-    _FaultName { "PeerEndIgnored", Fault.PeerEndIgnored },
-    _FaultName { "ReplaceKeepsFirst", Fault.ReplaceKeepsFirst },
-    _FaultName { "IdleFromArming", Fault.IdleFromArming },
-    _FaultName { "SilentCountsWrites", Fault.SilentCountsWrites },
-    _FaultName { "AgeResetByActivity", Fault.AgeResetByActivity },
-    _FaultName { "StalledResetByReads", Fault.StalledResetByReads },
-    _FaultName { "StalledNoProgressReset", Fault.StalledNoProgressReset },
-    _FaultName { "StalledAlways", Fault.StalledAlways },
-    _FaultName { "HalfOpenAlways", Fault.HalfOpenAlways },
-    _FaultName { "ExpiredRepeats", Fault.ExpiredRepeats },
-    _FaultName { "ExpiredAfterClose", Fault.ExpiredAfterClose },
-    _FaultName { "AgeNeverExpires", Fault.AgeNeverExpires },
-    _FaultName { "WakeOrderReversed", Fault.WakeOrderReversed },
-];
-
-// Switches the loop to a named fault. Does nothing for a name it does not know.
+// Switches the loop to the fault of that name (a Fault variant without the "Fault." in front). A name that is no
+// variant never matches in _faulty, so it does nothing.
 fn set_fault(io: Loop&, name: const u8[:]) {
-    for entry in _FAULT_NAMES {
-        if entry.name[..] == name { io._fault = entry.fault; return; }
-    }
+    io._fault.clear();
+    io._fault.append("Fault.");
+    io._fault.append(name);
 }
