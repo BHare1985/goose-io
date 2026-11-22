@@ -62,3 +62,11 @@ Work happens in `.implementations/tcprouter-goose-io` on a new branch; commits f
 
 - D7: the router is a library in the contract's sense (docs/libraries.md): the application owns the loop, the router owns only its own state. `Router` is a root struct beside `epoll_ext::Loop`; neither nests the other (Goose forbids a root struct inside a root struct, and a plain struct allows one trailing resizable, which would limit a library's grow-only arrays; a library downstream of a loop must not be limited in how many it uses).
 - D8: existing tests may be edited only to accommodate this change (harness setup: create the loop, pass it to `start` and `serve`); their behavior and assertions must not change. Every edit is listed in the commit message.
+
+### Found while planning stage 1 (2026-11-22)
+
+- G3 (messages with bodies; decision needed): `tcprouter::Message` (Deadline{tag,until_ms}, CloseTagged{tag,gen}, SetAddr{target,slot,addr}, Policy{body:u8[..48]},
+  ReplaceDeadline, Stats, Drain) is posted to every worker today over a pipe per worker. After the port the library may not touch sockets or pipes, and the wake group
+  carries one `i64` to one `Waker`. Goose globals are per-thread copies, and `qput`/`qget` deliver to one receiver, so a broadcast with a body has no path.
+  Options: (a) a small `add-wake-payload` contract change (wake carries a fixed 64-byte record, as the pipe did); (b) the router keeps its own `qput`'d
+  addressed records and uses `wake(waker, seq)` only as the doorbell, with the put-back limitation of the memory loop; (c) a mailbox group. Recommended: (a).
