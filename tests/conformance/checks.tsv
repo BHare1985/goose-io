@@ -106,6 +106,7 @@ relay_carries_bytes	0	Relay joins two links inside the loop	Relay joins two link
 relay_refusals	0	Relay joins two links inside the loop	Relay joins two links inside the loop	RelayJoinsRelayed	relay
 relay_holds_back_unread	0	A relay holds back and ends as a pair	A relay holds back and ends as a pair	RelayDropsLastByte,RelayedCountsHeld	relay
 relay_send_refused_and_close_ends_both	0	A relayed link is owned by the relay	A relayed link is owned by the relay	RelayDropsLastByte,RelayedSendAccepted,RelayCloseEndsOne	relay
+relayed_bytes_in_closed	0	A relayed link is owned by the relay	A relayed link is owned by the relay	RelayedBytesLostAtClose	relay
 wait_input_gathers	0	Peek waits for enough bytes and then releases them	Peek waits for enough bytes and then releases them	InputNeverDelivered,InputEarly	peek
 wait_input_peer_ends	0	Peek waits for enough bytes and then releases them	Peek waits for enough bytes and then releases them	InputNeverDelivered,PeerEndIgnored	peek
 peek_bound	0	A link holds a bounded number of unread bytes	A link holds a bounded number of unread bytes	BoundIgnored,InputNeverDelivered	peek

@@ -1026,6 +1026,7 @@ fn relayed_bytes(io: Loop&, link: goose_io::Link) -> i64 {
     let slot = io._slot_of(link);
     guard slot >= 0 else { return 0; }
     let link_end .= io._slots[slot];
+    if io._faulty(Fault.RelayedBytesLostAtClose) && link_end.state == _SlotState.Closed { return 0; }
     if io._faulty(Fault.RelayedCountsHeld) { return link_end.carried + link_end.unread_len; }
     return link_end.carried;
 }
@@ -2092,7 +2093,7 @@ enum Fault {
     UnixListenerIgnored, UnixOverlapIgnored, UnixRefusedAsBadAddress, UnixPortInvented, UnixRelativeAccepted,
     UnixLongestRefused, UnixTripleSlashRefused, UnixAliasNotHeld,
     // the relay group
-    RelayDropsLastByte, RelayedSendAccepted, RelayedCountsHeld, RelayPartnerPeerReset, RelayJoinsRelayed,
+    RelayDropsLastByte, RelayedSendAccepted, RelayedCountsHeld, RelayedBytesLostAtClose, RelayPartnerPeerReset, RelayJoinsRelayed,
     RelayCloseEndsOne,
     // the peek and revoke groups
     BoundIgnored, DeadlineNotReplaced, DiscardInputKeeps, DiscardKeepsBytes, InputNeverDelivered,

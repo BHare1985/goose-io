@@ -12,6 +12,7 @@ fn relay_info(id: i64) -> Info {
     if id == 601 { return Info { name: "relay_refusals", req: "Relay joins two links inside the loop", part: 0 }; }
     if id == 602 { return Info { name: "relay_holds_back_unread", req: "A relay holds back and ends as a pair", part: 0 }; }
     if id == 603 { return Info { name: "relay_send_refused_and_close_ends_both", req: "A relayed link is owned by the relay", part: 0 }; }
+    if id == 604 { return Info { name: "relayed_bytes_in_closed", req: "A relayed link is owned by the relay", part: 0 }; }
     return Info { .. };
 }
 
@@ -118,10 +119,38 @@ fn c_relay_send_refused_and_close_ends_both<Io>(k: Case&, io: Io&, ev: goose_io:
     }
 }
 
+// relayed_bytes still answers while the link's Closed is handled (like peer_address): a library reads its counters there.
+fn c_relayed_bytes_in_closed<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+    if k.step == 0 {
+        two_pairs(k, io);
+        k.step = 1;
+    } else if k.step == 1 && both_open(k) {
+        k.expect(io.relay(k.link[1], k.link[3]) == goose_io::RelayStatus.Started, "relay did not return Started");
+        io.send(k.link[0], pattern(700)[..]);
+        io.send(k.link[2], pattern(300)[..]);
+        k.step = 2;
+    } else if k.step == 2 && k.received(2).len == 700 && k.received(0).len == 300 {
+        io.close(k.link[0]);
+        k.step = 3;
+    } else if k.step == 3 {
+        match ev {
+            Closed e => {
+                if goose_io::same(e.link, k.link[1]) {
+                    k.expect(io.relayed_bytes(e.link) == 700, "relayed_bytes was not available while Closed was handled");
+                    k.flag = true;
+                }
+            },
+            _ => {},
+        }
+        if k.flag && k.first(1, 'C') >= 0 && k.first(3, 'C') >= 0 { k.finish(); }
+    }
+}
+
 fn relay_group_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 600 { c_relay_carries_bytes(k, io, ev); return true; }
     if k.id == 601 { c_relay_refusals(k, io, ev); return true; }
     if k.id == 602 { c_relay_holds_back_unread(k, io, ev); return true; }
     if k.id == 603 { c_relay_send_refused_and_close_ends_both(k, io, ev); return true; }
+    if k.id == 604 { c_relayed_bytes_in_closed(k, io, ev); return true; }
     return false;
 }

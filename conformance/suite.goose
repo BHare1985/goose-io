@@ -71,7 +71,7 @@ fn group_of(name: const u8[:]) -> i64 {
     if name == "finished_loop_inspection" || name == "states_inspection" || name == "listen_stop_keeps_links" || name == "listener_handle_never_reused" || name == "peer_address_names_peer" || name == "peer_address_ipv6" || name == "handles_valid_in_closed" || name == "handles_stale_peer_address" || name == "handles_unset_inspection" { return GROUP_INSPECTION; }
     if name == "pass_end_follows_link_events" || name == "pass_end_not_on_idle_pass" { return GROUP_BATCHING; }
     if name == "unix_listen_dial" || name == "unix_held_path" || name == "unix_nothing_listens" || name == "unix_no_port" || name == "unix_malformed_paths" || name == "unix_longest_path" || name == "unix_url_spelling" || name == "unix_alias_held" { return GROUP_UNIX; }
-    if name == "relay_carries_bytes" || name == "relay_refusals" || name == "relay_holds_back_unread" || name == "relay_send_refused_and_close_ends_both" { return GROUP_RELAY; }
+    if name == "relay_carries_bytes" || name == "relay_refusals" || name == "relay_holds_back_unread" || name == "relay_send_refused_and_close_ends_both" || name == "relayed_bytes_in_closed" { return GROUP_RELAY; }
     if name == "wait_input_gathers" || name == "wait_input_peer_ends" || name == "peek_bound" || name == "discard_input_drops" { return GROUP_PEEK; }
     if name == "discard_unsent_drops" || name == "write_deadline_stops" || name == "write_deadline_moved" { return GROUP_REVOKE; }
     if name == "wake_in_order" { return GROUP_WAKE; }

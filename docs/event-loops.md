@@ -511,6 +511,7 @@ against a loop that supplies the core and the group (`tests/conformance/run.sh -
 | Relay joins two links inside the loop | check `relay_refusals` (relay group) | `RelayJoinsRelayed` |
 | A relay holds back and ends as a pair | check `relay_holds_back_unread` (relay group) | `RelayDropsLastByte`,`RelayedCountsHeld` |
 | A relayed link is owned by the relay | check `relay_send_refused_and_close_ends_both` (relay group) | `RelayDropsLastByte`,`RelayedSendAccepted`,`RelayCloseEndsOne` |
+| A relayed link is owned by the relay | check `relayed_bytes_in_closed` (relay group) | `RelayedBytesLostAtClose` |
 | Peek waits for enough bytes and then releases them | check `wait_input_gathers` (peek group) | `InputNeverDelivered`,`InputEarly` |
 | Peek waits for enough bytes and then releases them | check `wait_input_peer_ends` (peek group) | `InputNeverDelivered`,`PeerEndIgnored` |
 | Peek waits for enough bytes and then releases them | check `discard_input_drops` (peek group) | `DiscardInputKeeps` |
