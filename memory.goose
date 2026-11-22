@@ -331,7 +331,10 @@ enum _SlotState {
 enum _EventKind { Opened, Data, Writable, PeerEof, Closed, Input, Expired }
 
 // What wake carries across threads: flat.
-struct _WakeMsg { id: u32 = 0, value: i64 = 0 }
+struct _WakeMsg { id: u32 = 0, value: i64 = 0, body: u8[..64] = [] }
+
+// A taken wake waiting for delivery as Woken.
+struct _Woken { value: i64 = 0, body: u8[..64] = [] }
 
 // POSSIBLE BUG: waker() increments this global without synchronisation. Loops made on different
 // threads that call waker() at the same time can be given the same id, and then take each other's wakes.
@@ -487,7 +490,7 @@ root struct Loop {
     _stop_deadline: i64            = _FOREVER,
     // the wake group
     _waker_id:      u32            = 0,     // this loop's id, 0 until waker() is first called
-    _woken_values:  i64[>..<]      = [],    // values taken from the queue, to be delivered as Woken
+    _woken_values:  _Woken[>..<]   = [],    // values taken from the queue, to be delivered as Woken
     _woken_head:    i64            = 0,
     _expect_wakes:  i64            = 0,     // scripting: wakes a test thread will still make; an idle loop waits for them
     // scripting
@@ -1308,6 +1311,15 @@ fn wake(io: Loop&, target: goose_io::Waker, value: i64) {
     qput(_WakeMsg { id: target.id, value: value });
 }
 
+// As wake, with up to 64 bytes that arrive in Woken.body (longer text is cut).
+fn wake_with(io: Loop&, target: goose_io::Waker, value: i64, body: const u8[:]) {
+    guard target.id != 0 else { return; }
+    var m = _WakeMsg { id: target.id, value: value };
+    let n = if body.len < m.body.cap { body.len } else { m.body.cap };
+    m.body.append(body[..n]);
+    qput(m);
+}
+
 // Scripting, not part of the contract: a test thread will make this many more wakes; an idle loop waits for them
 // instead of moving its clock.
 fn expect_wakes(io: Loop&, count: i64) { io._expect_wakes = count; }
@@ -1325,7 +1337,7 @@ fn _take_wakes(io: Loop&, wait: bool) {
         // stops reading for this pass, so its own wakes queued behind it wait a pass. With `wait` set it
         // returns with nothing taken, and _advance may then move the clock while a wake is due.
         if message.id != io._waker_id { qput(message); return; }
-        io._woken_values.push(message.value);
+        io._woken_values.push(_Woken { value: message.value, body: message.body });
         if io._expect_wakes > 0 { io._expect_wakes--; }
         if wait { return; }
     }
@@ -1391,7 +1403,7 @@ fn serve<F>(io: Loop&) {
         while io._woken_head < io._woken_values.len {
             let position = if io._faulty(Fault.WakeOrderReversed) { io._woken_values.len - 1 - io._woken_head } else { io._woken_head };
             io._woken_head++;
-            let event: goose_io::Event = goose_io::Event.Woken { value: io._woken_values[position] };
+            let event: goose_io::Event = goose_io::Event.Woken { value: io._woken_values[position].value, body: if io._faulty(Fault.WakeBodyDropped) { [] } else { io._woken_values[position].body } };
             F(io, event);
         }
         io._woken_values.clear();
@@ -2089,7 +2101,7 @@ enum Fault {
     ReplaceKeepsFirst, IdleFromArming, SilentCountsWrites, AgeResetByActivity, StalledResetByReads,
     StalledNoProgressReset, StalledAlways, HalfOpenAlways, ExpiredRepeats, ExpiredAfterClose, AgeNeverExpires,
     // the wake group
-    WakeOrderReversed,
+    WakeOrderReversed, WakeBodyDropped,
 }
 
 // Switches the loop to the fault of that name (a Fault variant without the "Fault." in front). A name that is no

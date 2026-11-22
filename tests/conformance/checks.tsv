@@ -114,6 +114,7 @@ discard_unsent_drops	0	Revoke takes back unsent bytes	Revoke takes back unsent b
 write_deadline_stops	0	A write deadline stops writes at a time	A write deadline stops writes at a time	DeadlineOnlyAtSend	revoke
 write_deadline_moved	0	A write deadline stops writes at a time	A write deadline stops writes at a time	DeadlineNotReplaced	revoke
 wake_in_order	0	Wakes are delivered in order and lost by no pass	Wakes are delivered in order and lost by no pass	WakeOrderReversed	wake
+wake_carries_body	0	A wake can carry a body of up to 64 bytes, delivered with its value	A wake can carry a body of up to 64 bytes, delivered with its value	WakeBodyDropped	wake
 limit_idle_and_age	0	A limit tells the library that a link has run too long in a state	A limit tells the library that a link has run too long in a state	ExpiredRepeats,AgeNeverExpires	limits
 limit_replace_and_off	0	A limit tells the library that a link has run too long in a state	A limit tells the library that a link has run too long in a state	ReplaceKeepsFirst	limits
 limit_idle_activity_moves	0	Idle, Silent and Age measure quiet and lifetime	Idle, Silent and Age measure quiet and lifetime	IdleFromArming	limits

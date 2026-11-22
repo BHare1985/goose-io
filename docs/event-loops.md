@@ -519,6 +519,7 @@ against a loop that supplies the core and the group (`tests/conformance/run.sh -
 | A write deadline stops writes at a time | check `write_deadline_stops` (revoke group) | `DeadlineOnlyAtSend` |
 | A write deadline stops writes at a time | check `write_deadline_moved` (revoke group) | `DeadlineNotReplaced` |
 | Wakes are delivered in order and lost by no pass | check `wake_in_order` (wake group) | `WakeOrderReversed` |
+| A wake can carry a body of up to 64 bytes, delivered with its value | check `wake_carries_body` (wake group) | `WakeBodyDropped` |
 | A limit tells the library that a link has run too long in a state | check `limit_idle_and_age` (limits group) | `ExpiredRepeats`,`AgeNeverExpires` |
 | A limit tells the library that a link has run too long in a state | check `limit_replace_and_off` (limits group) | `ReplaceKeepsFirst` |
 | Idle, Silent and Age measure quiet and lifetime | check `limit_idle_activity_moves` (limits group) | `IdleFromArming` |

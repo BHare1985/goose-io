@@ -160,7 +160,8 @@ enum Event {
     // Delivered once for each wait_input(link, n) with n > 0, when n bytes or the peer's end have arrived, or the bound is reached.
     Input { link: Link, available: i64 },
     // The wake group. One for each wake, on the loop's thread, in the order one thread made them.
-    Woken { value: i64 },
+    // `body` is what wake_with sent (up to 64 bytes), empty for a plain wake.
+    Woken { value: i64, body: u8[..64] = [] },
     // The limits group. The link has been in the state of `limit` for the time it was armed with; the library decides.
     Expired { link: Link, limit: Limit },
 }
@@ -339,11 +340,12 @@ fn require_revoke<Io>(io: Io&) {
     }
 }
 
-// Wake: waker() -> Waker, wake(waker, value), and the event Woken. A Waker may be used from any thread.
+// Wake: waker() -> Waker, wake(waker, value), wake_with(waker, value, body) and the event Woken. A Waker may be used from any thread.
 fn require_wake<Io>(io: Io&) {
     if _never() {
         let w: Waker = io.waker();
         io.wake(w, 0);
+        io.wake_with(w, 0, "");
     }
 }
 

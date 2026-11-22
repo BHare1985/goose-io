@@ -75,6 +75,7 @@ fn group_of(name: const u8[:]) -> i64 {
     if name == "wait_input_gathers" || name == "wait_input_peer_ends" || name == "peek_bound" || name == "discard_input_drops" { return GROUP_PEEK; }
     if name == "discard_unsent_drops" || name == "write_deadline_stops" || name == "write_deadline_moved" { return GROUP_REVOKE; }
     if name == "wake_in_order" { return GROUP_WAKE; }
+    if name == "wake_carries_body" { return GROUP_WAKE; }
     if name.len > 6 && starts_with(name, "limit_") { return GROUP_LIMITS; }
     return GROUP_NONE;
 }
