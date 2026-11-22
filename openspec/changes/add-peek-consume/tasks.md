@@ -5,4 +5,4 @@
 
 ## 2. Loops
 
-- [ ] 2.1 goose-io-epoll-ext groups.goose
+- [x] 2.1 goose-io-epoll-ext groups.goose (ext ac30e8c)
