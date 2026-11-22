@@ -26,7 +26,7 @@ fn c_wake_in_order<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-fn c_wake_body<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
+fn c_wake_carries_body<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
         let w = io.waker();
         io.wake_with(w, 7, "tag=3 until=900");
@@ -47,6 +47,6 @@ fn c_wake_body<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 
 fn wake_group_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 650 { c_wake_in_order(k, io, ev); return true; }
-    if k.id == 651 { c_wake_body(k, io, ev); return true; }
+    if k.id == 651 { c_wake_carries_body(k, io, ev); return true; }
     return false;
 }
