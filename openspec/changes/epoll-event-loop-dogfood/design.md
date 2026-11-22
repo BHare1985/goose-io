@@ -82,6 +82,35 @@ where the test is a unit test, and on goose-io-epoll-ext for the network tests.
 tcprouter-goose-io imports goose-io and goose-io-epoll-ext by the full commit hash (goose's rule for git imports; tags work too). The two repos are private
 and unpushed today, so the imports start as local paths during the work and become pinned imports once they are pushed. Pushing is asked of the user.
 
+### D7. The library owns no loop; the application creates the loop and the router side by side
+Goose forbids a root struct inside a root struct and root globals in threads, and a downstream library must not be limited in its grow-only arrays, so
+`Worker` (a root struct) lives beside `epoll_ext::Loop`. Every call that touches a link takes the loop (`w.send(io, c, bytes)`, `w.start(io, cfg, index)`,
+`w.serve(io) { w, io, ev => ... }`). Harnesses, examples and `generation_test` changed only to create the loop and pass it (D8); no assertion changed.
+
+### D8. Existing tests change only to accommodate the new setup
+Behaviour and assertions stay; each commit lists the harness edits. The engine-internal checks (stale and bad slot events RT-2b/2c, buffer pool counters
+RT-5g/RT-2a, ready/waiting queue lengths) test the loop, not the router: unedited copies live in goose-io-epoll-ext (`net/tc/`, `unit/generation_test.goose`)
+and are run there; tcprouter keeps the router-level files.
+
+### D9. Memory per idle connection: 512 becomes 1024 bytes (RT-5b), decided by the owner
+The old engine held one record per connection (about 150 bytes). A forwarded connection is now two general loop links (about 160 bytes each after slimming:
+send queue, five limit slots, relay state, peek state) plus a small router record each (about 55 bytes), measured 746 bytes per idle connection against
+936 before slimming (forward-state moved to a per-slot table, narrower fields). Reaching 512 would mean lazily filled side tables for the send queue, peer
+address, peek and relay counters and compact timestamps in the loop, at the price of hot-path indirection. The owner chose to move the bound to 1024 bytes
+(RT-5a is unchanged: no pool buffer per idle connection). The same edit is in tcprouter's `memory_test.py` and `design/05-requirements.md`.
+
+### D10. Gaps found and closed in the contract or the loop (none worked around in the router)
+- G1 `discard_input(link, n)` in the peek group (a retry must not replay the ClientHello twice).
+- G3 `wake_with(waker, value, body)` and `Woken.body` (policy and control messages carry up to 64 bytes).
+- G4 `relayed_bytes` stays readable in Closed (stats count a pair's bytes after it ended).
+- G6 keep-open on inspect listeners; per-pass clock for fences; HalfOpen moved by traffic; batch window bounded by wakes and limits; pool minimum of one
+  buffer; `workers_ready` once per start; drain counts a relayed pair once.
+- Loop fairness: `_deliver` handles only events queued at its start, and `send` stops writing after 30 ms in one pass, so a handler that always has more to
+  send cannot starve wakes. The router writes fences with `write_deadline(until_ms + 1)` so the loop never cuts a write inside the deadline's own millisecond.
+- Handler Data bytes are copied into `Worker.data_copy` before the handler runs (the borrow checker cannot prove the handler apart from the loop's buffers):
+  one copy per handler Data event, none on the forwarding path.
+- `spawn` hands each thread the configuration through a global set before the threads start.
+
 ## Risks / Trade-offs
 
 - [The contract cannot consume peeked bytes after a retry, so RT-21 (early close) cannot pass] → check first (task 1.2); if so it is the first gap, and a
