@@ -160,7 +160,7 @@ introduced it).
 
 ## The epoll event loop
 
-The first event loop on real sockets is [goose-io-epoll](https://github.com/BHare1985/goose-io-epoll) (and [goose-io-epoll-ext](https://github.com/BHare1985/goose-io-epoll-ext), with forwarding added): one `epoll::Loop` is one thread's loop,
+The first event loop on real sockets is [goose-io-epoll](https://github.com/BHare1985/goose-io-epoll) (the example loop, which a new loop can be derived from; [goose-io-epoll-ext](https://github.com/BHare1985/goose-io-epoll-ext) is the feature-rich loop that supplies the relay, peek, revoke, wake and limits groups too, and that [tcprouter-goose-io](https://github.com/BHare1985/tcprouter-goose-io) runs on): one `epoll::Loop` is one thread's loop,
 on Linux, made from the generic layer of tcprouter's engine (the worker loop, slots and generations, the buffer pool and bounded send
 queue, dial, timeouts, drain and statistics) with the proxy removed, and moved to the contract's names. It supplies the core and the
 half-close, sizing, abort, inspection and batching groups; it does not supply the unix group (a `unix:` address is `BadAddress`).

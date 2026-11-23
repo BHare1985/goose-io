@@ -1,5 +1,7 @@
 # Adopting the epoll event loop in tcprouter
 
+> Done: tcprouter runs on goose-io as [tcprouter-goose-io](https://github.com/BHare1985/tcprouter-goose-io), a library beside `epoll_ext::Loop`. This page is the plan it was made from; what the port found is in `openspec/specs/router-on-goose-io/spec.md` and `openspec/changes/archive/2026-11-23-epoll-event-loop-dogfood/design.md`.
+
 For the project that refactors tcprouter onto goose-io. Nothing here changes tcprouter; it says where tcprouter's code now lives in
 goose-io-epoll (the loop) and goose-io-epoll-ext (the loop with forwarding added back), what was left behind, and
 what that project has to keep true.
