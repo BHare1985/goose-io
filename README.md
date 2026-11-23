@@ -156,7 +156,7 @@ client behind it. HTTP and Postgres libraries are separate projects; this reposi
 
 | | Status |
 |---|---|
-| The contract, version 0.3 | Implemented: the core and eleven optional groups (half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits) |
+| The contract, version 0.4 | Implemented: the core and eleven optional groups (half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits) |
 | The conformance suite | Implemented: the core and each group, with a fault for every check |
 | The in-memory event loop | Implemented, for tests: scripted peers and a virtual clock |
 | Example libraries | Implemented: echo, a line server, a pooled line client |
@@ -308,7 +308,7 @@ way. A layer is not an event loop of its own: it conforms by passing the suite o
 
 | Event loop | Kind | Contract | Core | Groups |
 |---|---|---|---|---|
-| in-memory (`memory.goose`) | event loop, for tests | 0.3 | yes | half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits |
+| in-memory (`memory.goose`) | event loop, for tests | 0.4 | yes | half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits |
 | wrapper (`tests/support/wrapper.goose`) | a layer over another event loop | 0.2 | yes | half-close, sizing, abort, inspection, batching, unix |
 | core only (`tests/support/core_only.goose`) | test scaffold | 0.2 | yes | none |
 

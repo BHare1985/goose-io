@@ -4,9 +4,9 @@ Ground rules: work on a branch of goose-io after `epoll-event-loop` and `epoll-e
 
 ## 1. Declarations in the contract
 
-- [ ] 1.1 Add `Supplied`, `Absent`, and for each of the eleven capabilities a default `supplies_<c><Io>(io: Io&) -> Absent` and a query `has_<c><Io>(io: Io&)` (design D2) to `goose_io.goose`. Raise the minor version by one. Verify `goose check goose_io.goose` passes.
-- [ ] 1.2 Add `tests/unit/capabilities_test.goose` (renamed from `tests/unit/groups_test.goose`, keeping its checks). It asks each query of the in-memory loop (every capability `Supplied`), of `core_only::Core` (every capability `Absent`; it refuses `unix:`), and of a loop declared in a third namespace. Verify it fails before 1.3 and passes after.
-- [ ] 1.3 Declare every capability the in-memory loop supplies in `memory.goose`, and the ones `tests/support/core_only.goose` supplies. Forward the declarations in `tests/support/wrapper.goose` and `tests/support/kit.goose` through `goose_io::has_<c>` (D5). Verify `bash tests/run_tests.sh` passes.
+- [x] 1.1 Add `Supplied`, `Absent`, and for each of the eleven capabilities a default `supplies_<c><Io>(io: Io&) -> Absent` and a query `has_<c><Io>(io: Io&)` (design D2) to `goose_io.goose`. Raise the minor version by one. Verify `goose check goose_io.goose` passes.
+- [x] 1.2 Add `tests/unit/capabilities_test.goose` (renamed from `tests/unit/groups_test.goose`, keeping its checks). It asks each query of the in-memory loop (every capability `Supplied`), of `core_only::Core` (every capability `Absent`; it refuses `unix:`), and of a loop declared in a third namespace. Verify it fails before 1.3 and passes after.
+- [x] 1.3 Declare every capability the in-memory loop supplies in `memory.goose`, and the ones `tests/support/core_only.goose` supplies. Forward the declarations in `tests/support/wrapper.goose` and `tests/support/kit.goose` through `goose_io::has_<c>` (D5). Verify `bash tests/run_tests.sh` passes.
 
 ## 2. Checks require the declaration
 

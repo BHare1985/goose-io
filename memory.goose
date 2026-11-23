@@ -1361,6 +1361,19 @@ fn stop(io: Loop&, grace_ms: i64) {
 
 fn draining(io: Loop&) -> bool { io._draining || io._finished }
 
+// The capabilities this loop supplies (docs/event-loops.md): every one of the eleven.
+fn supplies_half_close(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_sizing(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_abort(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_inspection(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_batching(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_unix(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_relay(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_peek(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_revoke(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_wake(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_limits(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+
 fn serve<F>(io: Loop&) {
     if io._finished {          // a second serve returns at once, without calling its handler
         if io._fault_is(Fault.SecondServeRuns) {

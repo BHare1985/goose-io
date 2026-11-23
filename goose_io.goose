@@ -21,7 +21,7 @@ import std;
 
 // While the major number is 0 a minor increase may change or remove behaviour.
 let VERSION_MAJOR = 0;
-let VERSION_MINOR = 3;
+let VERSION_MINOR = 4;
 
 // --- handles -------------------------------------------------------------------------------------
 
@@ -236,6 +236,51 @@ fn drop<T>(m: LinkMap<T>&, link: Link) {
     guard m.has(link) else { return; }
     m.entries[link.slot] = LinkEntry<T> { .. };
 }
+
+// --- capability declarations ----------------------------------------------------------------------
+
+// A loop says which capabilities it supplies with one overload each, defined unqualified in its own namespace:
+//   fn supplies_relay(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+// The default below answers Absent for every loop that does not. A library or wrapper asks with has_<c>(io), never
+// by calling supplies_<c> itself (the loop's overload is visible only to method syntax inside this namespace), and
+// branches on the answer's type with `const if same<S, goose_io::Supplied>`.
+
+struct Supplied {}
+struct Absent {}
+
+fn supplies_half_close<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_half_close<Io>(io: Io&) { return io.supplies_half_close(); }
+
+fn supplies_sizing<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_sizing<Io>(io: Io&) { return io.supplies_sizing(); }
+
+fn supplies_abort<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_abort<Io>(io: Io&) { return io.supplies_abort(); }
+
+fn supplies_inspection<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_inspection<Io>(io: Io&) { return io.supplies_inspection(); }
+
+fn supplies_batching<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_batching<Io>(io: Io&) { return io.supplies_batching(); }
+
+fn supplies_unix<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_unix<Io>(io: Io&) { return io.supplies_unix(); }
+
+fn supplies_relay<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_relay<Io>(io: Io&) { return io.supplies_relay(); }
+
+fn supplies_peek<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_peek<Io>(io: Io&) { return io.supplies_peek(); }
+
+fn supplies_revoke<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_revoke<Io>(io: Io&) { return io.supplies_revoke(); }
+
+fn supplies_wake<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_wake<Io>(io: Io&) { return io.supplies_wake(); }
+
+fn supplies_limits<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_limits<Io>(io: Io&) { return io.supplies_limits(); }
+
 
 // --- what an event loop must supply ---------------------------------------------------------------
 

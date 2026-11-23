@@ -68,7 +68,7 @@ fn main() {
     check(bytes_of(shapes).len + 1 <= 25, "Event is at most 25 bytes");
 
     // Version
-    check(goose_io::VERSION_MAJOR == 0 && goose_io::VERSION_MINOR == 3, "contract version is 0.3");
+    check(goose_io::VERSION_MAJOR == 0 && goose_io::VERSION_MINOR == 4, "contract version is 0.4");
 
     if failures > 0 { print(failures, " failed"); exit(1); }
 }

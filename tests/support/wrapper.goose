@@ -323,6 +323,14 @@ fn _supplied(w: Layer&) {
     goose_io::require_inspection(w);
 }
 
+// Declarations: the wrapper supplies what it passes through, and answers what the loop beneath answers (D5 of rename-groups-to-capabilities).
+fn supplies_half_close(w: Layer&) { return goose_io::has_half_close(inner); }
+fn supplies_sizing(w: Layer&) { return goose_io::has_sizing(inner); }
+fn supplies_abort(w: Layer&) { return goose_io::has_abort(inner); }
+fn supplies_inspection(w: Layer&) { return goose_io::has_inspection(inner); }
+fn supplies_batching(w: Layer&) { return goose_io::has_batching(inner); }
+fn supplies_unix(w: Layer&) { return goose_io::has_unix(inner); }
+
 // --- for tests: the inner event loop's extras, with the bytes changed for the scripted peer ------------------------
 
 fn add_peer(w: Layer&) -> goose_io_memory::Peer { w._prepare(); return inner.add_peer(); }
