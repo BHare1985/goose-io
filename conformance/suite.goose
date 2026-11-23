@@ -167,6 +167,7 @@ fn setup<Io>(g: RelayGroup&, k: Case&, io: Io&) {}
 fn after<Io>(g: RelayGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
 fn takes(g: RelayGroup&, i: Info) -> bool { i.group == GROUP_RELAY }
 fn conformance_relay_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    goose_io::require_relay(io);
     var g = RelayGroup { .. };
     return _run_part(g, io, fx, part);
 }
@@ -179,6 +180,7 @@ fn setup<Io>(g: PeekGroup&, k: Case&, io: Io&) {}
 fn after<Io>(g: PeekGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
 fn takes(g: PeekGroup&, i: Info) -> bool { i.group == GROUP_PEEK }
 fn conformance_peek_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    goose_io::require_peek(io);
     var g = PeekGroup { .. };
     return _run_part(g, io, fx, part);
 }
@@ -191,6 +193,7 @@ fn setup<Io>(g: RevokeGroup&, k: Case&, io: Io&) {}
 fn after<Io>(g: RevokeGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
 fn takes(g: RevokeGroup&, i: Info) -> bool { i.group == GROUP_REVOKE }
 fn conformance_revoke_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    goose_io::require_revoke(io);
     var g = RevokeGroup { .. };
     return _run_part(g, io, fx, part);
 }
@@ -203,6 +206,7 @@ fn setup<Io>(g: WakeGroup&, k: Case&, io: Io&) {}
 fn after<Io>(g: WakeGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
 fn takes(g: WakeGroup&, i: Info) -> bool { i.group == GROUP_WAKE }
 fn conformance_wake_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    goose_io::require_wake(io);
     var g = WakeGroup { .. };
     return _run_part(g, io, fx, part);
 }
@@ -215,6 +219,7 @@ fn setup<Io>(g: LimitsGroup&, k: Case&, io: Io&) {}
 fn after<Io>(g: LimitsGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
 fn takes(g: LimitsGroup&, i: Info) -> bool { i.group == GROUP_LIMITS }
 fn conformance_limits_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    goose_io::require_limits(io);
     var g = LimitsGroup { .. };
     return _run_part(g, io, fx, part);
 }
@@ -328,36 +333,42 @@ fn conformance_core_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
 
 // The checks of the batching group (`PassEnd`).
 fn conformance_batching_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    goose_io::require_batching(io);
     var g = BatchingGroup { .. };
     return _run_part(g, io, fx, part);
 }
 
 // The checks of the half-close group: `shutdown_write`, `set_keep_open_on_eof` and `PeerEof`.
 fn conformance_half_close_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    goose_io::require_half_close(io);
     var g = HalfCloseGroup { .. };
     return _run_part(g, io, fx, part);
 }
 
 // The checks of the sizing group: `send_room` and `send2`.
 fn conformance_sizing_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    goose_io::require_sizing(io);
     var g = SizingGroup { .. };
     return _run_part(g, io, fx, part);
 }
 
 // The checks of the abort group: `reset`.
 fn conformance_abort_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    goose_io::require_abort(io);
     var g = AbortGroup { .. };
     return _run_part(g, io, fx, part);
 }
 
 // The checks of the inspection group: `peer_address`, and `stop_listening`.
 fn conformance_inspection_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    goose_io::require_inspection(io);
     var g = InspectionGroup { .. };
     return _run_part(g, io, fx, part);
 }
 
 // The checks of the unix group: the address form `unix:/path`. The fixture's `unix` is a path the loop may use.
 fn conformance_unix_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    goose_io::require_unix(io);
     var g = UnixGroup { .. };
     return _run_part(g, io, fx, part);
 }

@@ -329,6 +329,7 @@ fn require_half_close<Io>(io: Io&) {
         io.set_keep_open_on_eof(link, false);
         io.shutdown_write(link);
     }
+    _is_supplied(io.supplies_half_close());
 }
 
 // Sizing: send_room(link) -> i64, send2(link, first, second) -> SendStatus.
@@ -338,6 +339,7 @@ fn require_sizing<Io>(io: Io&) {
         _is_i64(io.send_room(link));
         _is_send_status_type(io.send2(link, "x", "y"));
     }
+    _is_supplied(io.supplies_sizing());
 }
 
 // Abort: reset(link).
@@ -345,6 +347,7 @@ fn require_abort<Io>(io: Io&) {
     if _never() {
         io.reset(Link { .. });
     }
+    _is_supplied(io.supplies_abort());
 }
 
 // Inspection: peer_address(link) -> Address, stop_listening(listener).
@@ -354,7 +357,12 @@ fn require_inspection<Io>(io: Io&) {
         _is_address_type(io.peer_address(link));
         io.stop_listening(Listener { .. });
     }
+    _is_supplied(io.supplies_inspection());
 }
+
+// Batching has no operation, only the event PassEnd, and unix only an address form: their checks are the declaration alone.
+fn require_batching<Io>(io: Io&) { _is_supplied(io.supplies_batching()); }
+fn require_unix<Io>(io: Io&) { _is_supplied(io.supplies_unix()); }
 
 // Relay: relay(a, b) -> RelayStatus, relayed_bytes(link) -> i64.
 fn require_relay<Io>(io: Io&) {
@@ -363,6 +371,7 @@ fn require_relay<Io>(io: Io&) {
         _is_relay_status_type(io.relay(link, link));
         _is_i64(io.relayed_bytes(link));
     }
+    _is_supplied(io.supplies_relay());
 }
 
 // Peek: peek(link) -> const u8[:], wait_input(link, n), and the event Input.
@@ -374,6 +383,7 @@ fn require_peek<Io>(io: Io&) {
         _is_i64(seen.len);
         _is_i64(io.discard_input(link, 0));
     }
+    _is_supplied(io.supplies_peek());
 }
 
 // Revoke: discard_unsent(link) -> i64, write_deadline(link, at_ms).
@@ -383,6 +393,7 @@ fn require_revoke<Io>(io: Io&) {
         _is_i64(io.discard_unsent(link));
         io.write_deadline(link, 0);
     }
+    _is_supplied(io.supplies_revoke());
 }
 
 // Wake: waker() -> Waker, wake(waker, value), wake_with(waker, value, body) and the event Woken. A Waker may be used from any thread.
@@ -392,6 +403,7 @@ fn require_wake<Io>(io: Io&) {
         io.wake(w, 0);
         io.wake_with(w, 0, "");
     }
+    _is_supplied(io.supplies_wake());
 }
 
 // Limits: set_limit(link, kind, ms), and the event Expired.
@@ -399,9 +411,11 @@ fn require_limits<Io>(io: Io&) {
     if _never() {
         io.set_limit(Link { .. }, Limit.Idle, 0);
     }
+    _is_supplied(io.supplies_limits());
 }
 
 fn _never() -> bool { false }
+fn _is_supplied(s: Supplied) {}
 fn _is_relay_status_type(v: RelayStatus) {}
 fn _is_listener_type(v: Listener) {}
 fn _is_listen_error_type(v: ListenError) {}

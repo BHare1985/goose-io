@@ -10,8 +10,8 @@ Ground rules: work on a branch of goose-io after `epoll-event-loop` and `epoll-e
 
 ## 2. Checks require the declaration
 
-- [ ] 2.1 Make each `require_<c>` also call `_is_supplied(io.supplies_<c>())` (D4). Verify a new must-fail test, `tests/unit/undeclared_relay_mustfail.goose` (a loop with every relay operation and no declaration), fails to build with an error naming `supplies_relay`. Verify a second must-fail test, `tests/unit/declared_without_ops_mustfail.goose` (declares relay, lacks `relayed_bytes`), fails naming `relayed_bytes`.
-- [ ] 2.2 Make the suite's entry point for each capability call `require_<c>`, so it needs the declaration. Verify `bash tests/conformance/run.sh`, `--core-only` and `--wrapped` all pass, and that a must-fail root passing an undeclared peek loop to the peek entry point fails naming `supplies_peek`.
+- [x] 2.1 Make each `require_<c>` also call `_is_supplied(io.supplies_<c>())` (D4). Verify a new must-fail test, `tests/unit/undeclared_relay_mustfail.goose` (a loop with every relay operation and no declaration), fails to build with an error naming `supplies_relay`. Verify a second must-fail test, `tests/unit/declared_without_ops_mustfail.goose` (declares relay, lacks `relayed_bytes`), fails naming `relayed_bytes`.
+- [x] 2.2 Make the suite's entry point for each capability call `require_<c>`, so it needs the declaration. Verify `bash tests/conformance/run.sh`, `--core-only` and `--wrapped` all pass, and that a must-fail root passing an undeclared peek loop to the peek entry point fails naming `supplies_peek`.
 
 ## 3. The rename
 
