@@ -112,24 +112,6 @@ Each worker SHALL keep counters for accepted, open and closed links by reason, b
 - **WHEN** a known number of connections is opened and closed across four workers and statistics are gathered
 - **THEN** the summed accepted and closed counts equal the number of connections
 
-### Requirement: An extension seam for specialised engines
-A program SHALL be able to supply an extension, resolved at compile time, that owns link states the loop does not interpret, registers additional sockets and receives their raw events, borrows and returns pool buffers, queues a link for work after the batch, decides what happens to an accepted socket, refuses a send, observes a close, and receives sweeps and control messages addressed to it.
-
-#### Scenario: An extension joins two sockets
-- **WHEN** a test extension takes an accepted socket, connects a second socket, and copies bytes between them using raw events, pool buffers and the ready queue
-- **THEN** bytes flow both ways with backpressure, both sockets close when either side ends, and no contract event is delivered for that connection
-
-#### Scenario: An extension refuses a send
-- **WHEN** an extension reports, for a slot, that the link in it is no longer allowed and a library then sends on that link
-- **THEN** no bytes are transmitted and the link is closed with a `LoopSpecific` reason
-
-### Requirement: The seam is free when unused
-A worker run without an extension SHALL execute no extension code on any path, and an extension whose hooks do nothing SHALL NOT change the system calls made per request.
-
-#### Scenario: System calls with and without an empty extension
-- **WHEN** one request workload is traced on a worker with no extension and on one with an extension whose hooks are empty
-- **THEN** the count of each system call per request is identical
-
 ### Requirement: Behaviour matches tcprouter's handler mode
 For links handled by a library, the loop SHALL behave as tcprouter's handler mode at the commit it is derived from: the tcprouter tests of handler, dialled and half-closed links, pass-end, send queues, backpressure, generations, timeouts and drain SHALL pass once ported to the contract's names, or a difference SHALL be recorded in the design with its cause.
 
@@ -148,8 +130,8 @@ On one host and method, a keep-alive HTTP server on the loop SHALL make the same
 - **WHEN** both servers are measured over alternating rounds on an idle host
 - **THEN** the loop's medians fall within, or beat, the range of the baseline's own repeated runs
 
-#### Scenario: A forwarding extension holds tcprouter's numbers
-- **WHEN** a test extension carrying tcprouter's forward pump is measured against tcprouter's forwarding server on small, 16 KiB and 64 KiB keep-alive workloads
+#### Scenario: A forwarding loop holds tcprouter's numbers
+- **WHEN** a copy of the loop carrying tcprouter's forward pump (goose-io-epoll-ext) is measured against tcprouter's forwarding server on small, 16 KiB and 64 KiB keep-alive workloads
 - **THEN** system calls per request are equal and the medians fall within, or beat, the baseline's range
 
 #### Scenario: A regression blocks acceptance
@@ -177,10 +159,3 @@ The epoll event loop SHALL give a new link a freed slot before it gives a slot i
 #### Scenario: A slot is not reused inside the handler of its Closed
 - **WHEN** a handler receives `Closed` for a link and opens a new link before it returns
 - **THEN** the new link does not take the slot of the link being closed, including when the closed link was a dial that failed inside `dial`
-
-### Requirement: An extension's own identity for a link is its own state
-An extension of the epoll event loop that keys data on a link (a route's lease, a deadline, a policy tag) SHALL keep it in per-slot state that the extension owns, indexed by the link's slot and checked against its generation, and the loop SHALL NOT carry it in any event or operation of the contract. A hook that decides about a link SHALL receive the link's slot.
-
-#### Scenario: An extension keeps its tag in its own state
-- **WHEN** an extension records a route tag for a link in its per-slot state and a library receives the events of that link
-- **THEN** no event the library receives carries a tag
