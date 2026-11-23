@@ -13,7 +13,7 @@ for file in tests/examples/*_test.goose; do
     n=$(sed -n 's/^let SCENARIOS = \([0-9][0-9]*\);.*/\1/p' "$file" | head -n 1)
     tests+=("$file:${n:-1}")
 done
-# The in-memory loop's wake group uses a thread queue, which `goose run` (JIT) refuses: such a test is built once and its binary run.
+# The in-memory loop's wake capability uses a thread queue, which `goose run` (JIT) refuses: such a test is built once and its binary run.
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 run_scenario() {

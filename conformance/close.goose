@@ -1,4 +1,4 @@
-// goose-io conformance suite, group 4.6: closing, half-close, close reasons.
+// goose-io conformance suite, capability 4.6: closing, half-close, close reasons.
 // Requirements: Closing; Close does not lose accepted bytes; Peer end of stream and half-close; Close reasons
 // are portable.
 namespace goose_io_conformance;
@@ -206,7 +206,7 @@ fn c_half_close_then_answer<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 
 // --- 408: shutdown_write ends sending and waits for the peer ---------------------------------------------------------
 
-// The half-close group: after shutdown_write a send returns Closed, the bytes sent before it still arrive, and the link
+// The half-close capability: after shutdown_write a send returns Closed, the bytes sent before it still arrive, and the link
 // closes with PeerClosed when the peer has finished too.
 fn c_shutdown_write_ends_sending<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
@@ -234,7 +234,7 @@ fn close_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> b
     return false;
 }
 
-// Runs the checks of the half-close group: true if the check is one of them.
+// Runs the checks of the half-close capability: true if the check is one of them.
 fn close_half_close_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 406 { c_peer_eof_closes_by_default(k, io, ev); return true; }
     if k.id == 407 { c_half_close_then_answer(k, io, ev); return true; }
@@ -242,7 +242,7 @@ fn close_half_close_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event
     return false;
 }
 
-// Runs the checks of the abort group: true if the check is one of them.
+// Runs the checks of the abort capability: true if the check is one of them.
 fn close_abort_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 403 { c_reset_aborts_the_peer(k, io, ev); return true; }
     return false;

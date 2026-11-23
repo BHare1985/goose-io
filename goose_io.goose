@@ -4,13 +4,13 @@
 // owns the thread and the sockets, delivers events and performs operations; a library handles events and
 // calls operations; the application runs the loop and passes each event to its libraries.
 //
-// The contract is a core, which every event loop supplies, and eleven groups of extras it may add:
+// The contract is a core, which every event loop supplies, and eleven capabilities it may add:
 // half-close, sizing, abort, inspection, batching and unix (the address forms `unix:/path` and `unix:///path`), and
 // relay, peek, revoke, wake and limits. A library uses what
 // it needs, and fails to compile on a loop that lacks an operation; a loop without unix answers BadAddress.
 //
 // This file is the whole contract surface: the shared types, pure helpers over them, the version, and
-// the compile-time checks (require_core and one for each group that has operations) that name every operation of a part.
+// the compile-time checks (require_core and one for each capability that has operations) that name every operation of a part.
 // The rules (ordering, ownership, backpressure) are in docs/contract.md.
 //
 // Pure Goose: no C, no extern. Importing this links nothing.
@@ -68,7 +68,7 @@ enum ConnectFailure {
     Unreachable,    // no route to the address, its network or its machine
     Denied,         // the system does not allow this connection
     NoResources,    // the event loop or the system is out of links, descriptors, ports or memory
-    BadAddress,     // the text is not an address the loop accepts: malformed, a host name, a zone identifier, a unix path without the unix group
+    BadAddress,     // the text is not an address the loop accepts: malformed, a host name, a zone identifier, a unix path without the unix capability
     Other,          // any other failure, and any the event loop cannot classify
 }
 
@@ -107,10 +107,10 @@ enum RelayStatus {
     AlreadyRelayed, // a link is joined already
 }
 
-// A handle that wakes a loop from another thread (the wake group). Fixed size: it may be copied to any thread.
+// A handle that wakes a loop from another thread (the wake capability). Fixed size: it may be copied to any thread.
 struct Waker { id: u32 = 0, gen: u32 = 0 }
 
-// The kinds of limit a link can run too long in (the limits group).
+// The kinds of limit a link can run too long in (the limits capability).
 enum Limit {
     Idle,       // no byte read from or written to the link's transport
     Silent,     // no byte read
@@ -156,13 +156,13 @@ enum Event {
     // The end of a pass that delivered at least one link event: the moment to send what was batched.
     // Always the last event of its pass.
     PassEnd {},
-    // The peek group. Bytes are held for the link: `available` of them, which stay with the loop until peek or relay.
+    // The peek capability. Bytes are held for the link: `available` of them, which stay with the loop until peek or relay.
     // Delivered once for each wait_input(link, n) with n > 0, when n bytes or the peer's end have arrived, or the bound is reached.
     Input { link: Link, available: i64 },
-    // The wake group. One for each wake, on the loop's thread, in the order one thread made them.
+    // The wake capability. One for each wake, on the loop's thread, in the order one thread made them.
     // `body` is what wake_with sent (up to 64 bytes), empty for a plain wake.
     Woken { value: i64, body: u8[..64] = [] },
-    // The limits group. The link has been in the state of `limit` for the time it was armed with; the library decides.
+    // The limits capability. The link has been in the state of `limit` for the time it was armed with; the library decides.
     Expired { link: Link, limit: Limit },
 }
 
@@ -284,11 +284,11 @@ fn has_limits<Io>(io: Io&) { return io.supplies_limits(); }
 
 // --- what an event loop must supply ---------------------------------------------------------------
 
-// The contract is a core and eleven groups (docs/contract.md). Each check below names every operation of its part
+// The contract is a core and eleven capabilities (docs/contract.md). Each check below names every operation of its part
 // once, with the contract's argument and result types, and never runs anything. An event loop's root program calls
-// require_core and the check of each group it supplies, so that a missing or mistyped operation is a compile error
-// here, naming the operation, and not somewhere inside a library. The batching group has no operation, only the
-// event PassEnd, and the unix group only an address form, so neither has a check: the conformance suite is what shows that a loop delivers it as the contract says.
+// require_core and the check of each capability it supplies, so that a missing or mistyped operation is a compile error
+// here, naming the operation, and not somewhere inside a library. The batching capability has no operation, only the
+// event PassEnd, and the unix capability only an address form, so neither has a check: the conformance suite is what shows that a loop delivers it as the contract says.
 //
 // Each operation is a function whose first parameter is the event loop.
 //

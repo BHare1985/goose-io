@@ -1,5 +1,5 @@
-// The relay group with the revoke, peek and limits groups, on the in-memory loop (add-proxy-groups, 3.6): the rules that
-// involve two groups at once and so belong to no entry of the suite. Two pairs of links, the accepted ends relayed to each
+// The relay capability with the revoke, peek and limits capabilities, on the in-memory loop (add-proxy-groups, 3.6): the rules that
+// involve two capabilities at once and so belong to no entry of the suite. Two pairs of links, the accepted ends relayed to each
 // other: client[0] - server[0] = server[1] - client[1]. GOOSE_IO_FAULT runs the tests against a fault of the loop.
 import std;
 import goose_io from "../..";

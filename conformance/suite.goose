@@ -5,8 +5,8 @@
 // `shutdown_write`, `pause_reading`, not sending). What calls cannot produce (an address that never answers,
 // one that is held, one that nothing listens on) the runner supplies in a Fixture.
 //
-// The suite is run one group at a time (design D5 of the change simplify-contract): there is an entry point for the
-// core and one for each group of extras, and each compiles only the checks of its group, so an event loop that
+// The suite is run one capability at a time (design D5 of the change simplify-contract): there is an entry point for the
+// core and one for each capability, and each compiles only the checks of its capability, so an event loop that
 // supplies the core can run the core suite and nothing that needs more. An event loop's root program is about
 // ten lines (docs/event-loops.md):
 //
@@ -23,7 +23,7 @@
 //
 // Only one `stop` can be observed in one `serve`, so the core suite is divided into parts and each part is run by
 // its own process: part 0 is every check that does not need `stop` and ends with "stop with nothing open"; parts 1
-// to 5 are one scenario of `stop` each. The other groups have part 0 only.
+// to 5 are one scenario of `stop` each. The other capabilities have part 0 only.
 namespace goose_io_conformance;
 import std;
 import goose_io;
@@ -57,32 +57,32 @@ fn info(id: i64) -> Info {
     if i.name.len == 0 { i = revoke_info(id); }
     if i.name.len == 0 { i = wake_info(id); }
     if i.name.len == 0 { i = limits_info(id); }
-    i.group = group_of(i.name);
+    i.capability = capability_of(i.name);
     return i;
 }
 
-// The group a check belongs to: the group whose operation or event is its subject.
-fn group_of(name: const u8[:]) -> i64 {
-    if name == "selftest_pass" || name == "selftest_fail" { return GROUP_CORE; }
-    if name == "close_after_reply" || name == "close_cancels_a_dial" || name == "close_with_unread_input" || name == "close_when_peer_never_reads" || name == "data_arrives_as_slices" || name == "send_copies_at_once" || name == "send_is_bounded" || name == "writable_once_for_many_refusals" || name == "writable_next_episode" || name == "pause_and_resume_reading" || name == "order_accepted_link" || name == "owner_listener_named" || name == "owner_dial_found_by_link" || name == "states_send" || name == "states_closed_is_final" || name == "states_close" || name == "states_pause" || name == "states_completion" || name == "states_closed_wakes_nothing" || name == "grace_keeps_local" || name == "finished_loop" || name == "setup_before_serve" || name == "handles_pair_unique" || name == "handles_slot_held" || name == "slots_dense" || name == "slot_kept_during_closed" || name == "dial_no_event_inside" || name == "listen_accepts" || name == "listen_held_address" || name == "dial_succeeds" || name == "dial_times_out" || name == "dial_bad_address" || name == "ticks_are_regular" || name == "tick_by_is_prompt" || name == "tick_by_two_deadlines" || name == "stop_with_nothing_open" || name == "stop_link_stays_open" || name == "stop_libraries_finish" || name == "listen_while_draining" || name == "dial_while_draining" || name == "stop_called_twice" || name == "close_leaves_only_closed" || name == "data_slice_stable_in_handler" || name == "send_before_open" || name == "send_after_close" || name == "send_too_large" || name == "writable_after_full" || name == "writable_means_it_fits" || name == "order_failed_dial" || name == "listen_port_zero" || name == "dial_refused" || name == "ipv6_loopback" || name == "handles_stale_reuse" || name == "handles_unset" || name == "events_not_reentrant" { return GROUP_CORE; }
-    if name == "states_half_close" || name == "states_keep_open" || name == "peer_eof_closes_by_default" || name == "half_close_then_answer" || name == "full_not_writable_after_shutdown_write" || name == "full_resolved_when_peer_closes" || name == "shutdown_write_ends_sending" || name == "handles_unset_shutdown_write" { return GROUP_HALF_CLOSE; }
-    if name == "finished_loop_sizing" || name == "states_sizing" || name == "send2_joins_parts" || name == "send2_all_or_nothing" || name == "send2_refusals" || name == "send_room_is_zero_when_closed" || name == "handles_stale_send_room" || name == "handles_unset_sizing" { return GROUP_SIZING; }
-    if name == "states_reset" || name == "reset_aborts_the_peer" || name == "handles_stale_reset" || name == "handles_unset_reset" || name == "events_not_reentrant_after_reset" { return GROUP_ABORT; }
-    if name == "finished_loop_inspection" || name == "states_inspection" || name == "listen_stop_keeps_links" || name == "listener_handle_never_reused" || name == "peer_address_names_peer" || name == "peer_address_ipv6" || name == "handles_valid_in_closed" || name == "handles_stale_peer_address" || name == "handles_unset_inspection" { return GROUP_INSPECTION; }
-    if name == "pass_end_follows_link_events" || name == "pass_end_not_on_idle_pass" { return GROUP_BATCHING; }
-    if name == "unix_listen_dial" || name == "unix_held_path" || name == "unix_nothing_listens" || name == "unix_no_port" || name == "unix_malformed_paths" || name == "unix_longest_path" || name == "unix_url_spelling" || name == "unix_alias_held" { return GROUP_UNIX; }
-    if name == "relay_carries_bytes" || name == "relay_refusals" || name == "relay_holds_back_unread" || name == "relay_send_refused_and_close_ends_both" || name == "relayed_bytes_in_closed" { return GROUP_RELAY; }
-    if name == "wait_input_gathers" || name == "wait_input_peer_ends" || name == "peek_bound" || name == "discard_input_drops" { return GROUP_PEEK; }
-    if name == "discard_unsent_drops" || name == "write_deadline_stops" || name == "write_deadline_moved" { return GROUP_REVOKE; }
-    if name == "wake_in_order" { return GROUP_WAKE; }
-    if name == "wake_carries_body" { return GROUP_WAKE; }
-    if name.len > 6 && starts_with(name, "limit_") { return GROUP_LIMITS; }
-    return GROUP_NONE;
+// The capability a check belongs to: the capability whose operation or event is its subject.
+fn capability_of(name: const u8[:]) -> i64 {
+    if name == "selftest_pass" || name == "selftest_fail" { return CAPABILITY_CORE; }
+    if name == "close_after_reply" || name == "close_cancels_a_dial" || name == "close_with_unread_input" || name == "close_when_peer_never_reads" || name == "data_arrives_as_slices" || name == "send_copies_at_once" || name == "send_is_bounded" || name == "writable_once_for_many_refusals" || name == "writable_next_episode" || name == "pause_and_resume_reading" || name == "order_accepted_link" || name == "owner_listener_named" || name == "owner_dial_found_by_link" || name == "states_send" || name == "states_closed_is_final" || name == "states_close" || name == "states_pause" || name == "states_completion" || name == "states_closed_wakes_nothing" || name == "grace_keeps_local" || name == "finished_loop" || name == "setup_before_serve" || name == "handles_pair_unique" || name == "handles_slot_held" || name == "slots_dense" || name == "slot_kept_during_closed" || name == "dial_no_event_inside" || name == "listen_accepts" || name == "listen_held_address" || name == "dial_succeeds" || name == "dial_times_out" || name == "dial_bad_address" || name == "ticks_are_regular" || name == "tick_by_is_prompt" || name == "tick_by_two_deadlines" || name == "stop_with_nothing_open" || name == "stop_link_stays_open" || name == "stop_libraries_finish" || name == "listen_while_draining" || name == "dial_while_draining" || name == "stop_called_twice" || name == "close_leaves_only_closed" || name == "data_slice_stable_in_handler" || name == "send_before_open" || name == "send_after_close" || name == "send_too_large" || name == "writable_after_full" || name == "writable_means_it_fits" || name == "order_failed_dial" || name == "listen_port_zero" || name == "dial_refused" || name == "ipv6_loopback" || name == "handles_stale_reuse" || name == "handles_unset" || name == "events_not_reentrant" { return CAPABILITY_CORE; }
+    if name == "states_half_close" || name == "states_keep_open" || name == "peer_eof_closes_by_default" || name == "half_close_then_answer" || name == "full_not_writable_after_shutdown_write" || name == "full_resolved_when_peer_closes" || name == "shutdown_write_ends_sending" || name == "handles_unset_shutdown_write" { return CAPABILITY_HALF_CLOSE; }
+    if name == "finished_loop_sizing" || name == "states_sizing" || name == "send2_joins_parts" || name == "send2_all_or_nothing" || name == "send2_refusals" || name == "send_room_is_zero_when_closed" || name == "handles_stale_send_room" || name == "handles_unset_sizing" { return CAPABILITY_SIZING; }
+    if name == "states_reset" || name == "reset_aborts_the_peer" || name == "handles_stale_reset" || name == "handles_unset_reset" || name == "events_not_reentrant_after_reset" { return CAPABILITY_ABORT; }
+    if name == "finished_loop_inspection" || name == "states_inspection" || name == "listen_stop_keeps_links" || name == "listener_handle_never_reused" || name == "peer_address_names_peer" || name == "peer_address_ipv6" || name == "handles_valid_in_closed" || name == "handles_stale_peer_address" || name == "handles_unset_inspection" { return CAPABILITY_INSPECTION; }
+    if name == "pass_end_follows_link_events" || name == "pass_end_not_on_idle_pass" { return CAPABILITY_BATCHING; }
+    if name == "unix_listen_dial" || name == "unix_held_path" || name == "unix_nothing_listens" || name == "unix_no_port" || name == "unix_malformed_paths" || name == "unix_longest_path" || name == "unix_url_spelling" || name == "unix_alias_held" { return CAPABILITY_UNIX; }
+    if name == "relay_carries_bytes" || name == "relay_refusals" || name == "relay_holds_back_unread" || name == "relay_send_refused_and_close_ends_both" || name == "relayed_bytes_in_closed" { return CAPABILITY_RELAY; }
+    if name == "wait_input_gathers" || name == "wait_input_peer_ends" || name == "peek_bound" || name == "discard_input_drops" { return CAPABILITY_PEEK; }
+    if name == "discard_unsent_drops" || name == "write_deadline_stops" || name == "write_deadline_moved" { return CAPABILITY_REVOKE; }
+    if name == "wake_in_order" { return CAPABILITY_WAKE; }
+    if name == "wake_carries_body" { return CAPABILITY_WAKE; }
+    if name.len > 6 && starts_with(name, "limit_") { return CAPABILITY_LIMITS; }
+    return CAPABILITY_NONE;
 }
 
-// What a check of each group is run by: the functions `step` runs the check whose id the case holds, and `takes` says
+// What a check of each capability is run by: the functions `step` runs the check whose id the case holds, and `takes` says
 // whether a check belongs to the suite being run.
-fn step<Io>(g: CoreGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+fn step<Io>(g: CoreSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if selftest_step(k, fx, io, ev) { return; }
     if handles_core_step(k, fx, io, ev) { return; }
     if net_core_step(k, fx, io, ev) { return; }
@@ -93,24 +93,24 @@ fn step<Io>(g: CoreGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) 
     k.fail("the check is not known to the driver");
 }
 
-fn step<Io>(g: BatchingGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+fn step<Io>(g: BatchingSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if time_batching_step(k, fx, io, ev) { return; }
     k.fail("the check is not known to the driver");
 }
 
-fn step<Io>(g: UnixGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+fn step<Io>(g: UnixSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if net_unix_step(k, fx, io, ev) { return; }
     k.fail("the check is not known to the driver");
 }
 
-fn step<Io>(g: SizingGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+fn step<Io>(g: SizingSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if handles_sizing_step(k, fx, io, ev) { return; }
     if data_sizing_step(k, fx, io, ev) { return; }
     if states_sizing_step(k, fx, io, ev) { return; }
     k.fail("the check is not known to the driver");
 }
 
-fn step<Io>(g: HalfCloseGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+fn step<Io>(g: HalfCloseSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if handles_half_close_step(k, fx, io, ev) { return; }
     if data_half_close_step(k, fx, io, ev) { return; }
     if close_half_close_step(k, fx, io, ev) { return; }
@@ -118,14 +118,14 @@ fn step<Io>(g: HalfCloseGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Ev
     k.fail("the check is not known to the driver");
 }
 
-fn step<Io>(g: AbortGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+fn step<Io>(g: AbortSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if handles_abort_step(k, fx, io, ev) { return; }
     if close_abort_step(k, fx, io, ev) { return; }
     if states_abort_step(k, fx, io, ev) { return; }
     k.fail("the check is not known to the driver");
 }
 
-fn step<Io>(g: InspectionGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+fn step<Io>(g: InspectionSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if handles_inspection_step(k, fx, io, ev) { return; }
     if net_inspection_step(k, fx, io, ev) { return; }
     if states_inspection_step(k, fx, io, ev) { return; }
@@ -134,93 +134,93 @@ fn step<Io>(g: InspectionGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::E
 
 // What the entry point does to the loop before `serve` is called (*A loop is set up, serving, draining or finished*): the
 // core listens and dials, and its check `setup_before_serve` requires that the events of those calls arrive from `serve`.
-fn setup<Io>(g: CoreGroup&, k: Case&, io: Io&) { setup_before_serve_hook(k, io); }
-fn setup<Io>(g: BatchingGroup&, k: Case&, io: Io&) {}
-fn setup<Io>(g: UnixGroup&, k: Case&, io: Io&) {}
-fn setup<Io>(g: SizingGroup&, k: Case&, io: Io&) {}
-fn setup<Io>(g: HalfCloseGroup&, k: Case&, io: Io&) {}
-fn setup<Io>(g: AbortGroup&, k: Case&, io: Io&) {}
-fn setup<Io>(g: InspectionGroup&, k: Case&, io: Io&) {}
+fn setup<Io>(g: CoreSuite&, k: Case&, io: Io&) { setup_before_serve_hook(k, io); }
+fn setup<Io>(g: BatchingSuite&, k: Case&, io: Io&) {}
+fn setup<Io>(g: UnixSuite&, k: Case&, io: Io&) {}
+fn setup<Io>(g: SizingSuite&, k: Case&, io: Io&) {}
+fn setup<Io>(g: HalfCloseSuite&, k: Case&, io: Io&) {}
+fn setup<Io>(g: AbortSuite&, k: Case&, io: Io&) {}
+fn setup<Io>(g: InspectionSuite&, k: Case&, io: Io&) {}
 
-// The checks that run after serve has returned (see AFTER_ID): one function for each group.
-fn after<Io>(g: CoreGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { if !states_core_after(k, io, ev) { k.fail("the check is not known to the driver"); } }
-fn after<Io>(g: SizingGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { if !states_sizing_after(k, io, ev) { k.fail("the check is not known to the driver"); } }
-fn after<Io>(g: InspectionGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { if !states_inspection_after(k, io, ev) { k.fail("the check is not known to the driver"); } }
-fn after<Io>(g: BatchingGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
-fn after<Io>(g: UnixGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
-fn after<Io>(g: HalfCloseGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
-fn after<Io>(g: AbortGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+// The checks that run after serve has returned (see AFTER_ID): one function for each capability.
+fn after<Io>(g: CoreSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { if !states_core_after(k, io, ev) { k.fail("the check is not known to the driver"); } }
+fn after<Io>(g: SizingSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { if !states_sizing_after(k, io, ev) { k.fail("the check is not known to the driver"); } }
+fn after<Io>(g: InspectionSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { if !states_inspection_after(k, io, ev) { k.fail("the check is not known to the driver"); } }
+fn after<Io>(g: BatchingSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn after<Io>(g: UnixSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn after<Io>(g: HalfCloseSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn after<Io>(g: AbortSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
 
-fn takes(g: CoreGroup&, i: Info) -> bool { i.group == GROUP_CORE }
-fn takes(g: BatchingGroup&, i: Info) -> bool { i.group == GROUP_BATCHING }
-fn takes(g: SizingGroup&, i: Info) -> bool { i.group == GROUP_SIZING }
-fn takes(g: HalfCloseGroup&, i: Info) -> bool { i.group == GROUP_HALF_CLOSE }
-fn takes(g: InspectionGroup&, i: Info) -> bool { i.group == GROUP_INSPECTION }
-fn takes(g: AbortGroup&, i: Info) -> bool { i.group == GROUP_ABORT }
-fn takes(g: UnixGroup&, i: Info) -> bool { i.group == GROUP_UNIX }
+fn takes(g: CoreSuite&, i: Info) -> bool { i.capability == CAPABILITY_CORE }
+fn takes(g: BatchingSuite&, i: Info) -> bool { i.capability == CAPABILITY_BATCHING }
+fn takes(g: SizingSuite&, i: Info) -> bool { i.capability == CAPABILITY_SIZING }
+fn takes(g: HalfCloseSuite&, i: Info) -> bool { i.capability == CAPABILITY_HALF_CLOSE }
+fn takes(g: InspectionSuite&, i: Info) -> bool { i.capability == CAPABILITY_INSPECTION }
+fn takes(g: AbortSuite&, i: Info) -> bool { i.capability == CAPABILITY_ABORT }
+fn takes(g: UnixSuite&, i: Info) -> bool { i.capability == CAPABILITY_UNIX }
 
-fn step<Io>(g: RelayGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
-    if relay_group_step(k, fx, io, ev) { return; }
+fn step<Io>(g: RelaySuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if relay_capability_step(k, fx, io, ev) { return; }
     k.fail("the check is not known to the driver");
 }
-fn setup<Io>(g: RelayGroup&, k: Case&, io: Io&) {}
-fn after<Io>(g: RelayGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
-fn takes(g: RelayGroup&, i: Info) -> bool { i.group == GROUP_RELAY }
+fn setup<Io>(g: RelaySuite&, k: Case&, io: Io&) {}
+fn after<Io>(g: RelaySuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn takes(g: RelaySuite&, i: Info) -> bool { i.capability == CAPABILITY_RELAY }
 fn conformance_relay_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_relay(io);
-    var g = RelayGroup { .. };
+    var g = RelaySuite { .. };
     return _run_part(g, io, fx, part);
 }
 
-fn step<Io>(g: PeekGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
-    if peek_group_step(k, fx, io, ev) { return; }
+fn step<Io>(g: PeekSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if peek_capability_step(k, fx, io, ev) { return; }
     k.fail("the check is not known to the driver");
 }
-fn setup<Io>(g: PeekGroup&, k: Case&, io: Io&) {}
-fn after<Io>(g: PeekGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
-fn takes(g: PeekGroup&, i: Info) -> bool { i.group == GROUP_PEEK }
+fn setup<Io>(g: PeekSuite&, k: Case&, io: Io&) {}
+fn after<Io>(g: PeekSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn takes(g: PeekSuite&, i: Info) -> bool { i.capability == CAPABILITY_PEEK }
 fn conformance_peek_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_peek(io);
-    var g = PeekGroup { .. };
+    var g = PeekSuite { .. };
     return _run_part(g, io, fx, part);
 }
 
-fn step<Io>(g: RevokeGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
-    if revoke_group_step(k, fx, io, ev) { return; }
+fn step<Io>(g: RevokeSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if revoke_capability_step(k, fx, io, ev) { return; }
     k.fail("the check is not known to the driver");
 }
-fn setup<Io>(g: RevokeGroup&, k: Case&, io: Io&) {}
-fn after<Io>(g: RevokeGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
-fn takes(g: RevokeGroup&, i: Info) -> bool { i.group == GROUP_REVOKE }
+fn setup<Io>(g: RevokeSuite&, k: Case&, io: Io&) {}
+fn after<Io>(g: RevokeSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn takes(g: RevokeSuite&, i: Info) -> bool { i.capability == CAPABILITY_REVOKE }
 fn conformance_revoke_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_revoke(io);
-    var g = RevokeGroup { .. };
+    var g = RevokeSuite { .. };
     return _run_part(g, io, fx, part);
 }
 
-fn step<Io>(g: WakeGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
-    if wake_group_step(k, fx, io, ev) { return; }
+fn step<Io>(g: WakeSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if wake_capability_step(k, fx, io, ev) { return; }
     k.fail("the check is not known to the driver");
 }
-fn setup<Io>(g: WakeGroup&, k: Case&, io: Io&) {}
-fn after<Io>(g: WakeGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
-fn takes(g: WakeGroup&, i: Info) -> bool { i.group == GROUP_WAKE }
+fn setup<Io>(g: WakeSuite&, k: Case&, io: Io&) {}
+fn after<Io>(g: WakeSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn takes(g: WakeSuite&, i: Info) -> bool { i.capability == CAPABILITY_WAKE }
 fn conformance_wake_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_wake(io);
-    var g = WakeGroup { .. };
+    var g = WakeSuite { .. };
     return _run_part(g, io, fx, part);
 }
 
-fn step<Io>(g: LimitsGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
-    if limits_group_step(k, fx, io, ev) { return; }
+fn step<Io>(g: LimitsSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if limits_capability_step(k, fx, io, ev) { return; }
     k.fail("the check is not known to the driver");
 }
-fn setup<Io>(g: LimitsGroup&, k: Case&, io: Io&) {}
-fn after<Io>(g: LimitsGroup&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
-fn takes(g: LimitsGroup&, i: Info) -> bool { i.group == GROUP_LIMITS }
+fn setup<Io>(g: LimitsSuite&, k: Case&, io: Io&) {}
+fn after<Io>(g: LimitsSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn takes(g: LimitsSuite&, i: Info) -> bool { i.capability == CAPABILITY_LIMITS }
 fn conformance_limits_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_limits(io);
-    var g = LimitsGroup { .. };
+    var g = LimitsSuite { .. };
     return _run_part(g, io, fx, part);
 }
 
@@ -280,7 +280,7 @@ fn _drive<Io, G>(g: G&, d: Driver&, k: Case&, fx: Fixture, io: Io&, ev: goose_io
     d.depth--;
 }
 
-// Runs one part of the suite for one group on `io`. Returns the number of checks that failed and prints one line for
+// Runs one part of the suite for one capability on `io`. Returns the number of checks that failed and prints one line for
 // each check, naming a failed check and the requirement it proves.
 fn _run_part<Io, G>(g: G&, io: Io&, fx: Fixture, part: i64) -> i32 {
     var d = Driver { part: part, .. };
@@ -325,50 +325,50 @@ fn _run_part<Io, G>(g: G&, io: Io&, fx: Fixture, part: i64) -> i32 {
     return d.failures as i32;
 }
 
-// The checks of the core: what every event loop supplies, and nothing that needs a group.
+// The checks of the core: what every event loop supplies, and nothing that needs a capability.
 fn conformance_core_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
-    var g = CoreGroup { .. };
+    var g = CoreSuite { .. };
     return _run_part(g, io, fx, part);
 }
 
-// The checks of the batching group (`PassEnd`).
+// The checks of the batching capability (`PassEnd`).
 fn conformance_batching_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_batching(io);
-    var g = BatchingGroup { .. };
+    var g = BatchingSuite { .. };
     return _run_part(g, io, fx, part);
 }
 
-// The checks of the half-close group: `shutdown_write`, `set_keep_open_on_eof` and `PeerEof`.
+// The checks of the half-close capability: `shutdown_write`, `set_keep_open_on_eof` and `PeerEof`.
 fn conformance_half_close_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_half_close(io);
-    var g = HalfCloseGroup { .. };
+    var g = HalfCloseSuite { .. };
     return _run_part(g, io, fx, part);
 }
 
-// The checks of the sizing group: `send_room` and `send2`.
+// The checks of the sizing capability: `send_room` and `send2`.
 fn conformance_sizing_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_sizing(io);
-    var g = SizingGroup { .. };
+    var g = SizingSuite { .. };
     return _run_part(g, io, fx, part);
 }
 
-// The checks of the abort group: `reset`.
+// The checks of the abort capability: `reset`.
 fn conformance_abort_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_abort(io);
-    var g = AbortGroup { .. };
+    var g = AbortSuite { .. };
     return _run_part(g, io, fx, part);
 }
 
-// The checks of the inspection group: `peer_address`, and `stop_listening`.
+// The checks of the inspection capability: `peer_address`, and `stop_listening`.
 fn conformance_inspection_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_inspection(io);
-    var g = InspectionGroup { .. };
+    var g = InspectionSuite { .. };
     return _run_part(g, io, fx, part);
 }
 
-// The checks of the unix group: the address form `unix:/path`. The fixture's `unix` is a path the loop may use.
+// The checks of the unix capability: the address form `unix:/path`. The fixture's `unix` is a path the loop may use.
 fn conformance_unix_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_unix(io);
-    var g = UnixGroup { .. };
+    var g = UnixSuite { .. };
     return _run_part(g, io, fx, part);
 }

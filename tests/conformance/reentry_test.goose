@@ -10,7 +10,7 @@ import goose_io.tests.support.kit;
 
 fn main() {
     var io = goose_io_memory::Loop { .. };
-    var g = goose_io_conformance::CoreGroup { .. };
+    var g = goose_io_conformance::CoreSuite { .. };
     var d = goose_io_conformance::Driver { part: 0, .. };
     var k = goose_io_conformance::Case { .. };
     d.ids.push(104);                                   // order_accepted_link: a check that needs several events

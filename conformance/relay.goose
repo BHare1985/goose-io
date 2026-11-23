@@ -1,4 +1,4 @@
-// goose-io conformance suite, relay group: `relay` and `relayed_bytes`.
+// goose-io conformance suite, relay capability: `relay` and `relayed_bytes`.
 // Requirements: Relay joins two links inside the loop; A relay holds back and ends as a pair; A relayed link is owned by the relay.
 // The checks use two pairs: roles 0 and 2 are the clients, roles 1 and 3 are the links the loop relays.
 namespace goose_io_conformance;
@@ -146,7 +146,7 @@ fn c_relayed_bytes_in_closed<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-fn relay_group_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+fn relay_capability_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 600 { c_relay_carries_bytes(k, io, ev); return true; }
     if k.id == 601 { c_relay_refusals(k, io, ev); return true; }
     if k.id == 602 { c_relay_holds_back_unread(k, io, ev); return true; }

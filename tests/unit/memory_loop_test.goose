@@ -1,5 +1,5 @@
 // The in-memory loop supplies every operation of the contract, with the contract's types, so it passes the check of
-// the core and the check of each group. The checks never run anything: this test passes by compiling.
+// the core and the check of each capability. The checks never run anything: this test passes by compiling.
 import std;
 import goose_io from "../..";
 import goose_io.memory;

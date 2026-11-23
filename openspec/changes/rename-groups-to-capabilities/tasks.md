@@ -15,11 +15,11 @@ Ground rules: work on a branch of goose-io after `epoll-event-loop` and `epoll-e
 
 ## 3. The rename
 
-- [ ] 3.1 Rename the suite's identifiers (D7) in `conformance/*.goose`, `tests/conformance/*.goose` and `tests/support/*.goose`. Verify `bash tests/run_tests.sh` and every `tests/conformance/run.sh` mode pass.
-- [ ] 3.2 Rename the `group` column of `tests/conformance/checks.tsv` to `capability`. Rename `tests/conformance/groups_check.sh` to `capabilities_check.sh`, and update `table_check.sh`, `faults.sh` and `run.sh` to read the new column. Rename `check_group` in `tests/checks/event_loops.sh`. Verify all four scripts pass.
-- [ ] 3.3 Restate "group" as "capability" in `goose_io.goose` comments, `README.md`, `CONTRIBUTING.md`, `docs/contract.md`, `docs/libraries.md`, `docs/event-loops.md`, `docs/event-loops/*.md` and `examples/README.md`. In `docs/event-loops.md`, show the exact declaration line a loop adds and the wrapper's forwarding line. Verify `bash tests/checks/docs.sh` passes.
-- [ ] 3.4 Extend `tests/checks/vocabulary.sh` to fail on the whole word "group"/"groups" outside the allow-list of D1. Verify it passes, and fails on a scratch file that says "the relay group".
-- [ ] 3.5 Update the CI workflow's step names and the renamed script (`.github/workflows/ci.yml`). Leave the `concurrency.group` key alone. Verify every `run:` command exits 0 locally.
+- [x] 3.1 Rename the suite's identifiers (D7) in `conformance/*.goose`, `tests/conformance/*.goose` and `tests/support/*.goose`. Verify `bash tests/run_tests.sh` and every `tests/conformance/run.sh` mode pass.
+- [x] 3.2 Rename the `group` column of `tests/conformance/checks.tsv` to `capability`. Rename `tests/conformance/groups_check.sh` to `capabilities_check.sh`, and update `table_check.sh`, `faults.sh` and `run.sh` to read the new column. Rename `check_group` in `tests/checks/event_loops.sh`. Verify all four scripts pass.
+- [x] 3.3 Restate "group" as "capability" in `goose_io.goose` comments, `README.md`, `CONTRIBUTING.md`, `docs/contract.md`, `docs/libraries.md`, `docs/event-loops.md`, `docs/event-loops/*.md` and `examples/README.md`. In `docs/event-loops.md`, show the exact declaration line a loop adds and the wrapper's forwarding line. Verify `bash tests/checks/docs.sh` passes.
+- [x] 3.4 Extend `tests/checks/vocabulary.sh` to fail on the whole word "group"/"groups" outside the allow-list of D1. Verify it passes, and fails on a scratch file that says "the relay group".
+- [x] 3.5 Update the CI workflow's step names and the renamed script (`.github/workflows/ci.yml`). Leave the `concurrency.group` key alone. Verify every `run:` command exits 0 locally.
 
 ## 4. Optional use
 

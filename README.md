@@ -156,12 +156,12 @@ client behind it. HTTP and Postgres libraries are separate projects; this reposi
 
 | | Status |
 |---|---|
-| The contract, version 0.4 | Implemented: the core and eleven optional groups (half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits) |
-| The conformance suite | Implemented: the core and each group, with a fault for every check |
+| The contract, version 0.4 | Implemented: the core and eleven optional capabilities (half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits) |
+| The conformance suite | Implemented: the core and each capability, with a fault for every check |
 | The in-memory event loop | Implemented, for tests: scripted peers and a virtual clock |
 | Example libraries | Implemented: echo, a line server, a pooled line client |
 | An event loop on real sockets | Event loops live in their own repositories (see [`examples/README.md`](examples/README.md)); io_uring and uSockets are mapped in `docs/event-loops/` |
-| A worked library | A TCP router that runs on any loop with the groups it needs (see [`examples/README.md`](examples/README.md)) |
+| A worked library | A TCP router that runs on any loop with the capabilities it needs (see [`examples/README.md`](examples/README.md)) |
 
 So today a library runs on the in-memory loop (and over the test layers below), and on the real loops that live in their own
 repositories. Built and tested on linux-x64, macos-x64, macos-arm64 and windows-x64; the package is Goose source and builds no C.
@@ -257,9 +257,9 @@ Application authors implement nothing of goose-io: they choose libraries and an 
 An event loop drives the connections and the clock. If yours conforms, every library written for the contract runs on
 it and you wrote none of them.
 
-- **A bounded job.** The core is 12 operations and 5 events. The groups are optional: supply what you can, leave out what
-  you cannot, and a library that needs a group you lack fails to build and names the missing operation.
-- **You know when you are done.** The conformance suite checks the core and each group on its own, with both ends of
+- **A bounded job.** The core is 12 operations and 5 events. The capabilities are optional: supply what you can, leave out what
+  you cannot, and a library that needs a capability you lack fails to build and names the missing operation.
+- **You know when you are done.** The conformance suite checks the core and each capability on its own, with both ends of
   every link on your loop. It is what makes interoperability testable, and it is how you earn a row in the table below.
 - **Keep your design.** The contract exposes no file descriptor, socket address or poll mask. A loop with no
   operating-system sockets conforms, and so can a completion loop built on io_uring.
@@ -270,7 +270,7 @@ of operations and replace its calls to `inner` with your own I/O. The suite runs
 
 ```bash
 tests/conformance/run.sh --core-only           # the core of the suite, on a loop that supplies nothing else
-tests/conformance/run.sh                       # the core and every group, on the in-memory loop
+tests/conformance/run.sh                       # the core and every capability, on the in-memory loop
 ```
 
 **Next:** [docs/event-loops.md](docs/event-loops.md) says what to supply, shows the program that runs the suite on your
@@ -306,7 +306,7 @@ The wrapper in `tests/support/wrapper.goose` is such a layer (it scrambles bytes
 library does not depend on timing it was not promised). Logging, metering, fault injection, and in time TLS fit the same
 way. A layer is not an event loop of its own: it conforms by passing the suite over the loop beneath it.
 
-| Event loop | Kind | Contract | Core | Groups |
+| Event loop | Kind | Contract | Core | Capabilities |
 |---|---|---|---|---|
 | in-memory (`memory.goose`) | event loop, for tests | 0.4 | yes | half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits |
 | wrapper (`tests/support/wrapper.goose`) | a layer over another event loop | 0.2 | yes | half-close, sizing, abort, inspection, batching, unix |

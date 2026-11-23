@@ -1,6 +1,6 @@
 // expect: send_room
 // The loop that supplies only the core cannot be given to the sizing entry point of the suite: the build fails and
-// the error names the first operation of the group that the loop lacks.
+// the error names the first operation of the capability that the loop lacks.
 import std;
 import goose_io from "../..";
 import goose_io.conformance.suite;

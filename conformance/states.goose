@@ -3,7 +3,7 @@
 // final; Ending a link has one result in each link state; Pausing takes effect in every live state; Keep-open is
 // configured no later than Opened; Each operation says how it completes.
 //
-// Each check of a group calls only the core and its own group's operations (tests/conformance/groups_check.sh).
+// Each check of a capability calls only the core and its own capability's operations (tests/conformance/capabilities_check.sh).
 namespace goose_io_conformance;
 import std;
 import goose_io;
@@ -272,7 +272,7 @@ fn states_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> 
     return false;
 }
 
-// --- the half-close group -------------------------------------------------------------------------------------------
+// --- the half-close capability -------------------------------------------------------------------------------------------
 
 // 360: sending on a write-shut link, shutdown before the link opens, close after shutdown, and what a Closed send result
 // after shutdown means (only that sending has ended).
@@ -382,14 +382,14 @@ fn c_states_keep_open<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-// Runs the checks of the half-close group: true if the check is one of them.
+// Runs the checks of the half-close capability: true if the check is one of them.
 fn states_half_close_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 360 { c_states_half_close(k, io, ev); return true; }
     if k.id == 361 { c_states_keep_open(k, io, ev); return true; }
     return false;
 }
 
-// --- the sizing group ------------------------------------------------------------------------------------------------
+// --- the sizing capability ------------------------------------------------------------------------------------------------
 
 // 362: send2 and send_room while the link is dialling, open, closing and ended.
 fn c_states_sizing<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
@@ -412,13 +412,13 @@ fn c_states_sizing<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-// Runs the checks of the sizing group: true if the check is one of them.
+// Runs the checks of the sizing capability: true if the check is one of them.
 fn states_sizing_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 362 { c_states_sizing(k, io, ev); return true; }
     return false;
 }
 
-// --- the abort group --------------------------------------------------------------------------------------------------
+// --- the abort capability --------------------------------------------------------------------------------------------------
 
 // 363: reset a dial in progress, and reset after close.
 fn c_states_reset<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
@@ -444,13 +444,13 @@ fn c_states_reset<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-// Runs the checks of the abort group: true if the check is one of them.
+// Runs the checks of the abort capability: true if the check is one of them.
 fn states_abort_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 363 { c_states_reset(k, io, ev); return true; }
     return false;
 }
 
-// --- the inspection group -------------------------------------------------------------------------------------------
+// --- the inspection capability -------------------------------------------------------------------------------------------
 
 // 364: peer_address while the link is dialling, open, closing and ended.
 fn c_states_inspection<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
@@ -471,7 +471,7 @@ fn c_states_inspection<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-// Runs the checks of the inspection group: true if the check is one of them.
+// Runs the checks of the inspection capability: true if the check is one of them.
 fn states_inspection_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 364 { c_states_inspection(k, io, ev); return true; }
     return false;

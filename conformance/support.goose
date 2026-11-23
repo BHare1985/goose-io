@@ -29,48 +29,48 @@ struct Fixture {
     // stopped by then, so calls cannot make one). Without it the dial-while-draining part proves only that
     // the dial still ends in exactly one event.
     answers: const u8[:] = "",
-    // The unix group only: an absolute path at which the loop may create a socket (without `unix:`); the checks derive
+    // The unix capability only: an absolute path at which the loop may create a socket (without `unix:`); the checks derive
     // every other path from it. The loop creates and removes the file; the suite stops its listeners before it ends.
     unix: const u8[:] = "",
-    // The peek group only: the loop's bound on `peek` and `wait_input` (the bytes an `Input` can report); 0 when the loop's
+    // The peek capability only: the loop's bound on `peek` and `wait_input` (the bytes an `Input` can report); 0 when the loop's
     // bound is not known to the runner, which skips the check of the bound.
     peek_bound: i64 = 0,
 }
 
 // One recorded link event.
 // Name, requirement and part of one check.
-struct Info { name: const u8[:] = "", req: const u8[:] = "", part: i64 = 0, group: i64 = 0 }
+struct Info { name: const u8[:] = "", req: const u8[:] = "", part: i64 = 0, capability: i64 = 0 }
 
-// The groups of the contract (design D2) and the marker type of each. The driver is generic over a marker, and the
-// functions `step` and `takes` of the suite are overloaded on it, so that a suite for one group compiles only the
-// checks of that group (design D5). Every check belongs to exactly one group; GROUP_NONE is the answer for a name that
+// The capabilities of the contract (design D2) and the marker type of each. The driver is generic over a marker, and the
+// functions `step` and `takes` of the suite are overloaded on it, so that a suite for one capability compiles only the
+// checks of that capability (design D5). Every check belongs to exactly one capability; CAPABILITY_NONE is the answer for a name that
 // is not a check.
-let GROUP_CORE = 0;
-let GROUP_HALF_CLOSE = 1;
-let GROUP_SIZING = 2;
-let GROUP_ABORT = 3;
-let GROUP_INSPECTION = 4;
-let GROUP_BATCHING = 5;
-let GROUP_UNIX = 6;
-let GROUP_RELAY = 7;
-let GROUP_PEEK = 8;
-let GROUP_REVOKE = 10;
-let GROUP_WAKE = 11;
-let GROUP_LIMITS = 12;
-let GROUP_NONE = 9;
+let CAPABILITY_CORE = 0;
+let CAPABILITY_HALF_CLOSE = 1;
+let CAPABILITY_SIZING = 2;
+let CAPABILITY_ABORT = 3;
+let CAPABILITY_INSPECTION = 4;
+let CAPABILITY_BATCHING = 5;
+let CAPABILITY_UNIX = 6;
+let CAPABILITY_RELAY = 7;
+let CAPABILITY_PEEK = 8;
+let CAPABILITY_REVOKE = 10;
+let CAPABILITY_WAKE = 11;
+let CAPABILITY_LIMITS = 12;
+let CAPABILITY_NONE = 9;
 
-struct CoreGroup { n: i64 = 0 }
-struct BatchingGroup { n: i64 = 0 }
-struct SizingGroup { n: i64 = 0 }
-struct HalfCloseGroup { n: i64 = 0 }
-struct InspectionGroup { n: i64 = 0 }
-struct AbortGroup { n: i64 = 0 }
-struct UnixGroup { n: i64 = 0 }
-struct RelayGroup { n: i64 = 0 }
-struct PeekGroup { n: i64 = 0 }
-struct RevokeGroup { n: i64 = 0 }
-struct WakeGroup { n: i64 = 0 }
-struct LimitsGroup { n: i64 = 0 }
+struct CoreSuite { n: i64 = 0 }
+struct BatchingSuite { n: i64 = 0 }
+struct SizingSuite { n: i64 = 0 }
+struct HalfCloseSuite { n: i64 = 0 }
+struct InspectionSuite { n: i64 = 0 }
+struct AbortSuite { n: i64 = 0 }
+struct UnixSuite { n: i64 = 0 }
+struct RelaySuite { n: i64 = 0 }
+struct PeekSuite { n: i64 = 0 }
+struct RevokeSuite { n: i64 = 0 }
+struct WakeSuite { n: i64 = 0 }
+struct LimitsSuite { n: i64 = 0 }
 
 struct Rec {
     role:     i64                   = 0,
@@ -289,7 +289,7 @@ fn dial_to<Io>(k: Case&, io: Io&, address: const u8[:], pair: i64, connect_ms: i
 }
 
 // Asks for the end of stream to be kept open on the accepted end of `pair`, in the handler of its `Opened` (a call made
-// later has no effect). Call it with every event from the check's step; it needs the half-close group. The dialled end is
+// later has no effect). Call it with every event from the check's step; it needs the half-close capability. The dialled end is
 // configured with `io.set_keep_open_on_eof` right after `dial_to`, while it is dialling.
 fn keep_open_on_accept<Io>(k: Case&, io: Io&, ev: goose_io::Event, pair: i64) {
     match ev {

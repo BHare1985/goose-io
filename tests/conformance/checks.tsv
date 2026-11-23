@@ -1,11 +1,11 @@
 # One row per conformance check. Columns (tab separated):
-#   check  part  requirement  scenarios (separated by " | ")  fault  group
+#   check  part  requirement  scenarios (separated by " | ")  fault  capability
 # A check's fault is a named break of the in-memory event loop (memory.goose, set_fault) that makes the check fail; the column may
 # hold several, separated by commas, and the check must fail under each.
-# A check with an id of 900 or more (finished_loop and its group variants) runs after serve has returned, on the finished loop.
-# The half-close and abort groups have no finished-loop check: their link operations return nothing, so their finished-loop cells
+# A check with an id of 900 or more (finished_loop and its capability variants) runs after serve has returned, on the finished loop.
+# The half-close and abort capabilities have no finished-loop check: their link operations return nothing, so their finished-loop cells
 # are covered by the unit tests of tests/unit/memory_loop_test.goose and tests/unit/wrapper_loop_test.goose.
-# The group is the one the check belongs to (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits); "pending" is a check
+# The capability is the one the check belongs to (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits); "pending" is a check
 # not yet assigned (tasks 4.2 to 4.4 of simplify-contract). "-" in the fault column means no fault can be injected in a queue-based event loop; the reason is in docs/event-loops.md.
 handles_stale_reuse	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	core
 handles_stale_reset	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	abort
@@ -78,7 +78,7 @@ stop_libraries_finish	2	The application runs and stops the loop	Libraries finish
 listen_while_draining	3	Draining is the same on every event loop	Listening while draining	ListenAfterStop	core
 dial_while_draining	4	Draining is the same on every event loop	Dialling while draining	DialFailsWhileDraining	core
 stop_called_twice	5	Draining is the same on every event loop	Stop called twice	StopLatestWins	core
-unix_listen_dial	0	The unix group is the address form unix:/path	A listener and a dial on a path	UnixListenerIgnored	unix
+unix_listen_dial	0	The unix capability is the address form unix:/path	A listener and a dial on a path	UnixListenerIgnored	unix
 unix_held_path	0	A Unix path is held by one listener and has no port	The path is held	UnixOverlapIgnored	unix
 unix_nothing_listens	0	A Unix path is held by one listener and has no port	Nothing listens on the path	UnixRefusedAsBadAddress	unix
 unix_no_port	0	A Unix path is held by one listener and has no port	No port	UnixPortInvented	unix

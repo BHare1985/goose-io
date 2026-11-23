@@ -1,4 +1,4 @@
-// In-memory event loop: the unix group, the address form `unix:/path` (specs/io-contract of the change add-unix-sockets).
+// In-memory event loop: the unix capability, the address form `unix:/path` (specs/io-contract of the change add-unix-sockets).
 import std;
 import goose_io from "../..";
 import goose_io.memory;
@@ -162,7 +162,7 @@ fn peers() {
     kit::check(kit::count(log2, kit::DATA) == 1, "and its bytes arrive");
 }
 
-// --- a loop that does not supply the group refuses the form --------------------------------------------------
+// --- a loop that does not supply the capability refuses the form --------------------------------------------------
 
 fn refused_by<Io>(io: Io&, log: kit::Log&, what: const u8[:]) {
     let l, err = io.listen(PATH);
@@ -184,7 +184,7 @@ fn refusing() {
     kit::check(goose_io::is_listener(l), "and a numeric address is untouched");
 }
 
-// --- the URL spelling unix:///path (task group 6) --------------------------------------------------------------
+// --- the URL spelling unix:///path (task capability 6) --------------------------------------------------------------
 
 // `unix://` and a path of `n` bytes: "/" and n - 1 letters.
 fn url_of(n: i64) -> u8[>..] {
