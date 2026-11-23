@@ -26,18 +26,18 @@ Each of 2.1 to 2.8 is a small library in `examples/capabilities/` (design D3) wi
 
 Each of 3.1 to 3.11 is one page with the sections of design D2, linking to its `docs/contract.md` section, with its example from group 2 or 2.9 quoted as a checked block. Verify for each: `bash tests/checks/docs.sh` passes, and `bash tests/checks/capability_pages.sh` no longer names it.
 
-- [ ] 3.1 `docs/capabilities/half-close.md`
-- [ ] 3.2 `docs/capabilities/sizing.md`
-- [ ] 3.3 `docs/capabilities/abort.md`, including the comparison of `shutdown_write`, `close` and `reset`, linked from the contract
-- [ ] 3.4 `docs/capabilities/inspection.md`
-- [ ] 3.5 `docs/capabilities/batching.md`
-- [ ] 3.6 `docs/capabilities/unix.md`, which says why optional use is not worth it (the address is the caller's choice)
-- [ ] 3.7 `docs/capabilities/relay.md`, which shows optional use with the forward example
-- [ ] 3.8 `docs/capabilities/peek.md`
-- [ ] 3.9 `docs/capabilities/revoke.md`
-- [ ] 3.10 `docs/capabilities/wake.md`
-- [ ] 3.11 `docs/capabilities/limits.md`, moving the library guidance of the "Limits" section of `docs/libraries.md` here and leaving a link
-- [ ] 3.12 `docs/capabilities/README.md`: what a capability is, declaring and asking (quoting the rename's declaration line and `has_` query), the table of all eleven. Verify `bash tests/checks/capability_pages.sh` passes.
+- [x] 3.1 `docs/capabilities/half-close.md`
+- [x] 3.2 `docs/capabilities/sizing.md`
+- [x] 3.3 `docs/capabilities/abort.md`, including the comparison of `shutdown_write`, `close` and `reset`, linked from the contract
+- [x] 3.4 `docs/capabilities/inspection.md`
+- [x] 3.5 `docs/capabilities/batching.md`
+- [x] 3.6 `docs/capabilities/unix.md`, which says why optional use is not worth it (the address is the caller's choice)
+- [x] 3.7 `docs/capabilities/relay.md`, which shows optional use with the forward example
+- [x] 3.8 `docs/capabilities/peek.md`
+- [x] 3.9 `docs/capabilities/revoke.md`
+- [x] 3.10 `docs/capabilities/wake.md`
+- [x] 3.11 `docs/capabilities/limits.md`, moving the library guidance of the "Limits" section of `docs/libraries.md` here and leaving a link
+- [x] 3.12 `docs/capabilities/README.md`: what a capability is, declaring and asking (quoting the rename's declaration line and `has_` query), the table of all eleven. Verify `bash tests/checks/capability_pages.sh` passes.
 
 ## 4. Links and acceptance
 
