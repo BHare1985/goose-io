@@ -444,14 +444,14 @@ The version of this document is **0.3** (`VERSION_MAJOR` 0, `VERSION_MINOR` 3 in
 
 ## 10. Known gaps
 
-*Candidate event loops and what the mapping found.* For each candidate the mapping documents in `docs/event-loops/` (tcprouter's engine, uSockets, io_uring, libuv, libevent) give one row for every operation and event, grouped as the contract is, marked as checked against source at a named revision or as unverified, with the adapter work listed, and a section on what a loop with only the core costs. Where a substrate did not offer an operation directly (`reset` and `pause_reading` in uSockets, `shutdown_write` in libevent and io_uring) the strategies tried are in the document of that event loop under "Known gaps", and the result is adapter code.
+*Candidate event loops and what the mapping found.* For each candidate the mapping documents in `docs/event-loops/` (a TCP proxy's engine, uSockets, io_uring, libuv, libevent) give one row for every operation and event, grouped as the contract is, marked as checked against source at a named revision or as unverified, with the adapter work listed, and a section on what a loop with only the core costs. Where a substrate did not offer an operation directly (`reset` and `pause_reading` in uSockets, `shutdown_write` in libevent and io_uring) the strategies tried are in the document of that event loop under "Known gaps", and the result is adapter code.
 
 What this does not establish: nothing was built or run, and several rows are unverified (they are listed at the top of each document). An event loop's adapter may find a row that cannot be met; it then records what it tried, and the contract is changed only if no other way works.
 
 Three behaviours that every adapter has to supply, found by the reading and worth knowing before starting one:
 
 - **Closing without losing accepted bytes.** `close(2)` on a socket with unread input resets the connection on Linux. Each mapping says how its event loop avoids it: finish sending, `shutdown(WR)`, discard input until the peer's end of stream or a limit, then close. The limit is the event loop's own and ends a peer that never reads.
-- **`Writable` after the largest refused send fits.** tcprouter delivers it at a fixed low-water mark; the adapter has to remember the size that was refused.
+- **`Writable` after the largest refused send fits.** a TCP proxy's engine may deliver it at a fixed low-water mark; the adapter has to remember the size that was refused.
 - **Events never inside an operation.** uSockets calls its close callback before `us_socket_close` returns; libuv and libevent (with deferred callbacks) do not. An adapter over uSockets queues its events.
 
 ## 11. What the contract does not cover
@@ -463,8 +463,8 @@ Three behaviours that every adapter has to supply, found by the reading and wort
 | Host-name resolution | uSockets (blocking `getaddrinfo` inside connect), libuv (`uv_getaddrinfo`), libevent (`bufferevent_socket_connect_hostname`) | Not in the contract. An event loop never resolves; a host name given to `dial` fails with `ConnectFailed`, `BadAddress`. Needed before the first real client: a resolver library on the contract, or a wake from another thread so a resolver thread can post a result. |
 | TLS | inside uSockets; separate in libuv | A wrapping event loop (*Event loops can be layered*; `tests/support/wrapper.goose` shows the layering). |
 | Hosting existing C clients (libpq, hiredis, libcurl, c-ares) | They need "tell me when this descriptor is readable"; every readiness substrate offers it | Cannot be in the contract: an in-memory or completion-only event loop has no descriptors. A later optional capability. |
-| Wake from another thread | `us_wakeup_loop`, `uv_async_send`, ring `MSG_RING`, tcprouter's message pipes | A later optional capability. |
-| Socket options | all | Event loop configuration. Event loops are advised to disable Nagle's algorithm, as tcprouter does. |
+| Wake from another thread | `us_wakeup_loop`, `uv_async_send`, ring `MSG_RING`, a proxy's message pipes | A later optional capability. |
+| Socket options | all | Event loop configuration. Event loops are advised to disable Nagle's algorithm, as proxies do. |
 | Writing into received bytes in place (WebSocket unmasking) | uSockets, io_uring buffers | `Data` lends read-only bytes. Can be relaxed later. |
 
 ## 12. Open questions
