@@ -404,8 +404,8 @@ For every check of the new groups the in-memory loop SHALL have a named fault th
 ### Requirement: A loop on a real system passes the new groups
 An event loop that supplies a new group on real sockets SHALL pass that group's suite on the system it targets, in fifty repetitions with no failure, before documentation lists it for that group, and SHALL hold the system-call, throughput and memory numbers of its own gates with the group present and unused.
 
-#### Scenario: The epoll ext loop passes the relay suite
-- **WHEN** the relay suite is run fifty times against `goose-io-epoll-ext`
+#### Scenario: An event loop that supplies the group passes the relay suite
+- **WHEN** the relay suite is run fifty times against an event loop on real sockets that supplies the group
 - **THEN** every repetition passes, and the loop is listed for relay with the commit at which it passed
 
 #### Scenario: A group that is not supplied is not listed

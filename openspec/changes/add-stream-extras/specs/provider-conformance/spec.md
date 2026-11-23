@@ -43,8 +43,8 @@ For every check of the stream capabilities the in-memory loop SHALL have a named
 ### Requirement: A loop on a real system passes the stream capabilities
 An event loop that supplies a stream capability on real sockets SHALL pass that capability's suite on the system it targets, in fifty repetitions with no failure, before documentation lists it for that capability, and SHALL hold the system-call, throughput and memory numbers of its own gates with the capability present and unused.
 
-#### Scenario: The epoll ext loop passes the files suite
-- **WHEN** the files suite is run fifty times against `goose-io-epoll-ext`
+#### Scenario: An event loop that supplies the group passes the files suite
+- **WHEN** the files suite is run fifty times against an event loop on real sockets that supplies the group
 - **THEN** every repetition passes, and the loop is listed for files with the commit at which it passed
 
 #### Scenario: A capability that is not supplied is not listed

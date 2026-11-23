@@ -9,18 +9,18 @@ import goose_io.tests.support.kit;
 struct Ex { who: i64, limit: goose_io::Limit, at: i64 }
 
 root struct Rig {
-    l0:       goose_io::Listener = goose_io::Listener { .. },
-    l1:       goose_io::Listener = goose_io::Listener { .. },
-    client:   goose_io::Link[2]  = [goose_io::Link { .. }, goose_io::Link { .. }],
-    server:   goose_io::Link[2]  = [goose_io::Link { .. }, goose_io::Link { .. }],
-    open:     i64                = 0,
-    step:     i64                = 0,
-    t:        i64                = 0,
-    n:        i64                = 0,
-    expired:  Ex[>..]            = [],
-    keep:     bool               = false,   // keep client[1] open when its peer's stream ends (set in its Opened)
-    seen:     u8[>..]            = [],      // what client[1] received
-    peeked:   u8[>..]            = [],
+    l0:      goose_io::Listener = goose_io::Listener { .. },
+    l1:      goose_io::Listener = goose_io::Listener { .. },
+    client:  goose_io::Link[2]  = [goose_io::Link { .. }, goose_io::Link { .. }],
+    server:  goose_io::Link[2]  = [goose_io::Link { .. }, goose_io::Link { .. }],
+    open:    i64                = 0,
+    step:    i64                = 0,
+    t:       i64                = 0,
+    n:       i64                = 0,
+    expired: Ex[>..]            = [],
+    keep:    bool               = false,    // keep client[1] open when its peer's stream ends (set in its Opened)
+    seen:    u8[>..]            = [],       // what client[1] received
+    peeked:  u8[>..]            = [],
 }
 
 fn use_fault(io: goose_io_memory::Loop&) {
