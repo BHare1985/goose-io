@@ -11,7 +11,7 @@ bad=0
 docs=0
 for f in docs/event-loops/*.md; do
     [ -f "$f" ] || continue
-    [ "$f" = docs/event-loops/epoll-declarations.md ] && continue      # a note for loop owners, not a mapping document
+    [ "$f" = docs/event-loops/declarations.md ] && continue      # a note for loop owners, not a mapping document
     docs=$((docs + 1))
     for i in $items; do
         grep -q "^| \`$i\` |" "$f" || { echo "BAD   $f has no row for $i"; bad=$((bad + 1)); }
