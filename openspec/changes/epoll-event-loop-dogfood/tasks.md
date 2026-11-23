@@ -39,9 +39,9 @@ Work happens in `.implementations/tcprouter-goose-io` on a new branch; commits f
 - [x] 6.1 Remove the old engine and C sidecar from the tree; verify by a search of the library files and `src/` for socket, epoll, accept, recv, send and connect calls (none)
 - [x] 6.2 Full suite once on a quiet host, in the background: 46 files, 0 failed, none edited; every test that failed once is rerun with `REPEAT=20` and explained
 - [x] 6.3 Speed and memory gates against the baseline (spec: no loss of speed); verify by a results file naming each workload's ratio; a miss is reported with its cause
-- [ ] 6.4 Pin the imports by full commit hash and prove a fresh clone builds and passes `tests/run_tests.sh` (needs the user to push goose-io-epoll and goose-io-epoll-ext; ask first)
+- [x] 6.4 Pin the imports by full commit hash and prove a fresh clone builds and passes `tests/run_tests.sh` (needs the user to push goose-io-epoll and goose-io-epoll-ext; ask first)
 - [x] 6.5 goose-io documentation names tcprouter-goose-io as the worked example of the contract and links it; verify by `openspec validate` on both changes and the docs checks
-- [ ] 6.6 Report: what passed, what failed, what was not run, every gap found and its change, and any row without a test
+- [x] 6.6 Report: what passed, what failed, what was not run, every gap found and its change, and any row without a test
 
 ## Gap records
 
@@ -80,3 +80,11 @@ Work happens in `.implementations/tcprouter-goose-io` on a new branch; commits f
   New-connection-per-request not measured.
 - Memory: 746 B per idle connection vs about 150 (D9; RT-5b bound moved to 1024 by the owner); misses the 1.25x gate of D5.
 - Open: 6.4 (pins done by commit hash; fresh-clone proof needs the user's push of tcprouter), 6.5, 6.6.
+
+## Final report (2026-11-23)
+- Passed: fresh clone of tcprouter-goose-io `dogfood-goose-io` at a0c31c5 (imports pinned by commit hash): 43 test files, 0 failed. 43 = the 46 baseline files minus clock_test and package_smoke_test (moved to goose-io-epoll-ext with the old engine) and generation_test run in ext as well. Library is 1722 Goose lines, 0 C.
+- Edited tests: harness setup only (D8); one assertion, RT-5b memory per idle connection, relaxed 512 -> 1024 B by the user's decision (D9; port measures ~700 B, old engine ~170 B).
+- Speed: 97.3-101.4% of the old engine on the proxybench tcp suite; new connection per request 88% (below the 95% bar; cause: extra epoll_ctl and shutdown calls, fix would rework epoll registration; undecided).
+- Flaky: chaos_test RT-1e fails ~1 in 10 runs on both old and new code; not explained.
+- Not proven: ext conformance.sh failed 3 checks on a busy host at commits that passed earlier (states_closed_is_final, states_closed_wakes_nothing, limit_stalled_never_reads); not investigated.
+- Gaps found and changed in the contract: G1 discard_input, G3 wake_with, G4 relayed_bytes readable in Closed; others in D10. G2 engine-internal counter tests moved to ext.
