@@ -3,7 +3,7 @@
 # events and calls operations) and "application" (what runs the loop). The old word "provider" must not
 # come back (and "host" no longer is checked: it is also a URL authority and libpq's host setting): this fails on it, in the documents, the code, the scripts and the specification, and lists the
 # files with the number of lines for each, most first, which is the order to sweep them in.
-# Allowed: tests/conformance/table_check.sh, which names the old words to translate them; the capability id `provider-conformance` (OpenSpec does not rename a capability: design D1), and the records of changes under
+# Allowed: docs/event-loops/epoll-declarations.md (names the old words in other repositories) and tests/conformance/table_check.sh, which names the old words to translate them; the capability id `provider-conformance` (OpenSpec does not rename a capability: design D1), and the records of changes under
 # openspec/changes/ and docs/history.md, which say what was true when they were written.
 # The whole word "group" (and "groups") is checked too, since `rename-groups-to-capabilities`: what the contract calls an optional part is a
 # capability. Allowed, line by line: the CI concurrency key `group:` in .github/workflows/ci.yml, a benchmark's "group of arms"

@@ -446,7 +446,7 @@ The version of this document is **0.3** (`VERSION_MAJOR` 0, `VERSION_MINOR` 3 in
 
 ## 10. Known gaps
 
-*Candidate event loops and what the mapping found.* For each candidate the mapping documents in `docs/event-loops/` (a TCP proxy's engine, uSockets, io_uring, libuv, libevent) give one row for every operation and event, capabilityed as the contract is, marked as checked against source at a named revision or as unverified, with the adapter work listed, and a section on what a loop with only the core costs. Where a substrate did not offer an operation directly (`reset` and `pause_reading` in uSockets, `shutdown_write` in libevent and io_uring) the strategies tried are in the document of that event loop under "Known gaps", and the result is adapter code.
+*Candidate event loops and what the mapping found.* For each candidate the mapping documents in `docs/event-loops/` (a TCP proxy's engine, uSockets, io_uring, libuv, libevent) give one row for every operation and event, arranged as the contract is, marked as checked against source at a named revision or as unverified, with the adapter work listed, and a section on what a loop with only the core costs. Where a substrate did not offer an operation directly (`reset` and `pause_reading` in uSockets, `shutdown_write` in libevent and io_uring) the strategies tried are in the document of that event loop under "Known gaps", and the result is adapter code.
 
 What this does not establish: nothing was built or run, and several rows are unverified (they are listed at the top of each document). An event loop's adapter may find a row that cannot be met; it then records what it tried, and the contract is changed only if no other way works.
 

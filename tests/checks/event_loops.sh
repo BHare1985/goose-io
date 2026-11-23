@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Checks the mapping documents of docs/event-loops/: every operation and event of the contract has a row, each
 # document has its "Closing", "Connect failures", "Known gaps" and "What a loop with only the core costs" sections, its
-# rows capabilityed as the contract is (core first, then each capability, and a row only under its own capability), and the documents that list
+# rows arranged as the contract is (core first, then each capability, and a row only under its own capability), and the documents that list
 # unverified rows list them before the table. Usage: tests/checks/event_loops.sh
 set -u
 cd "$(dirname "$0")/../.."
@@ -11,6 +11,7 @@ bad=0
 docs=0
 for f in docs/event-loops/*.md; do
     [ -f "$f" ] || continue
+    [ "$f" = docs/event-loops/epoll-declarations.md ] && continue      # a note for loop owners, not a mapping document
     docs=$((docs + 1))
     for i in $items; do
         grep -q "^| \`$i\` |" "$f" || { echo "BAD   $f has no row for $i"; bad=$((bad + 1)); }
