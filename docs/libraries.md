@@ -260,6 +260,42 @@ fn _rearm<Io>(c: LineClient&, io: Io&) {
 }
 ```
 
+### Using a capability when the loop has it
+
+A library may use a capability and still run without it. It says so in a second header line, `// Uses if supplied:`
+(`examples/forward/forward.goose` has `relay`), and asks the loop with `goose_io::has_<capability>(io)`, which answers
+with a type: `goose_io::Supplied` when the loop declares the capability and `goose_io::Absent` when it does not. The
+library branches on that type with `const if`, and the branch not taken is never compiled, so a loop without relay
+never meets the call to `relay`. A run-time `if` would not do: both of its branches are type-checked.
+
+<!-- excerpt: examples/forward/forward.goose#branch -->
+```goose
+// The backend is open: hand the pair to the loop when it has relay, otherwise copy through this library.
+fn _pair<Io, S>(f: Forward&, io: Io&, has: S, client: Side&, backend: Side&) {
+    const if same<S, goose_io::Supplied> {
+        if io.relay(client.link, backend.link) == goose_io::RelayStatus.Started {
+            f.relayed++;
+        } else {
+            io.close(client.link);
+            io.close(backend.link);
+        }
+    } else {
+        f.copied++;
+        f._send_held(io, backend);
+        if backend.held.len == 0 { io.pause_reading(client.link, false); }
+    }
+}
+```
+
+The same source runs on the in-memory loop, where the loop carries the bytes and the library sees no `Data` for the
+pair, and on a loop that supplies only the core, where the library copies (`tests/examples/forward_test.goose` runs
+both). `tests/examples/needs_check.sh` checks that an operation of a capability that is not under `// Needs:` is named
+under `// Uses if supplied:` and has its `has_<capability>` in the code.
+
+Require the capability instead, with `// Needs:` and its `require_*` check, when the library cannot work without it:
+a library whose job is a half-close, or one with no way to copy, has nothing to do on a loop that lacks it, and failing
+at build time with the operation's name is the better answer.
+
 ### While the loop is stopping
 
 `stop(grace_ms)` makes `draining()` true. A library that sees it finishes what it has in hand and closes the
