@@ -32,7 +32,7 @@ Ground rules: work on a branch of goose-io after `epoll-event-loop` and `epoll-e
 
 - [x] 5.1 Restate "its five groups" in `openspec/specs/epoll-event-loop/spec.md` (archived from `epoll-event-loop`) as "its five capabilities", through a delta in this change if the spec exists when this change is applied. Verify `openspec validate rename-groups-to-capabilities --strict` passes.
 - [x] 5.2 Search `goose-io-epoll-ext` and the epoll loop for the renamed identifiers (`*Group`, `GROUP_*`), and write the declaration lines each needs into a note in `docs/event-loops/` for their owners. Verify the note names every capability each loop's README says it passes.
-- [ ] 5.3 Add an entry to `docs/history.md` (groups became capabilities, declarations, optional use). Do a full acceptance run on a fresh clone of the branch: every command of `CONTRIBUTING.md` and the workflow. Verify all exit 0.
+- [x] 5.3 Add an entry to `docs/history.md` (groups became capabilities, declarations, optional use). Do a full acceptance run on a fresh clone of the branch: every command of `CONTRIBUTING.md` and the workflow. Verify all exit 0.
 
 ## Workflow follow-up
 

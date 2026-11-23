@@ -281,7 +281,6 @@ fn has_wake<Io>(io: Io&) { return io.supplies_wake(); }
 fn supplies_limits<Io>(io: Io&) -> Absent { return Absent {}; }
 fn has_limits<Io>(io: Io&) { return io.supplies_limits(); }
 
-
 // --- what an event loop must supply ---------------------------------------------------------------
 
 // The contract is a core and eleven capabilities (docs/contract.md). Each check below names every operation of its part
