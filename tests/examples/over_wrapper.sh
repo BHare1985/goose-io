@@ -48,7 +48,7 @@ done
 
 # a library that needs only the core also runs on the loop that supplies only the core
 core_ran=0
-for file in tests/examples/lineclient_test.goose tests/examples/echo_test.goose; do
+for file in tests/examples/lineclient_test.goose tests/examples/echo_test.goose tests/examples/forward_test.goose; do
     n=$(sed -n 's/^let SCENARIOS = \([0-9][0-9]*\);.*/\1/p' "$file" | head -n 1)
     for ((i = 0; i < n; i++)); do
         run_scenario "$file" "$i" core-only; code=$?; out="$run_out"

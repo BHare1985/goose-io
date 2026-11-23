@@ -24,20 +24,21 @@ struct Side {
     in_use: bool           = false,
     up:     bool           = false,         // the link is open (a dial in progress is not)
     peer:   i64            = -1,            // the other side of the connection, an index in `sides`
+    finish: bool           = false,         // the other side has gone: close this link when what it holds is sent
     held:   u8[..16384]    = [],            // what the event loop refused to take for this link, waiting for Writable
 }
 
 struct Ref { index: i64 = 0 }
 
 root struct Forward {
-    listener: goose_io::Listener     = goose_io::Listener { .. },
-    backend:  u8[..64]               = [],
-    connect_ms: i64                  = 5000,
-    relayed:  i64                    = 0,    // connections handed to the loop with relay
-    copied:   i64                    = 0,    // connections whose bytes pass through the library
-    refs:     goose_io::LinkMap<Ref> = goose_io::LinkMap<Ref> {},
-    sides:    Side[>..]              = [],
-    free:     i64[>..<]              = [],
+    listener:   goose_io::Listener     = goose_io::Listener { .. },
+    backend:    u8[..64]               = [],
+    connect_ms: i64                    = 5000,
+    relayed:    i64                    = 0,  // connections handed to the loop with relay
+    copied:     i64                    = 0,  // connections whose bytes pass through the library
+    refs:       goose_io::LinkMap<Ref> = goose_io::LinkMap<Ref> {},
+    sides:      Side[>..]              = [],
+    free:       i64[>..<]              = [],
 }
 
 // Listens on `front`; each accepted link gets a dial to `backend`. False if the listen failed.
@@ -76,6 +77,7 @@ fn _new_side(f: Forward&, link: goose_io::Link, up: bool) -> i64 {
     s.in_use = true;
     s.up = up;
     s.peer = -1;
+    s.finish = false;
     s.held.clear();
     f.refs.put(link, Ref { index: i });
     return i;
@@ -87,7 +89,8 @@ fn _send_held<Io>(f: Forward&, io: Io&, s: Side&) {
     let status = io.send(s.link, s.held[..]);
     if status == goose_io::SendStatus.Sent {
         s.held.clear();
-        if s.peer >= 0 { io.pause_reading(f.sides[s.peer].link, false); }
+        if s.finish { io.close(s.link); }
+        else if s.peer >= 0 { io.pause_reading(f.sides[s.peer].link, false); }
     } else if status != goose_io::SendStatus.Full {
         io.close(s.link);
     }
@@ -157,7 +160,12 @@ fn forward_event<Io>(f: Forward&, io: Io&, ev: goose_io::Event) -> bool {
             guard j >= 0 else { return false; }
             let backend .= f.sides[j];
             backend.up = true;
-            guard backend.peer >= 0 else { io.close(o.link); return true; }
+            if backend.peer < 0 {
+                // the client went while the dial was in progress: send what it left, then close
+                if backend.held.len == 0 { io.close(o.link); return true; }
+                f._send_held(io, backend);
+                return true;
+            }
             f._pair(io, goose_io::has_relay(io), f.sides[backend.peer], backend);
             return true;
         },
@@ -176,9 +184,8 @@ fn forward_event<Io>(f: Forward&, io: Io&, ev: goose_io::Event) -> bool {
         PeerEof e => {
             let i = f._side_of(e.link);
             guard i >= 0 else { return false; }
-            // without half-close the end of one direction ends the connection
-            let peer = f.sides[i].peer;
-            if peer >= 0 { io.close(f.sides[peer].link); }
+            // a loop that gives PeerEof has the link stay open: the end of one direction ends the connection, and
+            // its Closed closes the other side once what is held for it is sent
             io.close(e.link);
             return true;
         },
@@ -187,8 +194,9 @@ fn forward_event<Io>(f: Forward&, io: Io&, ev: goose_io::Event) -> bool {
             guard i >= 0 else { return false; }
             let peer = f.sides[i].peer;
             if peer >= 0 {
+                // the other side gets what this one sent before it went, then it is closed
                 f.sides[peer].peer = -1;
-                io.close(f.sides[peer].link);
+                if f.sides[peer].held.len > 0 { f.sides[peer].finish = true; } else { io.close(f.sides[peer].link); }
             }
             f.sides[i].in_use = false;
             f.free.push(i);

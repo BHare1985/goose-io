@@ -9,6 +9,7 @@ What is here and where the others are. This list grows as examples are added; ad
 | [`echo/`](echo/) | the smallest library: an echo server | core |
 | [`lineserver/`](lineserver/) | a server that answers newline-delimited requests | core and half-close |
 | [`lineclient/`](lineclient/) | a pooled, pipelining client with deadlines and reconnects | core |
+| [`forward/`](forward/) | a forwarder that relays where the loop can and copies where it cannot | core, and relay if supplied |
 | [`gateway.goose`](gateway.goose) | the line server and client on one loop | core and half-close |
 | [`dispatch.goose`](dispatch.goose) | the application's glue: each event goes to the library that owns its link | core |
 
