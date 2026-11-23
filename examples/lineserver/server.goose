@@ -155,7 +155,9 @@ fn _on_opened<Io>(s: LineServer&, io: Io&, link: goose_io::Link) {
     c.out.clear();
     s.open++;
     s.refs.put(link, Ref { index: i });
-    io.set_keep_open_on_eof(link, true);
+    // doc:begin keep_open
+    io.set_keep_open_on_eof(link, true);      // in the handler of Opened: the peer finishing is then PeerEof, not Closed
+    // doc:end keep_open
 }
 
 fn _on_data<Io>(s: LineServer&, io: Io&, i: i64, bytes: const u8[:]) {
@@ -263,13 +265,15 @@ fn server_event<Io>(s: LineServer&, io: Io&, ev: goose_io::Event) -> bool {
             s._finish_if_done(io, i);
             return true;
         },
+        // doc:begin peer_eof
         PeerEof e => {
             let i = s._conn_of(e.link);
             guard i >= 0 else { return false; }
-            s.conns[i].eof = true;
+            s.conns[i].eof = true;                // no more requests will come; answer what was read, then close
             s._finish_if_done(io, i);
             return true;
         },
+        // doc:end peer_eof
         Closed e => {
             let i = s._conn_of(e.link);
             guard i >= 0 else { return false; }

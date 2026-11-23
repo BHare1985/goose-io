@@ -12,15 +12,15 @@ Ground rules: work on a branch of goose-io after `rename-groups-to-capabilities`
 
 Each of 2.1 to 2.8 is a small library in `examples/capabilities/` (design D3) with a `// Needs:` header, `// doc:begin`/`// doc:end` markers around the parts a page quotes, and a test in `tests/examples/capabilities/` on the in-memory loop. Verify for each: `goose check` passes, its test passes in fifty repetitions, and `tests/examples/needs_check.sh` passes.
 
-- [ ] 2.1 sizing: `frames.goose`, length-prefixed frames with `send2` and `send_room`.
-- [ ] 2.2 abort: `reject.goose`, reset a client whose first line is malformed. Its test sees `PeerReset` at the client.
-- [ ] 2.3 inspection: `access_log.goose`, `peer_address` at `Opened`, `stop_listening` when draining.
-- [ ] 2.4 batching: `batch_reply.goose`, replies queued in a pass and sent on `PassEnd`. Its test checks that one pass of ten requests gives ten replies after the pass.
-- [ ] 2.5 peek: `sniff.goose`, `wait_input` for the first bytes, then serve a greeting itself or relay to a backend.
-- [ ] 2.6 revoke: `fenced_writer.goose`, `write_deadline` at a fence and `discard_unsent` on cancel. Its test uses the in-memory clock.
-- [ ] 2.7 wake: `worker_reply.goose`, a worker thread replies through `wake_with`. Its test joins the worker.
-- [ ] 2.8 limits: `idle_reaper.goose`, `Idle` and `Age` limits on a relayed pair, closing on `Expired`.
-- [ ] 2.9 Add `// doc:begin`/`// doc:end` markers to `examples/lineserver/server.goose` (half-close), `tests/examples/unix_dial_test.goose` (unix) and `examples/forward/forward.goose` (relay). Add `examples/capabilities/` and `tests/examples/capabilities/` to `tests/run_tests.sh`. List them in `examples/README.md` as examples, not libraries to depend on. Verify `bash tests/run_tests.sh` passes.
+- [x] 2.1 sizing: `frames.goose`, length-prefixed frames with `send2` and `send_room`.
+- [x] 2.2 abort: `reject.goose`, reset a client whose first line is malformed. Its test sees `PeerReset` at the client.
+- [x] 2.3 inspection: `access_log.goose`, `peer_address` at `Opened`, `stop_listening` when draining.
+- [x] 2.4 batching: `batch_reply.goose`, replies queued in a pass and sent on `PassEnd`. Its test checks that one pass of ten requests gives ten replies after the pass.
+- [x] 2.5 peek: `sniff.goose`, `wait_input` for the first bytes, then serve a greeting itself or relay to a backend.
+- [x] 2.6 revoke: `fenced_writer.goose`, `write_deadline` at a fence and `discard_unsent` on cancel. Its test uses the in-memory clock.
+- [x] 2.7 wake: `worker_reply.goose`, a worker thread replies through `wake_with`. Its test joins the worker.
+- [x] 2.8 limits: `idle_reaper.goose`, `Idle` and `Age` limits on a relayed pair, closing on `Expired`.
+- [x] 2.9 Add `// doc:begin`/`// doc:end` markers to `examples/lineserver/server.goose` (half-close), `tests/examples/unix_dial_test.goose` (unix) and `examples/forward/forward.goose` (relay). Add `examples/capabilities/` and `tests/examples/capabilities/` to `tests/run_tests.sh`. List them in `examples/README.md` as examples, not libraries to depend on. Verify `bash tests/run_tests.sh` passes.
 
 ## 3. Pages
 
