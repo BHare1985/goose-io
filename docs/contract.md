@@ -1,6 +1,6 @@
 # The goose-io contract
 
-Version 0.2. The declarations are in [`goose_io.goose`](../goose_io.goose); this document is the meaning. The normative requirements, each with test scenarios, are in the OpenSpec capability `io-contract`. Requirement names from it are quoted in *italics* below so that every rule here can be traced to its tests.
+Version 0.3. The declarations are in [`goose_io.goose`](../goose_io.goose); this document is the meaning. The normative requirements, each with test scenarios, are in the OpenSpec capability `io-contract`. Requirement names from it are quoted in *italics* below so that every rule here can be traced to its tests.
 
 **In plain words.** An *event loop* moves the bytes (epoll, io_uring, libuv, or the in-memory one used for tests). A
 *library* speaks a protocol (a server, a client). The contract is the small set of operations and events between them,
@@ -28,7 +28,7 @@ No role stores a callback, allocates from a heap, or calls through a function po
 
 (*The contract is a core and groups of extras*, *The core is twelve operations and five events*, *Each group is named and checked on its own*)
 
-An event loop has to supply **the core**: 12 operations and 5 events, enough for a client, and for a server that answers as the bytes arrive. A server that answers after the peer has finished sending needs the half-close group (the line server does; the line client does not). Everything else is in one of six **groups** that an event loop may supply or leave out. A library uses what it needs and says so in its header; built against a loop that lacks something it calls, it fails to compile, and the error names the operation.
+An event loop has to supply **the core**: 12 operations and 5 events, enough for a client, and for a server that answers as the bytes arrive. A server that answers after the peer has finished sending needs the half-close group (the line server does; the line client does not). Everything else is in one of eleven **groups** that an event loop may supply or leave out. A library uses what it needs and says so in its header; built against a loop that lacks something it calls, it fails to compile, and the error names the operation.
 
 | | Operations | Events |
 |---|---|---|
@@ -39,6 +39,11 @@ An event loop has to supply **the core**: 12 operations and 5 events, enough for
 | **Inspection** | `peer_address`, `stop_listening` | |
 | **Batching** | | `PassEnd` |
 | **Unix** | the address forms `unix:/path` and `unix:///path`; no operation | |
+| **Relay** | `relay`, `relayed_bytes` | |
+| **Peek** | `peek`, `wait_input`, `discard_input` | `Input` |
+| **Revoke** | `discard_unsent`, `write_deadline` | |
+| **Wake** | `waker`, `wake` | `Woken` |
+| **Limits** | `set_limit` | `Expired` |
 
 A rule that belongs to a group binds only an event loop that supplies the group, and no rule of the core depends on a group. A loop that supplies only the core conforms to the core, and a library that uses only the core runs on it unchanged.
 
@@ -65,7 +70,7 @@ All are fixed-size values.
 
 **Addresses** are numeric text: `ip:port` for IPv4 and `[ip]:port` for IPv6, the same on every event loop, with IPv6 as hexadecimal groups. An event loop may accept more text than that (`inet_pton` takes `::ffff:192.0.2.1`), and a portable library passes only this form; the in-memory event loop treats an IPv4 tail as malformed. An event loop never resolves a host name, so there is no lookup to block the loop or to count against `connect_ms`; a host name given to `dial` fails with `ConnectFailed`. An IPv6 zone identifier (`%eth0`) is not part of an address and makes it malformed. An event loop that supplies the unix group (section 6) also takes `unix:/path` and its URL spelling `unix:///path`. Protocol URLs (`postgres://`, `redis://`, `mysql://`) are not addresses: a library resolves them to a path or a `host:port` before it calls `dial`, and text that is neither is `BadAddress`.
 
-**Handles.** A link handle is valid from the `dial` or `Opened` that produced it until the handler of its `Closed` event returns; during that handler `peer_address` (where the loop supplies it) still works. After that it is stale and every operation on it does nothing. An event loop never issues a slot and generation pair it has issued before on the same loop: a slot whose generations are used up is retired, not wrapped (*A slot and generation pair is never issued twice*). A slot is also held until the `Closed` of the link in it has been delivered, even with a new generation (*A slot is held until its Closed is delivered*), so a slot names at most one link that has not ended. A library still drops a handle when it sees its `Closed`. A listener handle is never reused at all (*Listener handles are never reused*); a loop that has issued every handle it can fails `listen` with `NoResources` and never starts again from an old one.
+**Handles.** A link handle is valid from the `dial` or `Opened` that produced it until the handler of its `Closed` event returns; during that handler `peer_address` (where the loop supplies it) and `relayed_bytes` still work. After that it is stale and every operation on it does nothing. An event loop never issues a slot and generation pair it has issued before on the same loop: a slot whose generations are used up is retired, not wrapped (*A slot and generation pair is never issued twice*). A slot is also held until the `Closed` of the link in it has been delivered, even with a new generation (*A slot is held until its Closed is delivered*), so a slot names at most one link that has not ended. A library still drops a handle when it sees its `Closed`. A listener handle is never reused at all (*Listener handles are never reused*); a loop that has issued every handle it can fails `listen` with `NoResources` and never starts again from an old one.
 
 **How an event finds its state** (*A link event is recognised by what the library holds*, *Slot numbers are dense*, *A slot is freed when its Closed has been handled*, *A link map finds state by link*). Nothing is attached to a link or a listener: an event carries its link, and a library keeps its own state keyed by that link. A dialled link is the one `dial` returned to the library; an accepted link is one whose `Opened` names a listener the library started (the library compares it with its own listeners); every later event is one whose link the library has state for. The library reports an event as handled only for a link it owns and as not handled for any other, so that the application can offer it to the next library; a library that does not know the link of a `Data`, `Writable`, `PeerEof` or `Closed` does none of its handling for it.
 
@@ -358,6 +363,65 @@ An event loop that supplies this group accepts `unix:/path`, or `unix:///path` f
 
 Abstract-namespace sockets, other socket types, the peer's credentials and passing descriptors are not part of the group.
 
+### Relay
+
+Operations `relay(a, b)` and `relayed_bytes(link)`. `relay` joins two open links: the loop carries the bytes of each to the other and the library sees none of them. It states the intent and not the mechanism: a loop may use buffers and a pump, `splice` or anything else, and one that copies conforms.
+
+`relay` returns a `RelayStatus`. Only `Started` joins the links; the others change nothing: `NotOpen` (a link is dialling), `Closed` (a link is closing, closed or stale), `AlreadyRelayed` (a link is joined already).
+
+A relayed link is in a sixth state, between open and closing. In it:
+
+| Operation | Relayed link |
+|---|---|
+| `send`, `send2`, `send_room` | `Closed`, 0: the relay owns the sending of the link, as `Closed` after `shutdown_write` |
+| `pause_reading`, `set_keep_open_on_eof`, `shutdown_write` | no effect |
+| `close`, `reset` | end both links of the pair, each with one `Closed` of reason `Local` |
+| `peer_address` | the address, as when open |
+| `relayed_bytes` | the bytes carried from this link to its partner; 0 for a link never relayed or stale. Like `peer_address` it still answers while the link's `Closed` is handled, so a library reads its final count there |
+
+A relayed link delivers no `Data` and no `Writable`. The pair ends as one. When both streams have ended, each link gets `Closed` with `PeerClosed`. When the pair fails, the link where it happened carries the true cause: `PeerReset` for its own peer's reset, `Error` for any other failure, `Local` for a limit of the loop's own (the stall limit on a peer that never reads); the partner gets `Error` after a reset or an error, and `Local` after a limit of the loop; the partner never gets `PeerReset`. Backpressure is the loop's: it stops reading a link while its partner cannot take more, so a pair holds at most one buffer of the loop's in each direction. Bytes held by `peek` when the library relays are the first bytes carried.
+
+### Peek
+
+Operations `peek(link)`, `wait_input(link, n)` and `discard_input(link, n)`, event `Input { link, available }`. For a library that has to look before it chooses, such as one that picks a handler from the first bytes of a connection.
+
+- `peek` returns the bytes that have arrived on an open link and have not been delivered as `Data`, valid until the handler returns, and consumes nothing: calling it twice shows the same bytes. It returns none for a link that is not open or is stale.
+- `wait_input(link, n)` with `n` above 0 withholds `Data` and delivers one `Input` when `n` bytes have arrived, or the peer's stream has ended, or the loop's bound has been reached. `Data` stays withheld until `wait_input(link, 0)`, which delivers the held bytes unchanged and in order as `Data`.
+- `discard_input(link, n)` drops the first `n` held bytes of an open link that is not relayed, at most as many as `peek` shows, and returns how many it dropped (0 for any other link). It delivers no `Input` and no `Data`; the rest stays held, in order. A library that has sent the held bytes on itself, such as a router replaying a hello to a second server, drops them so that `relay` does not carry them again.
+- `Input` carries a count and not the bytes: they stay with the loop until `peek` or `relay`, so a library that decides without looking pays no copy.
+- **The bound** is configuration that every loop exposes, with a documented default. At the bound the loop stops reading the link and delivers `Input` with `available` equal to the bound even when `n` is larger; the library then closes, relays, or calls `wait_input(link, 0)`. Nothing past the bound is read.
+- A paused link holds its bytes and delivers no `Input` until it is resumed. The peer's end of stream is reported (`PeerEof` or `Closed`) after the released `Data`.
+
+### Revoke
+
+Operations `discard_unsent(link)` and `write_deadline(link, at_ms)`. For a library whose fences say that no byte is written after a time.
+
+- `discard_unsent` drops every byte the loop accepted on the link and has not handed to the transport, returns how many it dropped, and treats a `Writable` owed to the link as if those bytes had been sent. Bytes already handed to the transport are not recalled; a loop that cannot recall says so.
+- `write_deadline` sets a time (`now_ms` clock; 0 removes it, a later call replaces it). From the moment the clock is at or after it the loop writes no further byte on the link, answers `send` with `Closed`, and ends the link with reason `Local`. The clock is read at each write and not taken from the start of the pass, so a process stopped between the start of a pass and a write does not write late. On a relayed link the deadline binds the relay's writes in both directions.
+
+### Wake
+
+Operations `waker()`, `wake(waker, value)` and `wake_with(waker, value, body)`, event `Woken { value, body }`. `body` is up to 64 bytes (longer text is cut), empty for a plain `wake`; it is for a library whose messages carry data (for example a tag, a deadline or an address to change). `waker()` returns a `Waker`, a fixed-size handle that may be copied to any thread. `wake` is the only operation callable from another thread: the contract says that a loop belongs to the thread that serves it, and this group is its one exception. Each `wake` delivers one `Woken` to the loop's thread, in the order one calling thread made them (there is no order between threads). `Woken` goes to every library like `Tick`; the application decides who handles it.
+
+### Limits
+
+Operation `set_limit(link, kind, ms)`, event `Expired { link, limit }`. The loop reports when a link has been in a state for too long, and the library decides what to do. A loop alone can see these states once a relay carries the bytes.
+
+| `Limit` | Expires when, for `ms` |
+|---|---|
+| `Idle` | no byte was read from or written to the link; a byte a relay carries counts for both links, and so does a byte the transport accepts while a queue drains |
+| `Silent` | no byte was read (from the opening if none), whatever the library sends |
+| `Stalled` | bytes wait to be sent on the link (or a relay holds bytes from its partner) and the transport accepts none; it runs only while something waits |
+| `HalfOpen` | after the peer's stream ended on a link that stays open (kept open, or relayed), whatever crosses since |
+| `Age` | after the link opened, whatever happens |
+
+- `ms` 0 turns a kind off; a second call for a kind replaces it; kinds are independent.
+- `Expired` is delivered once for each arming, in the first pass that begins at or after the due time (the loop sleeps until it is due and does not wait for the next `Tick`). Activity in a pass moves the due time of its link before limits are checked.
+- The loop does not close the link: the library closes (and chooses the reason it records) or arms again. A close of one link of a relayed pair ends both.
+- The loop never delivers `Expired` for a link after its `Closed`. A loop may use a clock that keeps counting while the machine is suspended; the contract does not require it.
+
+A library's own deadlines (a connect timeout, a table of fences, a drain deadline) need no group: `tick_by` and `Tick` give them.
+
 ## 7. Layering
 
 (*Event loops can be layered*)
@@ -376,18 +440,18 @@ The contract covers TCP byte streams over IPv4 and IPv6, stream sockets at a pat
 
 `goose_io::VERSION_MAJOR` and `goose_io::VERSION_MINOR`. While the major number is 0, a minor increase may change or remove behaviour. From major version 1, a minor increase only adds. An event loop states the contract version it conforms to, the core and the groups it supplies.
 
-The version of this document is **0.2** (`VERSION_MAJOR` 0, `VERSION_MINOR` 2 in `goose_io.goose`). Version 0.1 was the first release and is the version on `main`; 0.2 is the next one and adds the unix group, removes the tag and the user value from the events and the operations (`set_user`, `user`) and the tag from `listen` and `dial`, adds `LinkMap` and the rule that slots are dense, and states the life of a link and of a loop (the link states and the result of each operation in each, the invalid link, retirement of an exhausted slot, slots held until `Closed`, the finished loop and the end of the grace period). The keep-open window is a tightening: a `set_keep_open_on_eof` call made after the link's `Opened` handler has returned, which 0.1 allowed while the peer had not yet finished, has no effect, so a library that called it late moves the call into `Opened`. No event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
+The version of this document is **0.3** (`VERSION_MAJOR` 0, `VERSION_MINOR` 3 in `goose_io.goose`). Version 0.3 adds the groups relay, peek, revoke, wake and limits, the types `RelayStatus`, `Waker` and `Limit`, and the events `Input`, `Woken` and `Expired`; code that matches on every `Event` must name the new ones. Version 0.1 was the first release and is the version on `main`; 0.2 is the next one and adds the unix group, removes the tag and the user value from the events and the operations (`set_user`, `user`) and the tag from `listen` and `dial`, adds `LinkMap` and the rule that slots are dense, and states the life of a link and of a loop (the link states and the result of each operation in each, the invalid link, retirement of an exhausted slot, slots held until `Closed`, the finished loop and the end of the grace period). The keep-open window is a tightening: a `set_keep_open_on_eof` call made after the link's `Opened` handler has returned, which 0.1 allowed while the peer had not yet finished, has no effect, so a library that called it late moves the call into `Opened`. No event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
 
 ## 10. Known gaps
 
-*Candidate event loops and what the mapping found.* For each candidate the mapping documents in `docs/event-loops/` (tcprouter's engine, uSockets, io_uring, libuv, libevent) give one row for every operation and event, grouped as the contract is, marked as checked against source at a named revision or as unverified, with the adapter work listed, and a section on what a loop with only the core costs. Where a substrate did not offer an operation directly (`reset` and `pause_reading` in uSockets, `shutdown_write` in libevent and io_uring) the strategies tried are in the document of that event loop under "Known gaps", and the result is adapter code.
+*Candidate event loops and what the mapping found.* For each candidate the mapping documents in `docs/event-loops/` (a TCP proxy's engine, uSockets, io_uring, libuv, libevent) give one row for every operation and event, grouped as the contract is, marked as checked against source at a named revision or as unverified, with the adapter work listed, and a section on what a loop with only the core costs. Where a substrate did not offer an operation directly (`reset` and `pause_reading` in uSockets, `shutdown_write` in libevent and io_uring) the strategies tried are in the document of that event loop under "Known gaps", and the result is adapter code.
 
 What this does not establish: nothing was built or run, and several rows are unverified (they are listed at the top of each document). An event loop's adapter may find a row that cannot be met; it then records what it tried, and the contract is changed only if no other way works.
 
 Three behaviours that every adapter has to supply, found by the reading and worth knowing before starting one:
 
 - **Closing without losing accepted bytes.** `close(2)` on a socket with unread input resets the connection on Linux. Each mapping says how its event loop avoids it: finish sending, `shutdown(WR)`, discard input until the peer's end of stream or a limit, then close. The limit is the event loop's own and ends a peer that never reads.
-- **`Writable` after the largest refused send fits.** tcprouter delivers it at a fixed low-water mark; the adapter has to remember the size that was refused.
+- **`Writable` after the largest refused send fits.** a TCP proxy's engine may deliver it at a fixed low-water mark; the adapter has to remember the size that was refused.
 - **Events never inside an operation.** uSockets calls its close callback before `us_socket_close` returns; libuv and libevent (with deferred callbacks) do not. An adapter over uSockets queues its events.
 
 ## 11. What the contract does not cover
@@ -399,8 +463,8 @@ Three behaviours that every adapter has to supply, found by the reading and wort
 | Host-name resolution | uSockets (blocking `getaddrinfo` inside connect), libuv (`uv_getaddrinfo`), libevent (`bufferevent_socket_connect_hostname`) | Not in the contract. An event loop never resolves; a host name given to `dial` fails with `ConnectFailed`, `BadAddress`. Needed before the first real client: a resolver library on the contract, or a wake from another thread so a resolver thread can post a result. |
 | TLS | inside uSockets; separate in libuv | A wrapping event loop (*Event loops can be layered*; `tests/support/wrapper.goose` shows the layering). |
 | Hosting existing C clients (libpq, hiredis, libcurl, c-ares) | They need "tell me when this descriptor is readable"; every readiness substrate offers it | Cannot be in the contract: an in-memory or completion-only event loop has no descriptors. A later optional capability. |
-| Wake from another thread | `us_wakeup_loop`, `uv_async_send`, ring `MSG_RING`, tcprouter's message pipes | A later optional capability. |
-| Socket options | all | Event loop configuration. Event loops are advised to disable Nagle's algorithm, as tcprouter does. |
+| Wake from another thread | `us_wakeup_loop`, `uv_async_send`, ring `MSG_RING`, a proxy's message pipes | A later optional capability. |
+| Socket options | all | Event loop configuration. Event loops are advised to disable Nagle's algorithm, as proxies do. |
 | Writing into received bytes in place (WebSocket unmasking) | uSockets, io_uring buffers | `Data` lends read-only bytes. Can be relaxed later. |
 
 ## 12. Open questions

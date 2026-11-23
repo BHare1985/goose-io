@@ -5,7 +5,7 @@
 # A check with an id of 900 or more (finished_loop and its group variants) runs after serve has returned, on the finished loop.
 # The half-close and abort groups have no finished-loop check: their link operations return nothing, so their finished-loop cells
 # are covered by the unit tests of tests/unit/memory_loop_test.goose and tests/unit/wrapper_loop_test.goose.
-# The group is the one the check belongs to (core, half-close, sizing, abort, inspection, batching, unix); "pending" is a check
+# The group is the one the check belongs to (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits); "pending" is a check
 # not yet assigned (tasks 4.2 to 4.4 of simplify-contract). "-" in the fault column means no fault can be injected in a queue-based event loop; the reason is in docs/event-loops.md.
 handles_stale_reuse	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	core
 handles_stale_reset	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	abort
@@ -102,3 +102,28 @@ finished_loop	1	A finished loop does nothing	Operations after serve returns | Se
 finished_loop_sizing	0	A finished loop does nothing	Operations after serve returns	SendAfterFinishSent	sizing
 finished_loop_inspection	0	A finished loop does nothing	Operations after serve returns	PeerAddressAfterFinish	inspection
 grace_keeps_local	6	The end of the grace period	Close, then stop | Stop, then close during the grace period	ShutdownOverridesLocal	core
+relay_carries_bytes	0	Relay joins two links inside the loop	Relay joins two links inside the loop	RelayDropsLastByte	relay
+relay_refusals	0	Relay joins two links inside the loop	Relay joins two links inside the loop	RelayJoinsRelayed	relay
+relay_holds_back_unread	0	A relay holds back and ends as a pair	A relay holds back and ends as a pair	RelayDropsLastByte,RelayedCountsHeld	relay
+relay_send_refused_and_close_ends_both	0	A relayed link is owned by the relay	A relayed link is owned by the relay	RelayDropsLastByte,RelayedSendAccepted,RelayCloseEndsOne	relay
+relayed_bytes_in_closed	0	A relayed link is owned by the relay	A relayed link is owned by the relay	RelayedBytesLostAtClose	relay
+wait_input_gathers	0	Peek waits for enough bytes and then releases them	Peek waits for enough bytes and then releases them	InputNeverDelivered,InputEarly	peek
+wait_input_peer_ends	0	Peek waits for enough bytes and then releases them	Peek waits for enough bytes and then releases them	InputNeverDelivered,PeerEndIgnored	peek
+peek_bound	0	A link holds a bounded number of unread bytes	A link holds a bounded number of unread bytes	BoundIgnored,InputNeverDelivered	peek
+discard_input_drops	0	Peek waits for enough bytes and then releases them	Peek waits for enough bytes and then releases them	DiscardInputKeeps	peek
+discard_unsent_drops	0	Revoke takes back unsent bytes	Revoke takes back unsent bytes	DiscardKeepsBytes	revoke
+write_deadline_stops	0	A write deadline stops writes at a time	A write deadline stops writes at a time	DeadlineOnlyAtSend	revoke
+write_deadline_moved	0	A write deadline stops writes at a time	A write deadline stops writes at a time	DeadlineNotReplaced	revoke
+wake_in_order	0	Wakes are delivered in order and lost by no pass	Wakes are delivered in order and lost by no pass	WakeOrderReversed	wake
+wake_carries_body	0	A wake can carry a body of up to 64 bytes, delivered with its value	A wake can carry a body of up to 64 bytes, delivered with its value	WakeBodyDropped	wake
+limit_idle_and_age	0	A limit tells the library that a link has run too long in a state	A limit tells the library that a link has run too long in a state	ExpiredRepeats,AgeNeverExpires	limits
+limit_replace_and_off	0	A limit tells the library that a link has run too long in a state	A limit tells the library that a link has run too long in a state	ReplaceKeepsFirst	limits
+limit_idle_activity_moves	0	Idle, Silent and Age measure quiet and lifetime	Idle, Silent and Age measure quiet and lifetime	IdleFromArming	limits
+limit_silent_while_sending	0	Idle, Silent and Age measure quiet and lifetime	Idle, Silent and Age measure quiet and lifetime	SilentCountsWrites	limits
+limit_age_not_moved	0	Idle, Silent and Age measure quiet and lifetime	Idle, Silent and Age measure quiet and lifetime	AgeResetByActivity,AgeNeverExpires	limits
+limit_stalled_never_reads	0	Stalled bounds a link whose peer does not read	Stalled bounds a link whose peer does not read	StalledResetByReads	limits
+limit_stalled_slow_reader	0	Stalled bounds a link whose peer does not read	Stalled bounds a link whose peer does not read	StalledNoProgressReset	limits
+limit_stalled_nothing_waits	0	Stalled bounds a link whose peer does not read	Stalled bounds a link whose peer does not read	StalledAlways	limits
+limit_halfopen_not_ended	0	A half-closed link is bounded	A half-closed link is bounded	HalfOpenAlways	limits
+limit_one_event_per_arming	0	Expired reports and the library decides	Expired reports and the library decides	ReplaceKeepsFirst	limits
+limit_closed_link	0	Expired reports and the library decides	Expired reports and the library decides	ExpiredAfterClose	limits

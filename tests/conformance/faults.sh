@@ -22,6 +22,11 @@ limited() {
     else "$@"; fi
 }
 
+bin=$(mktemp "${TMPDIR:-/tmp}/goose-io-faults.XXXXXX")
+trap 'rm -f "$bin"' EXIT
+# built once: the loops use threads, which `goose run` does not support
+goose build tests/conformance/memory_conformance.goose -o "$bin" || exit 2
+
 bad=0
 tested=0
 unfaulted=()
@@ -31,7 +36,7 @@ while IFS=$'\t' read -r check part req scenarios fault group; do
     if [ "$fault" = "-" ]; then unfaulted+=("$check"); continue; fi
     # the fault column holds one fault, or several separated by commas: the check must fail under each of them
     for one in ${fault//,/ }; do
-        out=$(GOOSE_IO_FAULT="$one" limited goose run tests/conformance/memory_conformance.goose -- "$part" "$group" 2>&1)
+        out=$(GOOSE_IO_FAULT="$one" limited "$bin" "$part" "$group" 2>&1)
         code=$?
         tested=$((tested + 1))
         if grep -q "^FAIL $check " <<<"$out"; then
@@ -48,8 +53,8 @@ done < tests/conformance/checks.tsv
 if [ ${#unfaulted[@]} -gt 0 ]; then echo "no fault possible, see docs/event-loops.md: ${unfaulted[*]}"; fi
 echo "$tested faults tried, $bad checks that did not fail"
 
-# an unknown fault name must not silently pass: the fault table in memory.goose has to know every name used
+# an unknown fault name must not silently pass: the Fault enum in memory.goose has to have every name used
 for f in $(grep -v '^#' tests/conformance/checks.tsv | cut -f5 | grep -v '^-$' | tr ',' '\n'); do
-    grep -q "\"$f\"" memory.goose || { echo "BAD   fault $f is not in memory.goose"; bad=$((bad + 1)); }
+    grep -qw "$f" <(sed -n '/^enum Fault {/,/^}/p' memory.goose) || { echo "BAD   fault $f is not in memory.goose"; bad=$((bad + 1)); }
 done
 [ $bad -eq 0 ]

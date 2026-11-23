@@ -62,6 +62,9 @@ fn note<Io>(log: Log&, io: Io&, ev: goose_io::Event) {
         Closed e => { log.entries.push(Entry { kind: CLOSED, link: e.link, why: e.why, at_ms: now, .. }); },
         Tick t => { if log.ticks { log.entries.push(Entry { kind: TICK, at_ms: t.now_ms, .. }); } },
         PassEnd => { log.entries.push(Entry { kind: PASS_END, at_ms: now, .. }); },
+        Input i => {},      // the groups of relay, peek, wake and limits are not exercised through the kit
+        Expired x => {},
+        Woken w => {},
     }
 }
 

@@ -156,14 +156,15 @@ client behind it. HTTP and Postgres libraries are separate projects; this reposi
 
 | | Status |
 |---|---|
-| The contract, version 0.2 | Implemented: 12 operations and 5 events in the core, and six optional groups (half-close, sizing, abort, inspection, batching, unix) |
+| The contract, version 0.3 | Implemented: the core and eleven optional groups (half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits) |
 | The conformance suite | Implemented: the core and each group, with a fault for every check |
 | The in-memory event loop | Implemented, for tests: scripted peers and a virtual clock |
 | Example libraries | Implemented: echo, a line server, a pooled line client |
-| An event loop on real sockets | **Not yet.** An epoll loop is planned as its own change (`openspec/changes/epoll-event-loop/`), then io_uring and uSockets |
+| An event loop on real sockets | Event loops live in their own repositories (see [`examples/README.md`](examples/README.md)); io_uring and uSockets are mapped in `docs/event-loops/` |
+| A worked library | A TCP router that runs on any loop with the groups it needs (see [`examples/README.md`](examples/README.md)) |
 
-So today a library runs on the in-memory loop (and over the test layers below), and runs on the real loops when they
-land. Built and tested on linux-x64, macos-x64, macos-arm64 and windows-x64; the package is Goose source and builds no C.
+So today a library runs on the in-memory loop (and over the test layers below), and on the real loops that live in their own
+repositories. Built and tested on linux-x64, macos-x64, macos-arm64 and windows-x64; the package is Goose source and builds no C.
 
 ## I am writing a library
 
@@ -307,7 +308,7 @@ way. A layer is not an event loop of its own: it conforms by passing the suite o
 
 | Event loop | Kind | Contract | Core | Groups |
 |---|---|---|---|---|
-| in-memory (`memory.goose`) | event loop, for tests | 0.2 | yes | half-close, sizing, abort, inspection, batching, unix |
+| in-memory (`memory.goose`) | event loop, for tests | 0.3 | yes | half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits |
 | wrapper (`tests/support/wrapper.goose`) | a layer over another event loop | 0.2 | yes | half-close, sizing, abort, inspection, batching, unix |
 | core only (`tests/support/core_only.goose`) | test scaffold | 0.2 | yes | none |
 

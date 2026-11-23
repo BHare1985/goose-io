@@ -28,7 +28,7 @@ tests/checks/vocabulary.sh
 Write the test before the code it tests, and run it against the old code to see it fail. A test that fails once in
 any repetition is a failure until its cause is explained.
 
-Adding an event loop (it lives in its own repository or under `examples/loops/`):
+Adding an event loop (it lives in its own repository):
 
 1. Supply the core, and then any groups you want (`docs/contract.md`, section 2). Call `goose_io::require_core` and the
    check of each group you supply from its root program: a missing operation is then a compile error in one place.
@@ -41,7 +41,7 @@ Adding an event loop (it lives in its own repository or under `examples/loops/`)
 The words are "event loop" (what supplies the operations), "library" (what handles events) and "application" (what runs
 the loop); `tests/checks/vocabulary.sh` fails on the old ones.
 
-The package stays pure Goose: no C, no `extern`, no build sidecar outside `examples/loops/`
+The package stays pure Goose: no C, no `extern`, no build sidecar
 (`tests/checks/purity.sh`). Do not add HTTP, TLS, SQL, Redis, pooling, routing or health-check policy to the contract.
 
 ## Repository layout

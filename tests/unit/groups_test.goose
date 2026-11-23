@@ -21,6 +21,6 @@ fn main() {
     goose_io::require_core(core);
     kit::check(core.max_send() >= 4096, "fixture: the stub is a loop");
 
-    kit::check(goose_io::VERSION_MAJOR == 0 && goose_io::VERSION_MINOR == 2, "the contract version is 0.2");
+    kit::check(goose_io::VERSION_MAJOR == 0 && goose_io::VERSION_MINOR == 3, "the contract version is 0.3");
     kit::finish();
 }

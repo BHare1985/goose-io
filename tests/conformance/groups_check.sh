@@ -18,7 +18,7 @@ while IFS=$'\t' read -r check part req scenarios fault group; do
     if [ -z "$body" ]; then echo "BAD   $check: no function c_$check in conformance/"; bad=$((bad + 1)); continue; fi
     used=$(
         {
-            echo "$body" | grep -oE 'io\.(shutdown_write|set_keep_open_on_eof|send_room|send2|reset|peer_address|stop_listening|user)\(' | sed 's/^io\.//; s/($//'
+            echo "$body" | grep -oE 'io\.(shutdown_write|set_keep_open_on_eof|send_room|send2|reset|peer_address|stop_listening|user|relay|relayed_bytes|waker|wait_input|peek|discard_unsent|write_deadline|wake|set_limit)\(' | sed 's/^io\.//; s/($//'
             echo "$body" | grep -q 'fill_to_room(' && echo send_room
             echo "$body" | grep -qE "'E'|PeerEof" && echo PeerEof
         } | sort -u
@@ -29,6 +29,11 @@ while IFS=$'\t' read -r check part req scenarios fault group; do
             send_room|send2) g=sizing ;;
             reset) g=abort ;;
             peer_address|stop_listening|user) g=inspection ;;
+            relay|relayed_bytes) g=relay ;;
+            wait_input|peek) g=peek ;;
+            discard_unsent|write_deadline) g=revoke ;;
+            wake|waker) g=wake ;;
+            set_limit) g=limits ;;
         esac
         if [ "$g" != "$group" ]; then
             echo "BAD   $check (group $group) calls $op, which belongs to the group $g"
