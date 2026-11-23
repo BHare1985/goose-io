@@ -28,6 +28,11 @@ tests/checks/vocabulary.sh
 Write the test before the code it tests, and run it against the old code to see it fail. A test that fails once in
 any repetition is a failure until its cause is explained.
 
+Adding a capability to the contract: in the same change, add its page `docs/capabilities/<name>.md` (the seven sections of
+the other pages, in order), its row in `docs/capabilities/README.md`, and a checked example (a `// doc:begin` excerpt of a
+program that is built and tested, or a `source:` block). `tests/checks/capability_pages.sh` fails when any is missing, and
+`tests/checks/docs.sh` when a quoted block differs from its file.
+
 Adding an event loop (it lives in its own repository):
 
 1. Supply the core, and then any capabilities you want (`docs/contract.md`, section 2). Call `goose_io::require_core` and the
@@ -51,14 +56,15 @@ The package stays pure Goose: no C, no `extern`, no build sidecar
 - `deadlines.goose`: `Deadlines`, a bounded heap of deadlines for libraries that have many
 - `memory.goose`: the in-memory event loop, with scripted peers, a virtual clock and the named faults
 - `conformance/`: the conformance suite, which imports only the contract: `suite.goose` is the driver and the entry points, `support.goose` what every check shares, `handles`, `net`, `data`, `close` and `time` the checks
-- `examples/`: the example libraries: `echo/`, `lineserver/`, `lineclient/` and `gateway.goose`, which runs the last two on one loop, and `dispatch.goose`, which sends each event to the library that owns its link
+- `examples/`: the example libraries: `echo/`, `lineserver/`, `lineclient/`, `forward/`, `capabilities/` (a small program for each capability, to read and copy from) and `gateway.goose`, which runs the last two on one loop, and `dispatch.goose`, which sends each event to the library that owns its link
 - `docs/`: `contract.md`, `libraries.md`, `event-loops.md` and `history.md`
+- `docs/capabilities/`: one page for each capability, for library authors, and the index
 - `docs/event-loops/`: how each candidate event loop maps onto the contract
 - `tests/unit/`: tests of the types, `Deadlines` and the in-memory event loop
 - `tests/examples/`: tests of the example libraries, and the scripts that run them over the wrapper
 - `tests/conformance/`: running the suite (`run.sh`, `faults.sh`, `table_check.sh`, `capabilities_check.sh`), the table of checks and faults (`checks.tsv`), and the driver's own tests
 - `tests/support/`: what tests share: `kit.goose` (the test kit), `wrapper.goose` (an event loop layered over another), `core_only.goose` (an event loop that supplies only the core) and `stub.goose`
-- `tests/checks/`: scripts that check the repository itself: quoted code, purity, vocabulary, event loop mappings, this layout
+- `tests/checks/`: scripts that check the repository itself: quoted code, capability pages, purity, vocabulary, event loop mappings, this layout
 - `tests/run_tests.sh`: runs every `*_test.goose` and `*_mustfail.goose`, the purity check and the vocabulary check
 - `openspec/`: the specification and the changes that made it
 - `Justfile`: `just check`, `just test`, `just fmt`
