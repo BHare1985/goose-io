@@ -359,8 +359,10 @@ fn require_inspection<Io>(io: Io&) {
     _is_supplied(io.supplies_inspection());
 }
 
-// Batching has no operation, only the event PassEnd, and unix only an address form: their checks are the declaration alone.
+// Batching: the event PassEnd. It has no operation, so its check is the declaration alone.
 fn require_batching<Io>(io: Io&) { _is_supplied(io.supplies_batching()); }
+
+// Unix: the address form unix:/path. It has no operation, so its check is the declaration alone.
 fn require_unix<Io>(io: Io&) { _is_supplied(io.supplies_unix()); }
 
 // Relay: relay(a, b) -> RelayStatus, relayed_bytes(link) -> i64.

@@ -4,9 +4,9 @@ Ground rules: work on a branch of goose-io after `rename-groups-to-capabilities`
 
 ## 1. Checks first
 
-- [ ] 1.1 Extend `tests/checks/docs.sh` to read `docs/capabilities/*.md`. Verify it passes with the directory empty and fails on a scratch page whose excerpt differs from its file.
-- [ ] 1.2 Write `tests/checks/capability_pages.sh` (design D4), with must-fail fixtures under `tests/checks/fixtures/capability_pages/`: a missing page, a missing section, a section out of order, an operation left out of "What it is", no checked example, a page missing from the index. Verify each fixture fails with a message naming the page and the problem. Verify the check fails on the repository as it stands, naming all eleven capabilities.
-- [ ] 1.3 Add both checks to `.github/workflows/ci.yml` (the step stays red until group 3 lands on the branch). Verify the step runs locally.
+- [x] 1.1 Extend `tests/checks/docs.sh` to read `docs/capabilities/*.md`. Verify it passes with the directory empty and fails on a scratch page whose excerpt differs from its file.
+- [x] 1.2 Write `tests/checks/capability_pages.sh` (design D4), with must-fail fixtures under `tests/checks/fixtures/capability_pages/`: a missing page, a missing section, a section out of order, an operation left out of "What it is", no checked example, a page missing from the index. Verify each fixture fails with a message naming the page and the problem. Verify the check fails on the repository as it stands, naming all eleven capabilities.
+- [x] 1.3 Add both checks to `.github/workflows/ci.yml` (the step stays red until group 3 lands on the branch). Verify the step runs locally.
 
 ## 2. Example programs
 

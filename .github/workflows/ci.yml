@@ -94,6 +94,14 @@ jobs:
         shell: bash
         run: bash tests/checks/docs.sh
 
+      - name: Every capability has its page
+        shell: bash
+        run: bash tests/checks/capability_pages.sh
+
+      - name: The capability page check fails when it should
+        shell: bash
+        run: bash tests/checks/capability_pages_fixtures.sh
+
       - name: Conformance suite on the in-memory event loop (the core and each capability)
         shell: bash
         run: bash tests/conformance/run.sh --repeat 3
