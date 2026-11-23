@@ -1,41 +1,62 @@
-# Moving a loop to contract 0.4
+# Declaring the capabilities a loop supplies
 
-Contract 0.4 asks a loop to say which capabilities it supplies, with one line each in the loop's own namespace
-(`docs/event-loops.md`, "Declaring what a loop supplies"). A loop in a repository of its own pins this package by commit, so
-nothing breaks until it moves to a commit of contract 0.4 or later. This note is for the owners of such loops, for that day.
-It applies to any loop; the loops listed in `examples/README.md` are the examples of it.
+A loop supplies the core of the contract and, if it chooses, any of the optional capabilities: half_close, sizing, abort,
+inspection, batching, unix, relay, peek, revoke, wake and limits. A loop says which ones it supplies by declaring them, one
+line each, in its own namespace. Libraries and the conformance suite read those declarations; nothing else tells them.
 
-## The declarations
+## Declaring one
 
-For each capability the loop passes the suite for, add one line next to its operations (here the loop's type is `Loop`):
+Next to the operations of a capability, add a function named `supplies_<capability>` that returns `goose_io::Supplied`:
 
 ```goose
+namespace my_loop;
+
+struct Loop { /* ... */ }
+
+fn relay(io: Loop&, a: goose_io::Link, b: goose_io::Link) -> goose_io::RelayStatus { /* ... */ }
+fn relayed_bytes(io: Loop&, link: goose_io::Link) -> i64 { /* ... */ }
+
 fn supplies_relay(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
 ```
 
-The capabilities are half_close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake and limits. Declare
-exactly those the loop supplies and none other: a capability left undeclared answers `goose_io::Absent`, and a loop that
-declares one without its operations fails `goose_io::require_<capability>` with the name of the missing operation. The core
-needs no declaration. Batching and unix have no operation, so their declaration is the whole of what a loop does to supply
-them.
+A capability the loop does not declare answers `goose_io::Absent`. The core needs no declaration. Batching and unix have no
+operations of their own, so for them the declaration is all a loop does.
 
-A loop that wraps another forwards each answer with `goose_io::has_<capability>(inner)` (see the wrapper in
-`tests/support/wrapper.goose`).
+Declare exactly the capabilities the loop supplies:
 
-## The examples
+- A capability declared without its operations fails to compile, with the name of the missing operation.
+- A capability whose operations exist but which is not declared is treated as absent: libraries do not use it, and the
+  conformance suite for it does not compile against the loop.
 
-The two loops of `examples/README.md` need these lines when they move to 0.4:
+## A loop that wraps another
 
-- [goose-io-epoll](https://github.com/BHare1985/goose-io-epoll) passes the core and half-close, sizing, abort, inspection and
-  batching: five declarations (`half_close`, `sizing`, `abort`, `inspection`, `batching`).
-- [goose-io-epoll-ext](https://github.com/BHare1985/goose-io-epoll-ext) passes those and relay, peek, revoke, wake and limits:
-  ten declarations.
+A wrapper supplies what the loop under it supplies, so it forwards each answer instead of repeating it:
 
-Neither supplies unix, so neither declares it.
+```goose
+fn supplies_relay(w: Layer&) { return goose_io::has_relay(inner); }
+```
 
-## What else the move reaches
+`tests/support/wrapper.goose` does this for the capabilities it forwards.
 
-`goose_io::require_<capability>(io)` in a loop's conformance program now also checks the declaration. The words changed too:
-the conformance script's option for choosing one part of the suite is `--capability` (it was `--group`), the sixth column of
-`tests/conformance/checks.tsv` is `capability`, and prose that said "group" says "capability". A loop's own scripts and
-comments that use the old words are the owner's to change when they like.
+## What a library sees
+
+A library asks with `goose_io::has_<capability>(io)`, passes the answer down, and branches on its type at compile time:
+
+```goose
+fn pair<Io, S>(io: Io&, has: S, a: goose_io::Link, b: goose_io::Link) {
+    const if same<S, goose_io::Supplied> {
+        io.relay(a, b);
+    } else {
+        // copy the bytes with send, pause_reading and Writable
+    }
+}
+
+// the caller:  pair(io, goose_io::has_relay(io), a, b);
+```
+
+The copy-or-relay choice is written out in `examples/forward/forward.goose`, and `docs/libraries.md` explains it.
+
+## Examples
+
+The loops listed in `examples/README.md` are examples of declaring: one supplies the core and five capabilities, and the other
+adds five more. Read their declarations next to the operations they describe.
