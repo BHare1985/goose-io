@@ -158,48 +158,9 @@ While the contract is at major version 0 an event loop may find that a requireme
 then records what it tried, and the contract is changed only if no other way works (design D13 of the change that
 introduced it).
 
-## The epoll event loop
-
-The first event loop on real sockets is [goose-io-epoll](https://github.com/BHare1985/goose-io-epoll) (the example loop, which a new loop can be derived from; [goose-io-epoll-ext](https://github.com/BHare1985/goose-io-epoll-ext) is the feature-rich loop that supplies the relay, peek, revoke, wake and limits groups too, and that [tcprouter-goose-io](https://github.com/BHare1985/tcprouter-goose-io) runs on): one `epoll::Loop` is one thread's loop,
-on Linux, made from the generic layer of tcprouter's engine (the worker loop, slots and generations, the buffer pool and bounded send
-queue, dial, timeouts, drain and statistics) with the proxy removed, and moved to the contract's names. It supplies the core and the
-half-close, sizing, abort, inspection and batching groups; it does not supply the unix group (a `unix:` address is `BadAddress`).
-It is not part of the package (the package is pure Goose): it needs a C layer for sockets and epoll, so it lives in its own repository. [`bench/BASELINE.md`](../bench/BASELINE.md) says what it
-is measured against and how.
-
-```
-import goose_io from "github.com/BHare1985/goose-io@v0.2";
-import epoll from "github.com/BHare1985/goose-io-epoll";
-
-var io = epoll::Loop { .. };               // set io.limits before the first listen, dial or serve
-let listener, err = io.listen("0.0.0.0:8080");
-io.serve() { io, ev => handle(io, ev); };
-```
-
-A program that uses it is built with `goose build` (that repository's `build.sh program.goose output`); `goose run` cannot link the
-loop's C layer. Several loops, one for each thread, share a port (`SO_REUSEPORT`) and are stopped together with `epoll::spawn`,
-`epoll::drain` and `epoll::wait_for_signal_then_drain`; `epoll::probe(address)` first, so that a port held by another process is an
-error and not a shared port. `serve` is the application's; `stop` on one loop is called on its own thread.
-
-**How it differs from tcprouter's engine**, where the contract asked for something else: a slot is freed only after the handlers of its
-`Closed` have returned (so `peer_address` works inside that handler, and a link made there cannot take the slot, a failed `dial`
-included); `Writable` comes once the largest refused send would fit; `close` finishes sending, shuts the write side and drops the
-peer's input in a socket of its own until the peer ends or `half_close_timeout_ms` passes, so it never resets a link with unread input;
-and a Tick comes at least every 90 ms of the loop's clock (a 100 ms period plus a scheduler's slack broke the contract's 100 ms).
-Everything else on the path of a request is tcprouter's, and the system calls per request are the same (`bench/gate_syscalls.sh`).
-
-**Running the suite on it.** The runner is `conformance.goose` in that repository; it makes the fixture without privileges, on the
-loopback: `silent` is a listener with a backlog of one whose accept queue is full and never drained (a connect is dropped, so a dial to it
-ends by its own timeout), `held` a socket the runner keeps bound and listening (so `listen` on its address fails with `AddressInUse`),
-`refused` a port that was bound and released, and `answers` a listener the kernel keeps completing connects for. The runner's
-`half_close_timeout_ms` is 3 seconds, so that `close_when_peer_never_reads` ends in seconds and not in the two minutes the check allows.
-Its `conformance.sh [--repeat N] [--group G]` builds it and runs every part of the core and of each group.
-
-The network tests that need real peers (the example libraries, the limits, closing) are in that repository's `net/`, run by `net/run.sh`.
-
 ## Candidate event loops and libraries
 
-These are candidates, not claims: today the in-memory event loop and the epoll event loop above exist, and `docs/event-loops/` maps the first
+These are candidates, not claims: today only the in-memory event loop exists, and `docs/event-loops/` maps the first
 few in detail. They show how much one contract could unify. They are not equivalent integration targets: some are
 whole event loops (libuv, libevent), some are lower-level interfaces an event loop would be built on (liburing), and
 TLS libraries and QUIC engines would be layers over an event loop, not event loops of their own.

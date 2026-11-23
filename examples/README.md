@@ -12,11 +12,12 @@ What is here and where the others are. This list grows as examples are added; ad
 | [`gateway.goose`](gateway.goose) | the line server and client on one loop | core and half-close |
 | [`dispatch.goose`](dispatch.goose) | the application's glue: each event goes to the library that owns its link | core |
 
-## Event loops in repositories of their own
+## Event loops and a library in repositories of their own
 
-These are event loops on real sockets (Linux). Each has a README and fetches this package by tag.
+Each has a README and fetches this package by commit.
 
-- **[goose-io-epoll](https://github.com/BHare1985/goose-io-epoll)**: the plain epoll loop. It supplies the core and the half-close, sizing, abort, inspection and batching groups and passes the conformance suite on them. It is the generic layer of tcprouter's engine with the proxy removed and the contract's names in place. Read it to see what a conforming loop is.
-- **[goose-io-epoll-ext](https://github.com/BHare1985/goose-io-epoll-ext)**: the same loop with what a performant TCP proxy needs added: forwarding between two sockets by the loop, and whatever else tcprouter needs from a loop. tcprouter is meant to import this one. What it adds is loop-specific for now; the contract groups that could carry it are proposed in `openspec/changes/add-proxy-groups` and `add-stream-extras`, and not yet implemented here.
+- **[goose-io-epoll](https://github.com/BHare1985/goose-io-epoll)**: an event loop on real sockets (Linux, epoll). It supplies the core and the half-close, sizing, abort, inspection and batching groups and passes the conformance suite on them. Read it to see what a conforming loop is, and derive a new loop from it.
+- **[goose-io-epoll-ext](https://github.com/BHare1985/goose-io-epoll-ext)**: the same loop with the proxy groups added (relay, peek, revoke, wake, limits) and a forwarding pump, for programs that move many bytes between sockets.
+- **[goose-io-snirelay](https://github.com/BHare1985/goose-io-snirelay)**: a library, a TCP router (forwarding, SNI routing, handler mode, tags and fences, messages, policy). It is generic over the event loop and needs the proxy groups; the application makes the loop and the router side by side.
 
-A library is written against the contract, not against either loop; both run the example libraries above unchanged.
+A library is written against the contract, not against a loop: the example libraries above run unchanged on the in-memory loop and on the loops here.

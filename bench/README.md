@@ -1,32 +1,13 @@
 # Benchmarks
 
-Micro-benchmarks of goose-io, and the performance gates of the epoll event loop. They are built and run by hand: nothing here is part
-of `just test` or of CI. A micro-benchmark never decides whether a change passes; a gate (below) is what the loop must hold before it is
-accepted, and is run on an idle host. Each file explains what it measures and how to read it in its own header.
+Micro-benchmarks of goose-io. They are built and run by hand: nothing here is part of `just test`, and a benchmark never
+decides whether a change passes. Each file explains what it measures and how to read it in its own header.
 
 ## Index
 
 | Benchmark | Question it answers | Run |
 |---|---|---|
 | [`link_map_bench.goose`](link_map_bench.goose) | What does finding a library's state by link cost: `goose_io::LinkMap` against a table written by hand, and against a compact layout? | `goose build bench/link_map_bench.goose -o /tmp/link_map_bench && taskset -c 2 /tmp/link_map_bench` |
-| [`gate_syscalls.sh`](gate_syscalls.sh) | Does the epoll loop make the same system calls per request as tcprouter's engine on the same HTTP program? | `bench/gate_syscalls.sh` |
-| [`gate_http.sh`](gate_http.sh) | Does it match tcprouter's throughput, p99 latency and CPU per request (one worker, pinned CPUs, `wrk`, alternating rounds)? | `bench/gate_http.sh` |
-| [`gate_memory.sh`](gate_memory.sh) | Is its memory no more than tcprouter's, and at most 512 bytes per idle link? | `bench/gate_memory.sh` |
-| [`gate_forward.sh`](gate_forward.sh) | Does the loop with tcprouter's forward pump added back (goose-io-epoll-ext) hold tcprouter's forwarding numbers on 11 B, 16 KiB and 64 KiB keep-alive workloads? | `bench/gate_forward.sh` |
-
-## The gates of the epoll event loop
-
-The baseline is tcprouter's own engine on the same program ([`BASELINE.md`](BASELINE.md): which commit, how it was built, on which host). The
-gates need `strace`, `wrk`, `python3` and a C compiler, a host with no other load, and the baseline programs in `bench/baseline/` (git-ignored:
-tcprouter's repository is private). Each stores its table under `results/` with both commits and the host. The gates are:
-
-- **system calls per request**, `strace -c -f` over a sequential client: `recvfrom`, `sendto`, `accept4`, `epoll_ctl` and `close` equal (a
-  difference of 40 calls over the run is the start-up and shutdown of a process); `epoll_wait` no more than the baseline's within 3%, since how
-  many events one wakeup finds depends on timing;
-- **throughput, p99 latency and CPU per request**, one worker on a pinned CPU, `wrk` on others, at least seven alternating rounds, a round void
-  when the server used under 90% of its core, the candidate's median within or better than the baseline's own min-to-max range;
-- **memory**: idle RSS, RSS with 10,000 idle links and under load no more than the baseline's (within 3%), and at most 512 bytes for a link that
-  holds no state of the program's own (goose-io-epoll's `tests/idle_server.goose` against the same program on tcprouter).
 
 ## Running a benchmark
 

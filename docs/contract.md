@@ -401,7 +401,7 @@ Operations `discard_unsent(link)` and `write_deadline(link, at_ms)`. For a libra
 
 ### Wake
 
-Operations `waker()`, `wake(waker, value)` and `wake_with(waker, value, body)`, event `Woken { value, body }`. `body` is up to 64 bytes (longer text is cut), empty for a plain `wake`; it is for a library whose messages carry data (tcprouter's tag, deadline and address messages). `waker()` returns a `Waker`, a fixed-size handle that may be copied to any thread. `wake` is the only operation callable from another thread: the contract says that a loop belongs to the thread that serves it, and this group is its one exception. Each `wake` delivers one `Woken` to the loop's thread, in the order one calling thread made them (there is no order between threads). `Woken` goes to every library like `Tick`; the application decides who handles it.
+Operations `waker()`, `wake(waker, value)` and `wake_with(waker, value, body)`, event `Woken { value, body }`. `body` is up to 64 bytes (longer text is cut), empty for a plain `wake`; it is for a library whose messages carry data (for example a tag, a deadline or an address to change). `waker()` returns a `Waker`, a fixed-size handle that may be copied to any thread. `wake` is the only operation callable from another thread: the contract says that a loop belongs to the thread that serves it, and this group is its one exception. Each `wake` delivers one `Woken` to the loop's thread, in the order one calling thread made them (there is no order between threads). `Woken` goes to every library like `Tick`; the application decides who handles it.
 
 ### Limits
 

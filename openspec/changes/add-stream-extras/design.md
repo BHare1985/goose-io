@@ -1,6 +1,6 @@
 ## Context
 
-- `add-proxy-groups` adds the five groups tcprouter needs (relay, peek, revoke, wake, limits). This change adds the four that other stream programs need, in the same style, so that the contract's list of groups is complete before the loops and tcprouter use any of them. It applies after that change.
+- `add-proxy-groups` adds the five groups a TCP router needs (relay, peek, revoke, wake, limits). This change adds the four that other stream programs need, in the same style, so that the contract's list of groups is complete before the loops and tcprouter use any of them. It applies after that change.
 - The gaps: an HTTP or file server cannot send a file without reading it into memory; a program that has a header, a body and more cannot send them as one without joining them (`send2` takes two); a program that wants to send without a copy cannot lend a buffer to the loop; a transparent proxy or an access log cannot ask for the loop's own address or the address the peer connected to before a redirect.
 - This change is the contract, the in-memory loop and the suite only. Implementing a group on a real loop is later work, and a group with no user may stay unimplemented there.
 
