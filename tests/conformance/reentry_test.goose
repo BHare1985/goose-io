@@ -17,9 +17,9 @@ fn main() {
     let fx = goose_io_conformance::Fixture { .. };
     let tick: goose_io::Event = goose_io::Event.Tick { now_ms: 0 };
     goose_io_conformance::_drive(g, d, k, fx, io, tick);          // begins the check
-    kit::check(d.running && k.verdict == goose_io_conformance::RUNNING, "fixture: the check is running");
+    kit::check(d.running && k.verdict == goose_io_conformance::Verdict.Running, "fixture: the check is running");
     d.depth = 1;                                       // as if the event loop delivered this event from inside another handler
     goose_io_conformance::_drive(g, d, k, fx, io, tick);
-    kit::check(k.verdict == goose_io_conformance::FAILED, "an event delivered inside another handler fails the running check");
+    kit::check(k.verdict == goose_io_conformance::Verdict.Failed, "an event delivered inside another handler fails the running check");
     kit::finish();
 }

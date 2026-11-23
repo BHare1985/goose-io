@@ -16,9 +16,8 @@ namespace goose_io_conformance;
 import std;
 import goose_io;
 
-let RUNNING = 0;
-let PASSED = 1;
-let FAILED = 2;
+// Where a check stands.
+enum Verdict { Running, Passed, Failed }
 
 // What contract calls cannot produce: an address that never answers a connect, and one that is held.
 struct Fixture {
@@ -39,25 +38,13 @@ struct Fixture {
 
 // One recorded link event.
 // Name, requirement and part of one check.
-struct Info { name: const u8[:] = "", req: const u8[:] = "", part: i64 = 0, capability: i64 = 0 }
+struct Info { name: const u8[:] = "", req: const u8[:] = "", part: i64 = 0, capability: Capability = Capability.Core }
 
 // The capabilities of the contract (design D2) and the marker type of each. The driver is generic over a marker, and the
 // functions `step` and `takes` of the suite are overloaded on it, so that a suite for one capability compiles only the
-// checks of that capability (design D5). Every check belongs to exactly one capability; CAPABILITY_NONE is the answer for a name that
+// checks of that capability (design D5). Every check belongs to exactly one capability; Capability.None is the answer for a name that
 // is not a check.
-let CAPABILITY_CORE = 0;
-let CAPABILITY_HALF_CLOSE = 1;
-let CAPABILITY_SIZING = 2;
-let CAPABILITY_ABORT = 3;
-let CAPABILITY_INSPECTION = 4;
-let CAPABILITY_BATCHING = 5;
-let CAPABILITY_UNIX = 6;
-let CAPABILITY_RELAY = 7;
-let CAPABILITY_PEEK = 8;
-let CAPABILITY_REVOKE = 10;
-let CAPABILITY_WAKE = 11;
-let CAPABILITY_LIMITS = 12;
-let CAPABILITY_NONE = 9;
+enum Capability { Core, HalfClose, Sizing, Abort, Inspection, Batching, Unix, Relay, Peek, Revoke, Wake, Limits, None }
 
 struct CoreSuite { n: i64 = 0 }
 struct BatchingSuite { n: i64 = 0 }
@@ -98,7 +85,7 @@ struct Issue { slot: u32 = 0, gen: u32 = 0, closed: bool = false }
 root struct Case {
     id:       i64                = 0,
     step:     i64                = 0,
-    verdict:  i64                = 0,
+    verdict:  Verdict            = Verdict.Running,
     why:      u8[>..]            = [],       // an owned copy: a slice could not outlive serve
     done:     bool               = false,
     started:  i64                = 0,
@@ -136,7 +123,7 @@ root struct Case {
 fn reset(k: Case&, id: i64) {
     k.id = id;
     k.step = 0;
-    k.verdict = RUNNING;
+    k.verdict = Verdict.Running;
     k.why.clear();
     k.done = false;
     k.after = false;
@@ -163,7 +150,7 @@ fn reset(k: Case&, id: i64) {
 
 // Records the first failure of a check: later ones add nothing, so the report names the cause.
 fn fail(k: Case&, why: const u8[:]) {
-    if k.verdict == RUNNING { k.verdict = FAILED; k.why.clear(); k.why.append(why); }
+    if k.verdict == Verdict.Running { k.verdict = Verdict.Failed; k.why.clear(); k.why.append(why); }
 }
 
 fn expect(k: Case&, ok: bool, why: const u8[:]) {

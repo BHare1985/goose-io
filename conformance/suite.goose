@@ -62,22 +62,22 @@ fn info(id: i64) -> Info {
 }
 
 // The capability a check belongs to: the capability whose operation or event is its subject.
-fn capability_of(name: const u8[:]) -> i64 {
-    if name == "selftest_pass" || name == "selftest_fail" { return CAPABILITY_CORE; }
-    if name == "close_after_reply" || name == "close_cancels_a_dial" || name == "close_with_unread_input" || name == "close_when_peer_never_reads" || name == "data_arrives_as_slices" || name == "send_copies_at_once" || name == "send_is_bounded" || name == "writable_once_for_many_refusals" || name == "writable_next_episode" || name == "pause_and_resume_reading" || name == "order_accepted_link" || name == "owner_listener_named" || name == "owner_dial_found_by_link" || name == "states_send" || name == "states_closed_is_final" || name == "states_close" || name == "states_pause" || name == "states_completion" || name == "states_closed_wakes_nothing" || name == "grace_keeps_local" || name == "finished_loop" || name == "setup_before_serve" || name == "handles_pair_unique" || name == "handles_slot_held" || name == "slots_dense" || name == "slot_kept_during_closed" || name == "dial_no_event_inside" || name == "listen_accepts" || name == "listen_held_address" || name == "dial_succeeds" || name == "dial_times_out" || name == "dial_bad_address" || name == "ticks_are_regular" || name == "tick_by_is_prompt" || name == "tick_by_two_deadlines" || name == "stop_with_nothing_open" || name == "stop_link_stays_open" || name == "stop_libraries_finish" || name == "listen_while_draining" || name == "dial_while_draining" || name == "stop_called_twice" || name == "close_leaves_only_closed" || name == "data_slice_stable_in_handler" || name == "send_before_open" || name == "send_after_close" || name == "send_too_large" || name == "writable_after_full" || name == "writable_means_it_fits" || name == "order_failed_dial" || name == "listen_port_zero" || name == "dial_refused" || name == "ipv6_loopback" || name == "handles_stale_reuse" || name == "handles_unset" || name == "events_not_reentrant" { return CAPABILITY_CORE; }
-    if name == "states_half_close" || name == "states_keep_open" || name == "peer_eof_closes_by_default" || name == "half_close_then_answer" || name == "full_not_writable_after_shutdown_write" || name == "full_resolved_when_peer_closes" || name == "shutdown_write_ends_sending" || name == "handles_unset_shutdown_write" { return CAPABILITY_HALF_CLOSE; }
-    if name == "finished_loop_sizing" || name == "states_sizing" || name == "send2_joins_parts" || name == "send2_all_or_nothing" || name == "send2_refusals" || name == "send_room_is_zero_when_closed" || name == "handles_stale_send_room" || name == "handles_unset_sizing" { return CAPABILITY_SIZING; }
-    if name == "states_reset" || name == "reset_aborts_the_peer" || name == "handles_stale_reset" || name == "handles_unset_reset" || name == "events_not_reentrant_after_reset" { return CAPABILITY_ABORT; }
-    if name == "finished_loop_inspection" || name == "states_inspection" || name == "listen_stop_keeps_links" || name == "listener_handle_never_reused" || name == "peer_address_names_peer" || name == "peer_address_ipv6" || name == "handles_valid_in_closed" || name == "handles_stale_peer_address" || name == "handles_unset_inspection" { return CAPABILITY_INSPECTION; }
-    if name == "pass_end_follows_link_events" || name == "pass_end_not_on_idle_pass" { return CAPABILITY_BATCHING; }
-    if name == "unix_listen_dial" || name == "unix_held_path" || name == "unix_nothing_listens" || name == "unix_no_port" || name == "unix_malformed_paths" || name == "unix_longest_path" || name == "unix_url_spelling" || name == "unix_alias_held" { return CAPABILITY_UNIX; }
-    if name == "relay_carries_bytes" || name == "relay_refusals" || name == "relay_holds_back_unread" || name == "relay_send_refused_and_close_ends_both" || name == "relayed_bytes_in_closed" { return CAPABILITY_RELAY; }
-    if name == "wait_input_gathers" || name == "wait_input_peer_ends" || name == "peek_bound" || name == "discard_input_drops" { return CAPABILITY_PEEK; }
-    if name == "discard_unsent_drops" || name == "write_deadline_stops" || name == "write_deadline_moved" { return CAPABILITY_REVOKE; }
-    if name == "wake_in_order" { return CAPABILITY_WAKE; }
-    if name == "wake_carries_body" { return CAPABILITY_WAKE; }
-    if name.len > 6 && starts_with(name, "limit_") { return CAPABILITY_LIMITS; }
-    return CAPABILITY_NONE;
+fn capability_of(name: const u8[:]) -> Capability {
+    if name == "selftest_pass" || name == "selftest_fail" { return Capability.Core; }
+    if name == "close_after_reply" || name == "close_cancels_a_dial" || name == "close_with_unread_input" || name == "close_when_peer_never_reads" || name == "data_arrives_as_slices" || name == "send_copies_at_once" || name == "send_is_bounded" || name == "writable_once_for_many_refusals" || name == "writable_next_episode" || name == "pause_and_resume_reading" || name == "order_accepted_link" || name == "owner_listener_named" || name == "owner_dial_found_by_link" || name == "states_send" || name == "states_closed_is_final" || name == "states_close" || name == "states_pause" || name == "states_completion" || name == "states_closed_wakes_nothing" || name == "grace_keeps_local" || name == "finished_loop" || name == "setup_before_serve" || name == "handles_pair_unique" || name == "handles_slot_held" || name == "slots_dense" || name == "slot_kept_during_closed" || name == "dial_no_event_inside" || name == "listen_accepts" || name == "listen_held_address" || name == "dial_succeeds" || name == "dial_times_out" || name == "dial_bad_address" || name == "ticks_are_regular" || name == "tick_by_is_prompt" || name == "tick_by_two_deadlines" || name == "stop_with_nothing_open" || name == "stop_link_stays_open" || name == "stop_libraries_finish" || name == "listen_while_draining" || name == "dial_while_draining" || name == "stop_called_twice" || name == "close_leaves_only_closed" || name == "data_slice_stable_in_handler" || name == "send_before_open" || name == "send_after_close" || name == "send_too_large" || name == "writable_after_full" || name == "writable_means_it_fits" || name == "order_failed_dial" || name == "listen_port_zero" || name == "dial_refused" || name == "ipv6_loopback" || name == "handles_stale_reuse" || name == "handles_unset" || name == "events_not_reentrant" { return Capability.Core; }
+    if name == "states_half_close" || name == "states_keep_open" || name == "peer_eof_closes_by_default" || name == "half_close_then_answer" || name == "full_not_writable_after_shutdown_write" || name == "full_resolved_when_peer_closes" || name == "shutdown_write_ends_sending" || name == "handles_unset_shutdown_write" { return Capability.HalfClose; }
+    if name == "finished_loop_sizing" || name == "states_sizing" || name == "send2_joins_parts" || name == "send2_all_or_nothing" || name == "send2_refusals" || name == "send_room_is_zero_when_closed" || name == "handles_stale_send_room" || name == "handles_unset_sizing" { return Capability.Sizing; }
+    if name == "states_reset" || name == "reset_aborts_the_peer" || name == "handles_stale_reset" || name == "handles_unset_reset" || name == "events_not_reentrant_after_reset" { return Capability.Abort; }
+    if name == "finished_loop_inspection" || name == "states_inspection" || name == "listen_stop_keeps_links" || name == "listener_handle_never_reused" || name == "peer_address_names_peer" || name == "peer_address_ipv6" || name == "handles_valid_in_closed" || name == "handles_stale_peer_address" || name == "handles_unset_inspection" { return Capability.Inspection; }
+    if name == "pass_end_follows_link_events" || name == "pass_end_not_on_idle_pass" { return Capability.Batching; }
+    if name == "unix_listen_dial" || name == "unix_held_path" || name == "unix_nothing_listens" || name == "unix_no_port" || name == "unix_malformed_paths" || name == "unix_longest_path" || name == "unix_url_spelling" || name == "unix_alias_held" { return Capability.Unix; }
+    if name == "relay_carries_bytes" || name == "relay_refusals" || name == "relay_holds_back_unread" || name == "relay_send_refused_and_close_ends_both" || name == "relayed_bytes_in_closed" { return Capability.Relay; }
+    if name == "wait_input_gathers" || name == "wait_input_peer_ends" || name == "peek_bound" || name == "discard_input_drops" { return Capability.Peek; }
+    if name == "discard_unsent_drops" || name == "write_deadline_stops" || name == "write_deadline_moved" { return Capability.Revoke; }
+    if name == "wake_in_order" { return Capability.Wake; }
+    if name == "wake_carries_body" { return Capability.Wake; }
+    if name.len > 6 && starts_with(name, "limit_") { return Capability.Limits; }
+    return Capability.None;
 }
 
 // What a check of each capability is run by: the functions `step` runs the check whose id the case holds, and `takes` says
@@ -151,13 +151,13 @@ fn after<Io>(g: UnixSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event)
 fn after<Io>(g: HalfCloseSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
 fn after<Io>(g: AbortSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
 
-fn takes(g: CoreSuite&, i: Info) -> bool { i.capability == CAPABILITY_CORE }
-fn takes(g: BatchingSuite&, i: Info) -> bool { i.capability == CAPABILITY_BATCHING }
-fn takes(g: SizingSuite&, i: Info) -> bool { i.capability == CAPABILITY_SIZING }
-fn takes(g: HalfCloseSuite&, i: Info) -> bool { i.capability == CAPABILITY_HALF_CLOSE }
-fn takes(g: InspectionSuite&, i: Info) -> bool { i.capability == CAPABILITY_INSPECTION }
-fn takes(g: AbortSuite&, i: Info) -> bool { i.capability == CAPABILITY_ABORT }
-fn takes(g: UnixSuite&, i: Info) -> bool { i.capability == CAPABILITY_UNIX }
+fn takes(g: CoreSuite&, i: Info) -> bool { i.capability == Capability.Core }
+fn takes(g: BatchingSuite&, i: Info) -> bool { i.capability == Capability.Batching }
+fn takes(g: SizingSuite&, i: Info) -> bool { i.capability == Capability.Sizing }
+fn takes(g: HalfCloseSuite&, i: Info) -> bool { i.capability == Capability.HalfClose }
+fn takes(g: InspectionSuite&, i: Info) -> bool { i.capability == Capability.Inspection }
+fn takes(g: AbortSuite&, i: Info) -> bool { i.capability == Capability.Abort }
+fn takes(g: UnixSuite&, i: Info) -> bool { i.capability == Capability.Unix }
 
 fn step<Io>(g: RelaySuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if relay_capability_step(k, fx, io, ev) { return; }
@@ -165,7 +165,7 @@ fn step<Io>(g: RelaySuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event)
 }
 fn setup<Io>(g: RelaySuite&, k: Case&, io: Io&) {}
 fn after<Io>(g: RelaySuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
-fn takes(g: RelaySuite&, i: Info) -> bool { i.capability == CAPABILITY_RELAY }
+fn takes(g: RelaySuite&, i: Info) -> bool { i.capability == Capability.Relay }
 fn conformance_relay_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_relay(io);
     var g = RelaySuite { .. };
@@ -178,7 +178,7 @@ fn step<Io>(g: PeekSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) 
 }
 fn setup<Io>(g: PeekSuite&, k: Case&, io: Io&) {}
 fn after<Io>(g: PeekSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
-fn takes(g: PeekSuite&, i: Info) -> bool { i.capability == CAPABILITY_PEEK }
+fn takes(g: PeekSuite&, i: Info) -> bool { i.capability == Capability.Peek }
 fn conformance_peek_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_peek(io);
     var g = PeekSuite { .. };
@@ -191,7 +191,7 @@ fn step<Io>(g: RevokeSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event
 }
 fn setup<Io>(g: RevokeSuite&, k: Case&, io: Io&) {}
 fn after<Io>(g: RevokeSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
-fn takes(g: RevokeSuite&, i: Info) -> bool { i.capability == CAPABILITY_REVOKE }
+fn takes(g: RevokeSuite&, i: Info) -> bool { i.capability == Capability.Revoke }
 fn conformance_revoke_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_revoke(io);
     var g = RevokeSuite { .. };
@@ -204,7 +204,7 @@ fn step<Io>(g: WakeSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) 
 }
 fn setup<Io>(g: WakeSuite&, k: Case&, io: Io&) {}
 fn after<Io>(g: WakeSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
-fn takes(g: WakeSuite&, i: Info) -> bool { i.capability == CAPABILITY_WAKE }
+fn takes(g: WakeSuite&, i: Info) -> bool { i.capability == Capability.Wake }
 fn conformance_wake_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_wake(io);
     var g = WakeSuite { .. };
@@ -217,7 +217,7 @@ fn step<Io>(g: LimitsSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event
 }
 fn setup<Io>(g: LimitsSuite&, k: Case&, io: Io&) {}
 fn after<Io>(g: LimitsSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
-fn takes(g: LimitsSuite&, i: Info) -> bool { i.capability == CAPABILITY_LIMITS }
+fn takes(g: LimitsSuite&, i: Info) -> bool { i.capability == Capability.Limits }
 fn conformance_limits_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_limits(io);
     var g = LimitsSuite { .. };
@@ -238,7 +238,7 @@ struct Driver {
 fn _report(d: Driver&, k: Case&) {
     let i = info(k.id);
     d.ran++;
-    if k.verdict == FAILED {
+    if k.verdict == Verdict.Failed {
         d.failures++;
         print("FAIL ", i.name, " [", i.req, "]: ", k.why);
     } else {
@@ -266,12 +266,12 @@ fn _drive<Io, G>(g: G&, d: Driver&, k: Case&, fx: Fixture, io: Io&, ev: goose_io
     k.sight(ev);
     k.track(io, ev);
     g.step(k, fx, io, ev);
-    if k.verdict == RUNNING && io.now_ms() >= k.deadline {
+    if k.verdict == Verdict.Running && io.now_ms() >= k.deadline {
         k.fail("not finished in time on the loop's clock");
     }
     // a check ends when it has failed, or when it is finished and every link it made has closed
-    if k.verdict == FAILED || (k.done && k.live <= 0) {
-        if k.verdict == RUNNING { k.verdict = PASSED; }
+    if k.verdict == Verdict.Failed || (k.done && k.live <= 0) {
+        if k.verdict == Verdict.Running { k.verdict = Verdict.Passed; }
         d._report(k);
         d.pos++;
         d.running = false;
@@ -297,8 +297,8 @@ fn _run_part<Io, G>(g: G&, io: Io&, fx: Fixture, part: i64) -> i32 {
         k.after = true;
         let end: goose_io::Event = goose_io::Event.Tick { now_ms: io.now_ms() };
         g.step(k, fx, io, end);
-        if k.verdict == RUNNING {
-            if k.done { k.verdict = PASSED; } else { k.fail("serve returned before the check finished"); }
+        if k.verdict == Verdict.Running {
+            if k.done { k.verdict = Verdict.Passed; } else { k.fail("serve returned before the check finished"); }
         }
         d._report(k);
         d.pos++;
@@ -317,7 +317,7 @@ fn _run_part<Io, G>(g: G&, io: Io&, fx: Fixture, part: i64) -> i32 {
             k.after = true;
             let end: goose_io::Event = goose_io::Event.Tick { now_ms: io.now_ms() };
             g.after(k, fx, io, end);
-            if k.verdict == RUNNING { if k.done { k.verdict = PASSED; } else { k.fail("the check did not finish on the finished loop"); } }
+            if k.verdict == Verdict.Running { if k.done { k.verdict = Verdict.Passed; } else { k.fail("the check did not finish on the finished loop"); } }
             d._report(k);
         }
     }
