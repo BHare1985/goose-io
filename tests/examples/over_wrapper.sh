@@ -13,14 +13,30 @@ for file in tests/examples/*_test.goose; do
     n=$(sed -n 's/^let SCENARIOS = \([0-9][0-9]*\);.*/\1/p' "$file" | head -n 1)
     tests+=("$file:${n:-1}")
 done
+# The in-memory loop's wake group uses a thread queue, which `goose run` (JIT) refuses: such a test is built once and its binary run.
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+run_scenario() {
+    local file="$1"; shift
+    local out code bin
+    out=$(goose run "$file" -- "$@" 2>&1)
+    code=$?
+    if [ $code -ne 0 ] && grep -q "JIT mode does not support threads" <<<"$out"; then
+        bin="$tmp/$(echo "$file" | tr '/.' '__')"
+        [ -x "$bin" ] || goose build "$file" -o "$bin" >/dev/null 2>&1
+        out=$("$bin" "$@" 2>&1)
+        code=$?
+    fi
+    run_out="$out"
+    return $code
+}
 failed=0
 ran=0
 for entry in "${tests[@]}"; do
     file="${entry%%:*}"
     n="${entry##*:}"
     for ((i = 0; i < n; i++)); do
-        out=$(goose run "$file" -- "$i" 2>&1)
-        code=$?
+        run_scenario "$file" "$i"; code=$?; out="$run_out"
         ran=$((ran + 1))
         if [ $code -ne 0 ]; then
             echo "FAIL  $file scenario $i (exit $code)"
@@ -35,8 +51,7 @@ core_ran=0
 for file in tests/examples/lineclient_test.goose tests/examples/echo_test.goose; do
     n=$(sed -n 's/^let SCENARIOS = \([0-9][0-9]*\);.*/\1/p' "$file" | head -n 1)
     for ((i = 0; i < n; i++)); do
-        out=$(goose run "$file" -- "$i" core-only 2>&1)
-        code=$?
+        run_scenario "$file" "$i" core-only; code=$?; out="$run_out"
         core_ran=$((core_ran + 1))
         if [ $code -ne 0 ]; then
             echo "FAIL  $file scenario $i on the core-only loop (exit $code)"
