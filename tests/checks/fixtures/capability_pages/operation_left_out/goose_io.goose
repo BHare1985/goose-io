@@ -6,4 +6,4 @@ fn require_sizing<Io>(io: Io&) {
 }
 
 // Batching: the event PassEnd.
-fn require_batching<Io>(io: Io&) { }
+fn require_batching<Io>(io: Io&) {}

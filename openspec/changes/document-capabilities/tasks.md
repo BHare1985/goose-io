@@ -42,7 +42,7 @@ Each of 3.1 to 3.11 is one page with the sections of design D2, linking to its `
 ## 4. Links and acceptance
 
 - [x] 4.1 Link the index from `README.md` and from "What a library needs" in `docs/libraries.md`, and each page from its section in `docs/contract.md`. Add "Adding a capability" to `CONTRIBUTING.md` (the page, the index row and a checked example in the same change). Verify `bash tests/checks/docs.sh` and `bash tests/checks/vocabulary.sh` pass.
-- [ ] 4.2 Add an entry to `docs/history.md`. Do a full acceptance run on a fresh clone of the branch: every command of `CONTRIBUTING.md` and the workflow. Verify all exit 0.
+- [x] 4.2 Add an entry to `docs/history.md`. Do a full acceptance run on a fresh clone of the branch: every command of `CONTRIBUTING.md` and the workflow. Verify all exit 0.
 
 ## Workflow follow-up
 

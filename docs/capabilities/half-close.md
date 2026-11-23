@@ -23,7 +23,10 @@ The line server asks for keep-open when a connection opens, so that a client tha
 
 <!-- excerpt: examples/lineserver/server.goose#keep_open -->
 ```goose
-    io.set_keep_open_on_eof(link, true);      // in the handler of Opened: the peer finishing is then PeerEof, not Closed
+// Called from the handler of Opened: the peer finishing is then PeerEof, not Closed.
+fn _keep_open<Io>(s: LineServer&, io: Io&, link: goose_io::Link) {
+    io.set_keep_open_on_eof(link, true);
+}
 ```
 
 The same server is the fuller example of how `PeerEof` is used: see the entry point in [the libraries guide](../libraries.md#the-shape-of-a-library).
