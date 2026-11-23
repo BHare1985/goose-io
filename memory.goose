@@ -28,9 +28,9 @@ import goose_io;
 // Change these on `io.cfg` before the first listen, dial or serve. A value that would stop the loop
 // making progress is raised: tick_ms and passes_per_ms to at least 1, max_send to 4096.
 struct Config {
-    link_buffer:        i64  = 65536,   // most bytes held unsent for one link
-    max_send:           i64  = 65536,   // largest single send; at least 4096, at most link_buffer
-    read_chunk:         i64  = 16384,   // most bytes in one Data event
+    link_buffer: i64 = 65536,           // most bytes held unsent for one link
+    max_send:    i64 = 65536,           // largest single send; at least 4096, at most link_buffer
+    read_chunk:  i64 = 16384,           // most bytes in one Data event
     // Link ends of libraries at once, not connections: a joined pair is two. A dial beyond it fails
     // with ConnectFailed, NoResources. A retired slot (see `age_slot`) does not lower it.
     max_links:          i64  = 256,
@@ -41,14 +41,14 @@ struct Config {
     exit_on_time_limit: bool = true,    // false: serve returns instead and hit_time_limit() is true
     passes_per_ms:      i64  = 64,      // busy passes at one instant before the clock moves 1 ms
     // Supply the unix group. false: unix:/path is refused with BadAddress, as by a loop without it.
-    unix_paths:         bool = true,
+    unix_paths: bool = true,
     // The peek group: most bytes held for a link that waits for input; Input is delivered at it.
-    peek_bound:         i64  = 4096,
+    peek_bound: i64 = 4096,
     // The relay group: a relayed pair whose bytes cannot move for this long ends with Local on both links (0: never).
-    relay_stall_ms:     i64  = 0,
+    relay_stall_ms: i64 = 0,
     // The relay group: a relayed link whose peer takes none of its bytes for this long ends with Error
     // (the transport's timeout; 0: never).
-    kernel_timeout_ms:  i64  = 0,
+    kernel_timeout_ms: i64 = 0,
 }
 
 // --- constants -----------------------------------------------------------------------------------
@@ -81,12 +81,12 @@ let _LIMIT_KINDS = 5;
 
 // A numeric endpoint, or, with `unix` set, the path of a Unix socket (the unix group): then ip, port and v6 are unused.
 struct _Addr {
-    ok:   bool       = false,
-    v6:   bool       = false,
-    ip:   u8[16]     = [0; 16],
-    port: u16        = 0,
-    unix: bool       = false,
-    path: u8[..103]  = [],
+    ok:   bool      = false,
+    v6:   bool      = false,
+    ip:   u8[16]    = [0; 16],
+    port: u16       = 0,
+    unix: bool      = false,
+    path: u8[..103] = [],
 }
 
 fn _same_endpoint(left: _Addr, right: _Addr) -> bool {
@@ -347,62 +347,62 @@ var _loops_made: u32 = 0;
 // (Two fields of the previous version, seen_rx and seen_sig, were never read or written and are gone.)
 struct _Slot {
     // identity
-    gen:               u32                 = 1,
-    state:             _SlotState          = _SlotState.Free,
-    listener:          u32                 = 0,     // the listener that accepted it, 0 for a dialled link
-    peer:              i64                 = -1,    // the slot of the other end, -1 when there is none (any more)
-    script:            i64                 = -1,    // the scripted peer that plays this end, -1 for a library's link
+    gen:      u32        = 1,
+    state:    _SlotState = _SlotState.Free,
+    listener: u32        = 0,                       // the listener that accepted it, 0 for a dialled link
+    peer:     i64        = -1,                      // the slot of the other end, -1 when there is none (any more)
+    script:   i64        = -1,                      // the scripted peer that plays this end, -1 for a library's link
     // connecting
-    silent:            bool                = false, // a dial to an address that never answers
-    target:            _Addr               = _Addr { .. }, // where a dial goes
-    remote:            _Addr               = _Addr { .. }, // the other end's address
-    connect_at:        i64                 = 0,
-    connect_deadline:  i64                 = 0,
+    silent:           bool  = false, // a dial to an address that never answers
+    target:           _Addr = _Addr { .. },                // where a dial goes
+    remote:           _Addr = _Addr { .. },                // the other end's address
+    connect_at:       i64   = 0,
+    connect_deadline: i64   = 0,
     // lifecycle
-    opened:            bool                = false, // its Opened was delivered
-    configured:        bool                = false, // the handler of its Opened has returned: keep_open can no longer change
-    keep_open:         bool                = false,
-    local_closed:      bool                = false, // its owner called close or reset
-    close_reason:      goose_io::CloseReason    = goose_io::CloseReason.Error,
+    opened:       bool                  = false,    // its Opened was delivered
+    configured:   bool                  = false,    // the handler of its Opened has returned: keep_open can no longer change
+    keep_open:    bool                  = false,
+    local_closed: bool                  = false, // its owner called close or reset
+    close_reason: goose_io::CloseReason = goose_io::CloseReason.Error,
     // reading
-    unread_len:        i64                 = 0,     // unread bytes waiting for this end
-    paused:            bool                = false,
-    data_queued:       bool                = false, // a Data record for it is in the queue
-    peer_finished:     bool                = false, // the other end finished sending (seen once unread_len reaches 0)
-    eof_seen:          bool                = false,
+    unread_len:    i64  = 0,                        // unread bytes waiting for this end
+    paused:        bool = false,
+    data_queued:   bool = false,                    // a Data record for it is in the queue
+    peer_finished: bool = false,                    // the other end finished sending (seen once unread_len reaches 0)
+    eof_seen:      bool = false,
     // writing
-    write_shut:        bool                = false, // this end finished sending
-    want_writable:     bool                = false, // a send was refused with Full
-    want_room:         i64                 = 0,     // the largest send refused since the last Writable
+    write_shut:    bool = false,                    // this end finished sending
+    want_writable: bool = false,                    // a send was refused with Full
+    want_room:     i64  = 0,                        // the largest send refused since the last Writable
     // the relay group
-    relay_partner:     i64                 = -1,    // the slot this one is joined to, -1 when it is not relayed
-    relay_finished:    bool                = false, // its stream ended and the end was carried to the partner
-    carried:           i64                 = 0,     // bytes carried from this link by a relay
+    relay_partner:  i64  = -1,                      // the slot this one is joined to, -1 when it is not relayed
+    relay_finished: bool = false,                   // its stream ended and the end was carried to the partner
+    carried:        i64  = 0,                       // bytes carried from this link by a relay
     // the peek group
-    wait_for:          i64                 = 0,     // wait_input's byte count, 0 when not waiting
-    input_given:       bool                = false, // the Input for the current wait_input was queued
+    wait_for:    i64  = 0,                          // wait_input's byte count, 0 when not waiting
+    input_given: bool = false,                      // the Input for the current wait_input was queued
     // the revoke group
-    write_deadline_at: i64                 = 0,     // write_deadline, 0 for none
+    write_deadline_at: i64 = 0,                     // write_deadline, 0 for none
     // the limits group, indexed by _LIMIT_*
-    limit_ms:          i64[5]              = [0, 0, 0, 0, 0],   // set_limit, 0 for off
+    limit_ms: i64[5] = [0, 0, 0, 0, 0],                         // set_limit, 0 for off
     // POSSIBLE BUG: documented as "when it was armed", but set_limit only sets it when a limit is armed
     // again after it expired; the first arming leaves it at 0. Only IdleFromArming reads it as an arming time.
-    limit_armed_at:    i64[5]              = [0, 0, 0, 0, 0],
-    limit_fired:       bool[5]             = [false, false, false, false, false],
+    limit_armed_at: i64[5]  = [0, 0, 0, 0, 0],
+    limit_fired:    bool[5] = [false, false, false, false, false],
     // activity, for the limits and the relay's timeouts
-    opened_at:         i64                 = 0,
-    consumed:          i64                 = 0,     // bytes taken out of this end's region, ever
-    received_total:    i64                 = 0,     // bytes put into this end's region, ever
-    last_input_at:     i64                 = 0,     // when a byte was last read from the link (or arrived)
-    last_activity_at:  i64                 = 0,     // when a byte was last read or written (or carried by a relay)
-    half_open_at:      i64                 = -1,    // when the peer's stream ended on a link that stays open
-    stall_since:       i64                 = -1,    // when bytes began to wait for the transport without moving
-    seen_progress:     i64                 = 0,     // the progress count _watch saw last
+    opened_at:        i64 = 0,
+    consumed:         i64 = 0,                      // bytes taken out of this end's region, ever
+    received_total:   i64 = 0,                      // bytes put into this end's region, ever
+    last_input_at:    i64 = 0,                      // when a byte was last read from the link (or arrived)
+    last_activity_at: i64 = 0,                      // when a byte was last read or written (or carried by a relay)
+    half_open_at:     i64 = -1,                     // when the peer's stream ended on a link that stays open
+    stall_since:      i64 = -1,                     // when bytes began to wait for the transport without moving
+    seen_progress:    i64 = 0,                      // the progress count _watch saw last
     // bookkeeping that only faults read
-    refusals:          i64                 = 0,     // fault WritablePerRefusal
-    refused_once:      bool                = false, // a send was refused with Full at some time (fault WritableAfterClosedResult)
-    closed_result:     bool                = false, // a send has returned Closed (fault ClosedResultNotFinal)
-    writable_given:    bool                = false, // fault OneWritableOnly
+    refusals:       i64  = 0,                       // fault WritablePerRefusal
+    refused_once:   bool = false,                   // a send was refused with Full at some time (fault WritableAfterClosedResult)
+    closed_result:  bool = false,                   // a send has returned Closed (fault ClosedResultNotFinal)
+    writable_given: bool = false,                   // fault OneWritableOnly
 }
 
 struct _Listener { addr: _Addr = _Addr { .. }, active: bool = false }
@@ -414,9 +414,9 @@ fn _failed(kind: goose_io::ConnectFailure) -> goose_io::CloseReason { goose_io::
 
 // One queued event. `limit` is used by Expired only.
 struct _Pending {
-    kind:  _EventKind = _EventKind.Opened,
-    slot:  i64        = 0,
-    gen:   u32        = 0,
+    kind:  _EventKind      = _EventKind.Opened,
+    slot:  i64             = 0,
+    gen:   u32             = 0,
     limit: goose_io::Limit = goose_io::Limit.Idle,
 }
 
@@ -459,7 +459,7 @@ struct _Chunk { script: i64 = 0, start: i64 = 0, length: i64 = 0 }
 // One loop. Declare it as a local or global (`var io = goose_io_memory::Loop { .. };`) and pass it
 // by reference; it cannot be copied or returned.
 root struct Loop {
-    cfg:            Config         = Config { .. },
+    cfg: Config = Config { .. },
     // links
     _slots:         _Slot[>..]     = [],
     _free:          i64[>..<]      = [],
@@ -470,38 +470,38 @@ root struct Loop {
     _pending:       _Pending[>..<] = [],
     _pending_head:  i64            = 0,
     // addresses
-    _listeners:     _Listener[>..] = [],
-    _held:          _Addr[>..]     = [],
-    _silent:        _Addr[>..]     = [],
-    _failing:       _Failing[>..]  = [],
-    _next_port:     i64            = 49152,
+    _listeners: _Listener[>..] = [],
+    _held:      _Addr[>..]     = [],
+    _silent:    _Addr[>..]     = [],
+    _failing:   _Failing[>..]  = [],
+    _next_port: i64            = 49152,
     // time
-    _clock:         i64            = 0,
-    _next_tick:     i64            = 0,
-    _wake_at:       i64            = _FOREVER,
-    _busy_passes:   i64            = 0,
-    _passes:        i64            = 0,
-    _started:       bool           = false,
-    _started_at:    i64            = 0,
-    _hit_limit:     bool           = false,
+    _clock:       i64  = 0,
+    _next_tick:   i64  = 0,
+    _wake_at:     i64  = _FOREVER,
+    _busy_passes: i64  = 0,
+    _passes:      i64  = 0,
+    _started:     bool = false,
+    _started_at:  i64  = 0,
+    _hit_limit:   bool = false,
     // stopping
-    _draining:      bool           = false,
-    _finished:      bool           = false, // serve has returned: every operation does nothing (*A finished loop does nothing*)
-    _stop_deadline: i64            = _FOREVER,
+    _draining:      bool = false,
+    _finished:      bool = false, // serve has returned: every operation does nothing (*A finished loop does nothing*)
+    _stop_deadline: i64  = _FOREVER,
     // the wake group
-    _waker_id:      u32            = 0,     // this loop's id, 0 until waker() is first called
-    _woken_values:  _Woken[>..<]   = [],    // values taken from the queue, to be delivered as Woken
-    _woken_head:    i64            = 0,
-    _expect_wakes:  i64            = 0,     // scripting: wakes a test thread will still make; an idle loop waits for them
+    _waker_id:     u32          = 0,        // this loop's id, 0 until waker() is first called
+    _woken_values: _Woken[>..<] = [],       // values taken from the queue, to be delivered as Woken
+    _woken_head:   i64          = 0,
+    _expect_wakes: i64          = 0,        // scripting: wakes a test thread will still make; an idle loop waits for them
     // scripting
-    _scripts:       _Script[>..]   = [],
-    _steps:         _Step[>..]     = [],
-    _step_bytes:    u8[>..]        = [],
-    _captured:      u8[>..]        = [], // what scripted peers received, in the pieces of _chunks
-    _chunks:        _Chunk[>..]    = [],
+    _scripts:    _Script[>..] = [],
+    _steps:      _Step[>..]   = [],
+    _step_bytes: u8[>..]      = [],
+    _captured:   u8[>..]      = [], // what scripted peers received, in the pieces of _chunks
+    _chunks:     _Chunk[>..]  = [],
     // faults
-    _last_remote:   _Addr          = _Addr { .. },   // fault StalePeerAddress
-    _fault:         u8[>..]        = [],            // str() of the broken behaviour set by set_fault, empty for none
+    _last_remote: _Addr   = _Addr { .. },            // fault StalePeerAddress
+    _fault:       u8[>..] = [],                     // str() of the broken behaviour set by set_fault, empty for none
 }
 
 fn _faulty(io: Loop&, fault: Fault) -> bool { io._fault.len > 0 && io._fault[..] == str(fault) }

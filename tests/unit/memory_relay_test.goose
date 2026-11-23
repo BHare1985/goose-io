@@ -13,14 +13,14 @@ fn use_fault(io: goose_io_memory::Loop&) {
 }
 
 struct Rig {
-    l0:       goose_io::Listener   = goose_io::Listener { .. },
-    l1:       goose_io::Listener   = goose_io::Listener { .. },
-    client:   goose_io::Link[2]    = [goose_io::Link { .. }, goose_io::Link { .. }],
-    server:   goose_io::Link[2]    = [goose_io::Link { .. }, goose_io::Link { .. }],
-    open:     i64                  = 0,
-    joined:   bool                 = false,
-    step:     i64                  = 0,
-    t:        i64                  = 0,
+    l0:     goose_io::Listener = goose_io::Listener { .. },
+    l1:     goose_io::Listener = goose_io::Listener { .. },
+    client: goose_io::Link[2]  = [goose_io::Link { .. }, goose_io::Link { .. }],
+    server: goose_io::Link[2]  = [goose_io::Link { .. }, goose_io::Link { .. }],
+    open:   i64                = 0,
+    joined: bool               = false,
+    step:   i64                = 0,
+    t:      i64                = 0,
 }
 
 fn rig_start(io: goose_io_memory::Loop&, r: Rig&) {
