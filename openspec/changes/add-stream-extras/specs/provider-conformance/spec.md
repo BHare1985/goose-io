@@ -1,6 +1,6 @@
 ## ADDED Requirements
 
-### Requirement: Each new group has its own suite
+### Requirement: Each stream-extras group has its own suite
 The conformance suite SHALL have an entry point for each of the files, loans, parts and addresses groups, each compiling and running against a loop that supplies the core and that group and nothing else. Every check of a group SHALL call no operation of another group.
 
 #### Scenario: A group suite on a loop that supplies only it
@@ -11,14 +11,14 @@ The conformance suite SHALL have an entry point for each of the files, loans, pa
 - **WHEN** the operations a check of the files group calls are compared with the groups of the contract
 - **THEN** it calls only core operations and operations of the files group
 
-### Requirement: Every scenario of a new group has a check
+### Requirement: Every scenario of a stream-extras group has a check
 The suite SHALL contain at least one check for every scenario of the `io-contract` capability that describes the behaviour of one of the new groups, each naming the requirement it proves.
 
 #### Scenario: Every new scenario is covered
 - **WHEN** the scenarios of the new groups in `io-contract` are compared with the suite's checks
 - **THEN** each has at least one check that names it, or names the build or inspection step that proves it
 
-### Requirement: The in-memory loop supplies every new group
+### Requirement: The in-memory loop supplies every stream-extras group
 The in-memory loop SHALL supply the files, loans, parts and addresses groups, so that each group's suite runs against it with a virtual clock and no network. It SHALL be able to bound each group's buffers by configuration, as it bounds links and buffers now. A file of the in-memory loop SHALL be an in-memory byte range registered by the test.
 
 #### Scenario: The suite of a new group runs in memory
@@ -29,7 +29,7 @@ The in-memory loop SHALL supply the files, loans, parts and addresses groups, so
 - **WHEN** the test registers a byte range as a file and a library sends it with `send_file`
 - **THEN** the scripted peer receives exactly those bytes
 
-### Requirement: Every check of a new group is shown to fail
+### Requirement: Every check of a stream-extras group is shown to fail
 For every check of the new groups the in-memory loop SHALL have a named fault that makes the check fail, and the fault script SHALL show it, so that a check that passes against its own fault is reported as a defect in the suite.
 
 #### Scenario: A parts send that drops a part
@@ -40,7 +40,7 @@ For every check of the new groups the in-memory loop SHALL have a named fault th
 - **WHEN** the table of checks is compared with the table of faults
 - **THEN** every check of a new group names a fault, and the table check fails when one does not
 
-### Requirement: A loop on a real system passes the new groups
+### Requirement: A loop on a real system passes the stream-extras groups
 An event loop that supplies a new group on real sockets SHALL pass that group's suite on the system it targets, in fifty repetitions with no failure, before documentation lists it for that group, and SHALL hold the system-call, throughput and memory numbers of its own gates with the group present and unused.
 
 #### Scenario: An event loop that supplies the group passes the files suite
