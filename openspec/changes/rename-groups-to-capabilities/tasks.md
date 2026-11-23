@@ -23,8 +23,8 @@ Ground rules: work on a branch of goose-io after `epoll-event-loop` and `epoll-e
 
 ## 4. Optional use
 
-- [ ] 4.1 Extend `tests/examples/needs_check.sh` to read `// Uses if supplied:`. Every operation of a capability that is not under `Needs:` must be named under `Uses if supplied:`, and the file must call `goose_io::has_<c>`. Extend its operation list to every capability with operations, not just the first four. Verify it passes on today's examples, and fails on a scratch library that calls `relay` with no header line.
-- [ ] 4.2 Write `examples/forward/forward.goose` (D3, D6) with a `// doc:begin`/`// doc:end` excerpt of the branch, so documents can quote it. Verify `goose check` passes for a root over the in-memory loop and for one over `core_only::Core`.
+- [x] 4.1 Extend `tests/examples/needs_check.sh` to read `// Uses if supplied:`. Every operation of a capability that is not under `Needs:` must be named under `Uses if supplied:`, and the file must call `goose_io::has_<c>`. Extend its operation list to every capability with operations, not just the first four. Verify it passes on today's examples, and fails on a scratch library that calls `relay` with no header line.
+- [x] 4.2 Write `examples/forward/forward.goose` (D3, D6) with a `// doc:begin`/`// doc:end` excerpt of the branch, so documents can quote it. Verify `goose check` passes for a root over the in-memory loop and for one over `core_only::Core`.
 - [ ] 4.3 Write `tests/examples/forward_test.goose`, run on both loops: bytes intact and in order both ways, a client close reaches the backend, a backend close reaches the client, and `Data` is seen by the library only on the core-only loop. Verify both runs pass in fifty repetitions. Add it to `tests/run_tests.sh` and to `examples/README.md`.
 - [ ] 4.4 Add "Using a capability when the loop has it" to `docs/libraries.md`, quoting the forward excerpt, and say when to require instead (the library cannot work without it). Verify `bash tests/checks/docs.sh` passes.
 
