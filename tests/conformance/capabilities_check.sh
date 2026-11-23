@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Every check calls only the core and its own group (design D5 of the change simplify-contract). The calls of each
-# check are read from its function in conformance/*.goose and compared with its group in checks.tsv: a check of the core
-# calls no operation of a group; a check of a group calls the operations of that group and no other. A check marked
+# Every check calls only the core and its own capability (design D5 of the change simplify-contract). The calls of each
+# check are read from its function in conformance/*.goose and compared with its capability in checks.tsv: a check of the core
+# calls no operation of a capability; a check of a capability calls the operations of that capability and no other. A check marked
 # "pending" has not been assigned yet and is only counted.
-# Usage: tests/conformance/groups_check.sh
+# Usage: tests/conformance/capabilities_check.sh
 set -u
 cd "$(dirname "$0")/../.."
 
@@ -11,9 +11,9 @@ tsv=tests/conformance/checks.tsv
 bad=0
 checked=0
 pending=0
-while IFS=$'\t' read -r check part req scenarios fault group; do
+while IFS=$'\t' read -r check part req scenarios fault capability; do
     case "$check" in ''|'#'*) continue ;; esac
-    if [ "$group" = "pending" ]; then pending=$((pending + 1)); continue; fi
+    if [ "$capability" = "pending" ]; then pending=$((pending + 1)); continue; fi
     body=$(awk -v f="fn c_$check<Io>" 'index($0, f) == 1 { on = 1 } on { print } on && /^}/ { exit }' conformance/*.goose)
     if [ -z "$body" ]; then echo "BAD   $check: no function c_$check in conformance/"; bad=$((bad + 1)); continue; fi
     used=$(
@@ -35,12 +35,12 @@ while IFS=$'\t' read -r check part req scenarios fault group; do
             wake|waker) g=wake ;;
             set_limit) g=limits ;;
         esac
-        if [ "$g" != "$group" ]; then
-            echo "BAD   $check (group $group) calls $op, which belongs to the group $g"
+        if [ "$g" != "$capability" ]; then
+            echo "BAD   $check (capability $capability) calls $op, which belongs to the capability $g"
             bad=$((bad + 1))
         fi
     done
     checked=$((checked + 1))
 done < "$tsv"
-echo "groups: $checked checks inspected, $pending pending, $bad problems"
+echo "capabilities: $checked checks inspected, $pending pending, $bad problems"
 [ $bad -eq 0 ] && [ $checked -gt 0 ]

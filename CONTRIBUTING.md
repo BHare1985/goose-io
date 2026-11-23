@@ -16,7 +16,7 @@ tests/conformance/run.sh --wrapped
 tests/conformance/run.sh --core-only
 tests/conformance/faults.sh
 tests/conformance/table_check.sh
-tests/conformance/groups_check.sh
+tests/conformance/capabilities_check.sh
 tests/examples/over_wrapper.sh
 tests/examples/imports_test.sh
 tests/examples/needs_check.sh
@@ -30,11 +30,11 @@ any repetition is a failure until its cause is explained.
 
 Adding an event loop (it lives in its own repository):
 
-1. Supply the core, and then any groups you want (`docs/contract.md`, section 2). Call `goose_io::require_core` and the
-   check of each group you supply from its root program: a missing operation is then a compile error in one place.
-2. Run the core of the conformance suite against it, and each group it supplies (`docs/event-loops.md`), on the operating
-   system it targets. An event loop with only the core is complete: leave the groups out until a library needs them.
-3. Record the contract version, the core and groups it supplies, and the commit at which it passed, and only then list it
+1. Supply the core, and then any capabilities you want (`docs/contract.md`, section 2). Call `goose_io::require_core` and the
+   check of each capability you supply from its root program: a missing operation is then a compile error in one place.
+2. Run the core of the conformance suite against it, and each capability it supplies (`docs/event-loops.md`), on the operating
+   system it targets. An event loop with only the core is complete: leave the capabilities out until a library needs them.
+3. Record the contract version, the core and capabilities it supplies, and the commit at which it passed, and only then list it
    as conforming.
 4. If a backend cannot meet a requirement, record what was tried before proposing a change to the contract.
 
@@ -46,7 +46,7 @@ The package stays pure Goose: no C, no `extern`, no build sidecar
 
 ## Repository layout
 
-- `goose_io.goose`: the contract: the types, the helpers, the version and `require_core` with one check for each group
+- `goose_io.goose`: the contract: the types, the helpers, the version and `require_core` with one check for each capability
 - `bench/`: micro-benchmarks, built with `goose build` and run by hand; `README.md` indexes them and holds their results (`link_map_bench.goose`: what a table keyed by link costs)
 - `deadlines.goose`: `Deadlines`, a bounded heap of deadlines for libraries that have many
 - `memory.goose`: the in-memory event loop, with scripted peers, a virtual clock and the named faults
@@ -56,7 +56,7 @@ The package stays pure Goose: no C, no `extern`, no build sidecar
 - `docs/event-loops/`: how each candidate event loop maps onto the contract
 - `tests/unit/`: tests of the types, `Deadlines` and the in-memory event loop
 - `tests/examples/`: tests of the example libraries, and the scripts that run them over the wrapper
-- `tests/conformance/`: running the suite (`run.sh`, `faults.sh`, `table_check.sh`, `groups_check.sh`), the table of checks and faults (`checks.tsv`), and the driver's own tests
+- `tests/conformance/`: running the suite (`run.sh`, `faults.sh`, `table_check.sh`, `capabilities_check.sh`), the table of checks and faults (`checks.tsv`), and the driver's own tests
 - `tests/support/`: what tests share: `kit.goose` (the test kit), `wrapper.goose` (an event loop layered over another), `core_only.goose` (an event loop that supplies only the core) and `stub.goose`
 - `tests/checks/`: scripts that check the repository itself: quoted code, purity, vocabulary, event loop mappings, this layout
 - `tests/run_tests.sh`: runs every `*_test.goose` and `*_mustfail.goose`, the purity check and the vocabulary check

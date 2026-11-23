@@ -1,4 +1,4 @@
-// goose-io conformance suite, group 4.5: received bytes, sending, backpressure, pausing.
+// goose-io conformance suite, capability 4.5: received bytes, sending, backpressure, pausing.
 // Requirements: Received bytes are lent for the duration of the event; Sending is all or nothing; Two parts
 // can be sent as one; Send backpressure is explicit and bounded; Writable follows Full once; Reading can be
 // paused; A refused send is always resolved.
@@ -502,7 +502,7 @@ fn data_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bo
     return false;
 }
 
-// Runs the checks of the sizing group: true if the check is one of them.
+// Runs the checks of the sizing capability: true if the check is one of them.
 fn data_sizing_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 305 { c_send2_joins_parts(k, io, ev); return true; }
     if k.id == 306 { c_send2_all_or_nothing(k, io, ev); return true; }
@@ -511,7 +511,7 @@ fn data_sizing_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> 
     return false;
 }
 
-// Runs the checks of the half-close group: true if the check is one of them.
+// Runs the checks of the half-close capability: true if the check is one of them.
 fn data_half_close_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 315 { c_full_not_writable_after_shutdown_write(k, io, ev); return true; }
     if k.id == 316 { c_full_resolved_when_peer_closes(k, io, ev); return true; }

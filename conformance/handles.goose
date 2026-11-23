@@ -1,4 +1,4 @@
-// goose-io conformance suite, group 4.3: handles, delivery, event order and ownership.
+// goose-io conformance suite, capability 4.3: handles, delivery, event order and ownership.
 // Requirements: Links are generation-checked handles; Events are delivered to one handler, one at a time;
 // Link events follow a fixed order; A slot and generation pair is never issued twice; A slot is held until its Closed is
 // is delivered; The invalid link is reserved; A link event is recognised by what the library holds; Slot numbers are dense;
@@ -82,7 +82,7 @@ fn c_handles_stale_reuse<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     stale_finish(k, io);
 }
 
-// The abort group: reset with a stale handle resets no new link.
+// The abort capability: reset with a stale handle resets no new link.
 fn c_handles_stale_reset<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if stale_ready(k, io) {
         io.reset(k.old);
@@ -93,7 +93,7 @@ fn c_handles_stale_reset<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     stale_finish(k, io);
 }
 
-// The sizing group: send_room and send2 with a stale handle report no room and a closed link.
+// The sizing capability: send_room and send2 with a stale handle report no room and a closed link.
 fn c_handles_stale_send_room<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if stale_ready(k, io) {
         k.expect(io.send_room(k.old) == 0, "send_room with a stale handle was not 0");
@@ -105,7 +105,7 @@ fn c_handles_stale_send_room<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     stale_finish(k, io);
 }
 
-// The inspection group: peer_address with a stale handle answers an empty value, and does not answer for the new link.
+// The inspection capability: peer_address with a stale handle answers an empty value, and does not answer for the new link.
 fn c_handles_stale_peer_address<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if stale_ready(k, io) {
         k.expect(goose_io::is_empty(io.peer_address(k.old)), "peer_address with a stale handle was not empty");
@@ -161,7 +161,7 @@ fn c_handles_unset<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     unset_finish(k, io);
 }
 
-// The abort group.
+// The abort capability.
 fn c_handles_unset_reset<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if unset_ready(k, io) {
         io.reset(goose_io::Link { .. });
@@ -170,7 +170,7 @@ fn c_handles_unset_reset<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     unset_finish(k, io);
 }
 
-// The half-close group: shutdown_write with an unset handle shuts no link.
+// The half-close capability: shutdown_write with an unset handle shuts no link.
 fn c_handles_unset_shutdown_write<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if unset_ready(k, io) {
         io.shutdown_write(goose_io::Link { .. });
@@ -179,7 +179,7 @@ fn c_handles_unset_shutdown_write<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     unset_finish(k, io);
 }
 
-// The sizing group.
+// The sizing capability.
 fn c_handles_unset_sizing<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if unset_ready(k, io) {
         let none = goose_io::Link { .. };
@@ -190,7 +190,7 @@ fn c_handles_unset_sizing<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     unset_finish(k, io);
 }
 
-// The inspection group: peer_address of an unset handle answers an empty value, whatever a link has.
+// The inspection capability: peer_address of an unset handle answers an empty value, whatever a link has.
 fn c_handles_unset_inspection<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if unset_ready(k, io) {
         let none = goose_io::Link { .. };
@@ -251,7 +251,7 @@ fn c_events_not_reentrant<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-// The abort group: a send on a link whose peer has just reset returns before the Closed that follows.
+// The abort capability: a send on a link whose peer has just reset returns before the Closed that follows.
 fn c_events_not_reentrant_after_reset<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
         k.connect_local(io, 0);
@@ -525,20 +525,20 @@ fn handles_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) ->
     return false;
 }
 
-// Runs the checks of the sizing group: true if the check is one of them.
+// Runs the checks of the sizing capability: true if the check is one of them.
 fn handles_sizing_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 110 { c_handles_stale_send_room(k, io, ev); return true; }
     if k.id == 114 { c_handles_unset_sizing(k, io, ev); return true; }
     return false;
 }
 
-// Runs the checks of the half-close group: true if the check is one of them.
+// Runs the checks of the half-close capability: true if the check is one of them.
 fn handles_half_close_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 113 { c_handles_unset_shutdown_write(k, io, ev); return true; }
     return false;
 }
 
-// Runs the checks of the abort group: true if the check is one of them.
+// Runs the checks of the abort capability: true if the check is one of them.
 fn handles_abort_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 109 { c_handles_stale_reset(k, io, ev); return true; }
     if k.id == 112 { c_handles_unset_reset(k, io, ev); return true; }
@@ -546,7 +546,7 @@ fn handles_abort_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -
     return false;
 }
 
-// Runs the checks of the inspection group: true if the check is one of them.
+// Runs the checks of the inspection capability: true if the check is one of them.
 fn handles_inspection_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 102 { c_handles_valid_in_closed(k, io, ev); return true; }
     if k.id == 111 { c_handles_stale_peer_address(k, io, ev); return true; }

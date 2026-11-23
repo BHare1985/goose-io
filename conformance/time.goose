@@ -1,4 +1,4 @@
-// goose-io conformance suite, group 4.7: time, ticks, end-of-pass, and the application side (run and stop).
+// goose-io conformance suite, capability 4.7: time, ticks, end-of-pass, and the application side (run and stop).
 // Requirements: Time and ticks; End-of-pass notification; The application runs and stops the loop; Draining is the same
 // on every event loop.
 //
@@ -360,7 +360,7 @@ fn time_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bo
     return false;
 }
 
-// Runs the checks of the batching group: true if the check is one of them.
+// Runs the checks of the batching capability: true if the check is one of them.
 fn time_batching_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 503 { c_pass_end_follows_link_events(k, io, ev); return true; }
     if k.id == 504 { c_pass_end_not_on_idle_pass(k, io, ev); return true; }

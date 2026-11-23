@@ -1,4 +1,4 @@
-// goose-io conformance suite, wake group: `waker`, `wake` and `Woken`.
+// goose-io conformance suite, wake capability: `waker`, `wake` and `Woken`.
 // Requirement: Wakes are delivered in order and lost by no pass. Wakes from other threads are unit tests (the suite runs on the loop's thread).
 namespace goose_io_conformance;
 import std;
@@ -45,7 +45,7 @@ fn c_wake_carries_body<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-fn wake_group_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+fn wake_capability_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 650 { c_wake_in_order(k, io, ev); return true; }
     if k.id == 651 { c_wake_carries_body(k, io, ev); return true; }
     return false;

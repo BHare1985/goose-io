@@ -28,7 +28,7 @@ failed=0
 for f in "${files[@]}"; do
     out=$(goose run "$f" 2>&1)
     code=$?
-    # the in-memory loop's wake group uses a thread queue: `goose run` (JIT) refuses it, so such a file is built and run
+    # the in-memory loop's wake capability uses a thread queue: `goose run` (JIT) refuses it, so such a file is built and run
     if [ $code -ne 0 ] && grep -q "JIT mode does not support threads" <<<"$out"; then
         bin=$(mktemp "${TMPDIR:-/tmp}/goose-io-test.XXXXXX")
         out=$(goose build "$f" -o "$bin" 2>&1 && "$bin" 2>&1)

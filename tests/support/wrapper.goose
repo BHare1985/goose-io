@@ -209,7 +209,7 @@ fn _on_event(w: Layer&, ev: goose_io::Event) {
             w.pass++;
             w._end_pass();
         },
-        Input i => {},      // the wrapper supplies none of the groups that give these
+        Input i => {},      // the wrapper supplies none of the capabilities that give these
         Expired x => {},
         Woken w => {},
         Opened e => {
@@ -312,7 +312,7 @@ fn serve<F>(w: Layer&) {
     w.finished = true;
 }
 
-// The wrapper supplies the core and every group. Batching is an event and has no operation to check: the wrapper
+// The wrapper supplies the core and every capability. Batching is an event and has no operation to check: the wrapper
 // gives `PassEnd` itself (see `_end_pass`) and passes the batching part of the suite. This function checks the
 // operations, and is never called: it makes the compiler check the wrapper against the contract's own checks whenever it is built.
 fn _supplied(w: Layer&) {
@@ -322,6 +322,16 @@ fn _supplied(w: Layer&) {
     goose_io::require_abort(w);
     goose_io::require_inspection(w);
 }
+
+// Declarations: the wrapper supplies what it passes through, and answers what the loop beneath answers (D5 of rename-groups-to-capabilities).
+// doc:begin forward_half_close
+fn supplies_half_close(w: Layer&) { return goose_io::has_half_close(inner); }
+// doc:end forward_half_close
+fn supplies_sizing(w: Layer&) { return goose_io::has_sizing(inner); }
+fn supplies_abort(w: Layer&) { return goose_io::has_abort(inner); }
+fn supplies_inspection(w: Layer&) { return goose_io::has_inspection(inner); }
+fn supplies_batching(w: Layer&) { return goose_io::has_batching(inner); }
+fn supplies_unix(w: Layer&) { return goose_io::has_unix(inner); }
 
 // --- for tests: the inner event loop's extras, with the bytes changed for the scripted peer ------------------------
 

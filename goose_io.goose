@@ -4,13 +4,13 @@
 // owns the thread and the sockets, delivers events and performs operations; a library handles events and
 // calls operations; the application runs the loop and passes each event to its libraries.
 //
-// The contract is a core, which every event loop supplies, and eleven groups of extras it may add:
+// The contract is a core, which every event loop supplies, and eleven capabilities it may add:
 // half-close, sizing, abort, inspection, batching and unix (the address forms `unix:/path` and `unix:///path`), and
 // relay, peek, revoke, wake and limits. A library uses what
 // it needs, and fails to compile on a loop that lacks an operation; a loop without unix answers BadAddress.
 //
 // This file is the whole contract surface: the shared types, pure helpers over them, the version, and
-// the compile-time checks (require_core and one for each group that has operations) that name every operation of a part.
+// the compile-time checks (require_core and one for each capability that has operations) that name every operation of a part.
 // The rules (ordering, ownership, backpressure) are in docs/contract.md.
 //
 // Pure Goose: no C, no extern. Importing this links nothing.
@@ -21,7 +21,7 @@ import std;
 
 // While the major number is 0 a minor increase may change or remove behaviour.
 let VERSION_MAJOR = 0;
-let VERSION_MINOR = 3;
+let VERSION_MINOR = 4;
 
 // --- handles -------------------------------------------------------------------------------------
 
@@ -68,7 +68,7 @@ enum ConnectFailure {
     Unreachable,    // no route to the address, its network or its machine
     Denied,         // the system does not allow this connection
     NoResources,    // the event loop or the system is out of links, descriptors, ports or memory
-    BadAddress,     // the text is not an address the loop accepts: malformed, a host name, a zone identifier, a unix path without the unix group
+    BadAddress,     // the text is not an address the loop accepts: malformed, a host name, a zone identifier, a unix path without the unix capability
     Other,          // any other failure, and any the event loop cannot classify
 }
 
@@ -107,10 +107,10 @@ enum RelayStatus {
     AlreadyRelayed, // a link is joined already
 }
 
-// A handle that wakes a loop from another thread (the wake group). Fixed size: it may be copied to any thread.
+// A handle that wakes a loop from another thread (the wake capability). Fixed size: it may be copied to any thread.
 struct Waker { id: u32 = 0, gen: u32 = 0 }
 
-// The kinds of limit a link can run too long in (the limits group).
+// The kinds of limit a link can run too long in (the limits capability).
 enum Limit {
     Idle,       // no byte read from or written to the link's transport
     Silent,     // no byte read
@@ -156,13 +156,13 @@ enum Event {
     // The end of a pass that delivered at least one link event: the moment to send what was batched.
     // Always the last event of its pass.
     PassEnd {},
-    // The peek group. Bytes are held for the link: `available` of them, which stay with the loop until peek or relay.
+    // The peek capability. Bytes are held for the link: `available` of them, which stay with the loop until peek or relay.
     // Delivered once for each wait_input(link, n) with n > 0, when n bytes or the peer's end have arrived, or the bound is reached.
     Input { link: Link, available: i64 },
-    // The wake group. One for each wake, on the loop's thread, in the order one thread made them.
+    // The wake capability. One for each wake, on the loop's thread, in the order one thread made them.
     // `body` is what wake_with sent (up to 64 bytes), empty for a plain wake.
     Woken { value: i64, body: u8[..64] = [] },
-    // The limits group. The link has been in the state of `limit` for the time it was armed with; the library decides.
+    // The limits capability. The link has been in the state of `limit` for the time it was armed with; the library decides.
     Expired { link: Link, limit: Limit },
 }
 
@@ -237,13 +237,57 @@ fn drop<T>(m: LinkMap<T>&, link: Link) {
     m.entries[link.slot] = LinkEntry<T> { .. };
 }
 
+// --- capability declarations ----------------------------------------------------------------------
+
+// A loop says which capabilities it supplies with one overload each, defined unqualified in its own namespace:
+//   fn supplies_relay(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+// The default below answers Absent for every loop that does not. A library or wrapper asks with has_<c>(io), never
+// by calling supplies_<c> itself (the loop's overload is visible only to method syntax inside this namespace), and
+// branches on the answer's type with `const if same<S, goose_io::Supplied>`.
+
+struct Supplied {}
+struct Absent {}
+
+fn supplies_half_close<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_half_close<Io>(io: Io&) { return io.supplies_half_close(); }
+
+fn supplies_sizing<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_sizing<Io>(io: Io&) { return io.supplies_sizing(); }
+
+fn supplies_abort<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_abort<Io>(io: Io&) { return io.supplies_abort(); }
+
+fn supplies_inspection<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_inspection<Io>(io: Io&) { return io.supplies_inspection(); }
+
+fn supplies_batching<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_batching<Io>(io: Io&) { return io.supplies_batching(); }
+
+fn supplies_unix<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_unix<Io>(io: Io&) { return io.supplies_unix(); }
+
+fn supplies_relay<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_relay<Io>(io: Io&) { return io.supplies_relay(); }
+
+fn supplies_peek<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_peek<Io>(io: Io&) { return io.supplies_peek(); }
+
+fn supplies_revoke<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_revoke<Io>(io: Io&) { return io.supplies_revoke(); }
+
+fn supplies_wake<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_wake<Io>(io: Io&) { return io.supplies_wake(); }
+
+fn supplies_limits<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_limits<Io>(io: Io&) { return io.supplies_limits(); }
+
 // --- what an event loop must supply ---------------------------------------------------------------
 
-// The contract is a core and eleven groups (docs/contract.md). Each check below names every operation of its part
+// The contract is a core and eleven capabilities (docs/contract.md). Each check below names every operation of its part
 // once, with the contract's argument and result types, and never runs anything. An event loop's root program calls
-// require_core and the check of each group it supplies, so that a missing or mistyped operation is a compile error
-// here, naming the operation, and not somewhere inside a library. The batching group has no operation, only the
-// event PassEnd, and the unix group only an address form, so neither has a check: the conformance suite is what shows that a loop delivers it as the contract says.
+// require_core and the check of each capability it supplies, so that a missing or mistyped operation is a compile error
+// here, naming the operation, and not somewhere inside a library. The batching capability has no operation, only the
+// event PassEnd, and the unix capability only an address form, so neither has a check: the conformance suite is what shows that a loop delivers it as the contract says.
 //
 // Each operation is a function whose first parameter is the event loop.
 //
@@ -284,6 +328,7 @@ fn require_half_close<Io>(io: Io&) {
         io.set_keep_open_on_eof(link, false);
         io.shutdown_write(link);
     }
+    _is_supplied(io.supplies_half_close());
 }
 
 // Sizing: send_room(link) -> i64, send2(link, first, second) -> SendStatus.
@@ -293,6 +338,7 @@ fn require_sizing<Io>(io: Io&) {
         _is_i64(io.send_room(link));
         _is_send_status_type(io.send2(link, "x", "y"));
     }
+    _is_supplied(io.supplies_sizing());
 }
 
 // Abort: reset(link).
@@ -300,6 +346,7 @@ fn require_abort<Io>(io: Io&) {
     if _never() {
         io.reset(Link { .. });
     }
+    _is_supplied(io.supplies_abort());
 }
 
 // Inspection: peer_address(link) -> Address, stop_listening(listener).
@@ -309,7 +356,12 @@ fn require_inspection<Io>(io: Io&) {
         _is_address_type(io.peer_address(link));
         io.stop_listening(Listener { .. });
     }
+    _is_supplied(io.supplies_inspection());
 }
+
+// Batching has no operation, only the event PassEnd, and unix only an address form: their checks are the declaration alone.
+fn require_batching<Io>(io: Io&) { _is_supplied(io.supplies_batching()); }
+fn require_unix<Io>(io: Io&) { _is_supplied(io.supplies_unix()); }
 
 // Relay: relay(a, b) -> RelayStatus, relayed_bytes(link) -> i64.
 fn require_relay<Io>(io: Io&) {
@@ -318,6 +370,7 @@ fn require_relay<Io>(io: Io&) {
         _is_relay_status_type(io.relay(link, link));
         _is_i64(io.relayed_bytes(link));
     }
+    _is_supplied(io.supplies_relay());
 }
 
 // Peek: peek(link) -> const u8[:], wait_input(link, n), and the event Input.
@@ -329,6 +382,7 @@ fn require_peek<Io>(io: Io&) {
         _is_i64(seen.len);
         _is_i64(io.discard_input(link, 0));
     }
+    _is_supplied(io.supplies_peek());
 }
 
 // Revoke: discard_unsent(link) -> i64, write_deadline(link, at_ms).
@@ -338,6 +392,7 @@ fn require_revoke<Io>(io: Io&) {
         _is_i64(io.discard_unsent(link));
         io.write_deadline(link, 0);
     }
+    _is_supplied(io.supplies_revoke());
 }
 
 // Wake: waker() -> Waker, wake(waker, value), wake_with(waker, value, body) and the event Woken. A Waker may be used from any thread.
@@ -347,6 +402,7 @@ fn require_wake<Io>(io: Io&) {
         io.wake(w, 0);
         io.wake_with(w, 0, "");
     }
+    _is_supplied(io.supplies_wake());
 }
 
 // Limits: set_limit(link, kind, ms), and the event Expired.
@@ -354,9 +410,11 @@ fn require_limits<Io>(io: Io&) {
     if _never() {
         io.set_limit(Link { .. }, Limit.Idle, 0);
     }
+    _is_supplied(io.supplies_limits());
 }
 
 fn _never() -> bool { false }
+fn _is_supplied(s: Supplied) {}
 fn _is_relay_status_type(v: RelayStatus) {}
 fn _is_listener_type(v: Listener) {}
 fn _is_listen_error_type(v: ListenError) {}

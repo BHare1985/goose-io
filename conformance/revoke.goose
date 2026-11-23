@@ -1,4 +1,4 @@
-// goose-io conformance suite, revoke group: `discard_unsent` and `write_deadline`.
+// goose-io conformance suite, revoke capability: `discard_unsent` and `write_deadline`.
 // Requirements: Revoke takes back unsent bytes; A write deadline stops writes at a time.
 namespace goose_io_conformance;
 import std;
@@ -85,7 +85,7 @@ fn c_write_deadline_moved<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-fn revoke_group_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+fn revoke_capability_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 640 { c_discard_unsent_drops(k, io, ev); return true; }
     if k.id == 641 { c_write_deadline_stops(k, io, ev); return true; }
     if k.id == 642 { c_write_deadline_moved(k, io, ev); return true; }

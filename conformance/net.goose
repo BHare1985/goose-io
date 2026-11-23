@@ -1,7 +1,7 @@
-// goose-io conformance suite, group 4.4: listening, dialling, peer addresses, IPv6.
+// goose-io conformance suite, capability 4.4: listening, dialling, peer addresses, IPv6.
 // Requirements: Listening; Listener handles are never reused; A link reports its peer's address;
 // Dialling never blocks and always ends in one event; A failed dial says why; Scope of the base contract;
-// and, for the unix group, The unix group is the address form unix:/path; A Unix socket path is absolute and bounded; unix:///path is a spelling of unix:/path;
+// and, for the unix capability, The unix capability is the address form unix:/path; A Unix socket path is absolute and bounded; unix:///path is a spelling of unix:/path;
 // A Unix path is held by one listener and has no port.
 namespace goose_io_conformance;
 import std;
@@ -21,7 +21,7 @@ fn net_info(id: i64) -> Info {
     if id == 209 { return Info { name: "dial_bad_address", req: "A failed dial says why", part: 0 }; }
     if id == 210 { return Info { name: "ipv6_loopback", req: "Scope of the base contract", part: 0 }; }
     if id == 211 { return Info { name: "peer_address_ipv6", req: "A link reports its peer's address", part: 0 }; }
-    if id == 212 { return Info { name: "unix_listen_dial", req: "The unix group is the address form unix:/path", part: 0 }; }
+    if id == 212 { return Info { name: "unix_listen_dial", req: "The unix capability is the address form unix:/path", part: 0 }; }
     if id == 213 { return Info { name: "unix_held_path", req: "A Unix path is held by one listener and has no port", part: 0 }; }
     if id == 214 { return Info { name: "unix_nothing_listens", req: "A Unix path is held by one listener and has no port", part: 0 }; }
     if id == 215 { return Info { name: "unix_no_port", req: "A Unix path is held by one listener and has no port", part: 0 }; }
@@ -274,8 +274,8 @@ fn c_peer_address_ipv6<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-// --- the unix group: 212 to 219 ------------------------------------------------------------------------------
-// They call the core and nothing of another group (so not peer_address), and derive every path from fx.unix.
+// --- the unix capability: 212 to 219 ------------------------------------------------------------------------------
+// They call the core and nothing of another capability (so not peer_address), and derive every path from fx.unix.
 
 // `unix:`, the fixture's path, a suffix of the check's own (the checks of a part share a loop, and a listener of one
 // still holds its path while the next runs), and a further suffix.
@@ -494,7 +494,7 @@ fn c_unix_alias_held<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     }
 }
 
-// Runs the checks of the unix group: true if the check is one of them.
+// Runs the checks of the unix capability: true if the check is one of them.
 fn net_unix_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 212 { c_unix_listen_dial(k, fx, io, ev); return true; }
     if k.id == 213 { c_unix_held_path(k, fx, io, ev); return true; }
@@ -520,7 +520,7 @@ fn net_core_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> boo
     return false;
 }
 
-// Runs the checks of the inspection group: true if the check is one of them.
+// Runs the checks of the inspection capability: true if the check is one of them.
 fn net_inspection_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 203 { c_listen_stop_keeps_links(k, io, ev); return true; }
     if k.id == 204 { c_listener_handle_never_reused(k, io, ev); return true; }

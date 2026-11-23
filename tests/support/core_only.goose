@@ -1,7 +1,7 @@
 // An event loop that supplies the core of the contract and nothing more: the loop a library with small needs may be
 // run on. It sits over the in-memory loop and passes the 13 operations of the core through, and it has no other
 // operation of the contract (no half-close, sizing, abort or inspection) and delivers none of the events of the
-// groups: PeerEof can only follow set_keep_open_on_eof, which it does not have, and the PassEnd of the in-memory
+// capabilities: PeerEof can only follow set_keep_open_on_eof, which it does not have, and the PassEnd of the in-memory
 // loop is not given on.
 //
 // What the fixture of a test needs from a loop (`silent`, `hold`, `add_peer`, `peer_accept` and the scripted peers)
@@ -22,7 +22,7 @@ fn _prepare(io: Core&) {
     if !io.ready {
         io.ready = true;
         inner.cfg = io.cfg;
-        inner.cfg.unix_paths = false;     // the unix group is not part of the core
+        inner.cfg.unix_paths = false;     // the unix capability is not part of the core
     }
 }
 

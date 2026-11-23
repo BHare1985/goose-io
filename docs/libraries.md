@@ -16,7 +16,7 @@ no network. Every excerpt of code in it is copied from a file that the tests bui
 
 ## What a library needs
 
-A library uses the **core** of the contract and, if it must, some of the **groups** (`contract.md`, section 2).
+A library uses the **core** of the contract and, if it must, some of the **capabilities** (`contract.md`, section 2).
 It says which in its header, in one line that `tests/examples/needs_check.sh` reads:
 
 ```text
@@ -32,23 +32,23 @@ goose_io::require_core(io);
 goose_io::require_half_close(io);       // the line server keeps its link open after the peer finishes sending
 ```
 
-The fewer groups a library needs, the more event loops it runs on, so ask first whether the core is enough. It
+The fewer capabilities a library needs, the more event loops it runs on, so ask first whether the core is enough. It
 usually is: `send` and `Full` do what `send_room` and `send2` do (join the two parts into a buffer of your own, and
 wait for `Writable` on `Full`), `close` ends a link as `shutdown_write` does for a protocol where the peer's end of
-stream means it is done, `Tick` and `tick_by` replace `PassEnd` for a library that does not batch. A library that needs a group
+stream means it is done, `Tick` and `tick_by` replace `PassEnd` for a library that does not batch. A library that needs a capability
 fails to build on an event loop without it, naming the operation. `examples/lineclient/` needs only the core and its
 tests run on `tests/support/core_only.goose`; `examples/lineserver/` answers after the peer has finished sending, so it needs half-close.
 
-A proxy or a router needs more than the core, and each of these groups answers one need (`docs/contract.md`, section 2):
+A proxy or a router needs more than the core, and each of these capabilities answers one need (`docs/contract.md`, section 2):
 `relay` joins two links so that the loop carries the bytes (a library never copies them), `peek` and `wait_input` let a
 library look at the first bytes of a link, to choose where to send it, without taking them, `discard_unsent` and
 `write_deadline` take back or bound what a slow peer has not read, `wake` lets another thread hand a value to the
 loop's thread, and `set_limit` with the `Expired` event has the loop report a link that has been idle, silent, stalled,
-half-open or open too long. A library lists the groups it needs in its `// Needs:` line and calls their `require_*`
+half-open or open too long. A library lists the capabilities it needs in its `// Needs:` line and calls their `require_*`
 checks, as above.
 
 An event the loop never delivers is simply never handled: the `PeerEof` and `PassEnd` arms of the example libraries
-are never run on a loop without those groups.
+are never run on a loop without those capabilities.
 
 ## The shape of a library
 
@@ -194,7 +194,7 @@ because the contract guarantees the identity and lifetime of a link and not the 
 `send` takes every byte or none. When it answers `Full` the library keeps what it could not send and waits: the
 event loop delivers one `Writable` when each refused send would now fit, and the library tries again. Meanwhile it
 must not take on more work for that link; both examples stop handing out requests for a link until its output is
-empty, and a link that falls behind is held back with `pause_reading` until it has caught up. `max_send` says the largest send the loop will ever take, and with the sizing group `send_room` says how much a send would take now.
+empty, and a link that falls behind is held back with `pause_reading` until it has caught up. `max_send` says the largest send the loop will ever take, and with the sizing capability `send_room` says how much a send would take now.
 
 <!-- excerpt: examples/lineserver/server.goose#flush -->
 ```goose
@@ -259,6 +259,42 @@ fn _rearm<Io>(c: LineClient&, io: Io&) {
     for i in c.size { if c.slots[i].state == BACKOFF { io.tick_by(c.slots[i].retry_at); } }
 }
 ```
+
+### Using a capability when the loop has it
+
+A library may use a capability and still run without it. It says so in a second header line, `// Uses if supplied:`
+(`examples/forward/forward.goose` has `relay`), and asks the loop with `goose_io::has_<capability>(io)`, which answers
+with a type: `goose_io::Supplied` when the loop declares the capability and `goose_io::Absent` when it does not. The
+library branches on that type with `const if`, and the branch not taken is never compiled, so a loop without relay
+never meets the call to `relay`. A run-time `if` would not do: both of its branches are type-checked.
+
+<!-- excerpt: examples/forward/forward.goose#branch -->
+```goose
+// The backend is open: hand the pair to the loop when it has relay, otherwise copy through this library.
+fn _pair<Io, S>(f: Forward&, io: Io&, has: S, client: Side&, backend: Side&) {
+    const if same<S, goose_io::Supplied> {
+        if io.relay(client.link, backend.link) == goose_io::RelayStatus.Started {
+            f.relayed++;
+        } else {
+            io.close(client.link);
+            io.close(backend.link);
+        }
+    } else {
+        f.copied++;
+        f._send_held(io, backend);
+        if backend.held.len == 0 { io.pause_reading(client.link, false); }
+    }
+}
+```
+
+The same source runs on the in-memory loop, where the loop carries the bytes and the library sees no `Data` for the
+pair, and on a loop that supplies only the core, where the library copies (`tests/examples/forward_test.goose` runs
+both). `tests/examples/needs_check.sh` checks that an operation of a capability that is not under `// Needs:` is named
+under `// Uses if supplied:` and has its `has_<capability>` in the code.
+
+Require the capability instead, with `// Needs:` and its `require_*` check, when the library cannot work without it:
+a library whose job is a half-close, or one with no way to copy, has nothing to do on a loop that lacks it, and failing
+at build time with the operation's name is the better answer.
 
 ### While the loop is stopping
 
@@ -512,7 +548,7 @@ order, the times and the bytes afterwards.
 
 A `dial` goes to a listener on the loop if one has the address, otherwise to the first scripted
 peer still waiting at it, otherwise it fails with `ConnectFailed`, kind `Refused`. Addresses are numeric,
-`ip:port` or `[ip6]:port` with hexadecimal groups, as the contract requires (text with an IPv4 tail, such as
+`ip:port` or `[ip6]:port` with hexadecimal capabilities, as the contract requires (text with an IPv4 tail, such as
 `::ffff:192.0.2.1`, is `BadAddress` here, and a portable library does not use it); nothing is resolved and no real socket is
 opened, so any address will do. A listener on `0.0.0.0` or `[::]` takes dials to any address of
 its family on its port.
@@ -570,10 +606,10 @@ read more than that adds the step and a deadline for it, and does not stop the l
 ### A path as an address
 
 A library that wants a Unix socket passes `unix:/path` (or `unix:///path`, the same path, as Docker, gRPC and Redis configuration write it) where it would pass a numeric address, to `dial` or `listen`, and
-nothing else changes. The in-memory loop supplies the unix group: a path is the name of an endpoint, a listener holds
+nothing else changes. The in-memory loop supplies the unix capability: a path is the name of an endpoint, a listener holds
 it, a dial reaches it, and a scripted peer can wait at it as it waits at an address. A path has no port
 (`listener_port` is 0) and no peer address text. Set `io.cfg.unix_paths = false` to see a library meet a loop without
-the group: every path is `BadAddress`.
+the capability: every path is `BadAddress`.
 
 <!-- excerpt: tests/examples/unix_dial_test.goose#unix_peer -->
 ```goose
@@ -648,7 +684,7 @@ Set these on `io.cfg` before the first `listen`, `dial`, `add_peer` or `serve`.
 | `time_limit_ms` | 600000 | See "Limits". |
 | `exit_on_time_limit` | true | See "Limits". |
 | `passes_per_ms` | 64 | See "The clock". A value below 1 is raised to 1. |
-| `unix_paths` | true | Supply the unix group. With false, `unix:/path` is refused with `BadAddress`, as by a loop without the group. |
+| `unix_paths` | true | Supply the unix capability. With false, `unix:/path` is refused with `BadAddress`, as by a loop without the capability. |
 
 A setting that would stop the loop making progress is raised to the smallest value that does not
 (`tick_ms`, `passes_per_ms`, `max_send`, `link_buffer`, `read_chunk`); the other settings only make

@@ -1,5 +1,5 @@
 // expect: send_room
-// A loop with only the core fails the sizing check, and the error names the first operation of the group it lacks.
+// A loop with only the core fails the sizing check, and the error names the first operation of the capability it lacks.
 import std;
 import goose_io from "../..";
 import goose_io.tests.support.stub;

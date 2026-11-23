@@ -1,5 +1,5 @@
 // The in-memory loop supplies every operation of the contract, with the contract's types, so it passes the check of
-// the core and the check of each group. The checks never run anything: this test passes by compiling.
+// the core and the check of each capability. The checks never run anything: this test passes by compiling.
 import std;
 import goose_io from "../..";
 import goose_io.memory;
@@ -75,6 +75,6 @@ fn main() {
     goose_io::require_abort(io);
     goose_io::require_inspection(io);
     kit::check(io.now_ms() == 0 && !io.draining(), "the checks call nothing");
-    kit::check(goose_io::VERSION_MAJOR == 0 && goose_io::VERSION_MINOR == 3, "the contract version the loop was written against");
+    kit::check(goose_io::VERSION_MAJOR == 0 && goose_io::VERSION_MINOR == 4, "the contract version the loop was written against");
     kit::finish();
 }
