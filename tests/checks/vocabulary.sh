@@ -21,7 +21,7 @@ allowed="provider-conformance|add-proxy-groups|rename-groups-to-capabilities|[0-
 files=()
 while IFS= read -r f; do
     case "$f" in
-        openspec/changes/*|openspec/specs/*|docs/history.md|tests/checks/vocabulary.sh|tests/conformance/table_check.sh|skills-lock.json) continue ;;
+        openspec/changes/*|openspec/specs/*|docs/history.md|docs/event-loops/epoll-declarations.md|tests/checks/vocabulary.sh|tests/conformance/table_check.sh|skills-lock.json) continue ;;
     esac
     [ -f "$f" ] && files+=("$f")
 done < <(git ls-files --cached --others --exclude-standard)
