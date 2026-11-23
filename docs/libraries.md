@@ -4,6 +4,12 @@ A library is Goose code that speaks a protocol over links: an HTTP server, a dat
 proxy. It is generic over the event loop, so the same source runs on any event loop that meets the
 contract in [contract.md](contract.md).
 
+A worked example is [tcprouter-goose-io](https://github.com/BHare1985/tcprouter-goose-io), a TCP router (forwarding, SNI inspection,
+handler mode, tags and fences, messages, policy) that is generic over the event loop and runs on
+[goose-io-epoll-ext](https://github.com/BHare1985/goose-io-epoll-ext). The router owns no loop: the application makes the
+loop and the router beside it (see [the application](#the-application)). Its notes on what the port needed from the contract are in
+`openspec/changes/epoll-event-loop-dogfood/design.md`.
+
 **New here?** Read [`examples/echo/echo.goose`](../examples/echo/echo.goose) first: about 130 lines, the whole of a
 server that answers every byte with the same byte, including what to do when the peer is too slow to read the answer.
 Its test, [`tests/examples/echo_test.goose`](../tests/examples/echo_test.goose), shows how to run a library with no

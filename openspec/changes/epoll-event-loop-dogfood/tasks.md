@@ -40,7 +40,7 @@ Work happens in `.implementations/tcprouter-goose-io` on a new branch; commits f
 - [x] 6.2 Full suite once on a quiet host, in the background: 46 files, 0 failed, none edited; every test that failed once is rerun with `REPEAT=20` and explained
 - [x] 6.3 Speed and memory gates against the baseline (spec: no loss of speed); verify by a results file naming each workload's ratio; a miss is reported with its cause
 - [ ] 6.4 Pin the imports by full commit hash and prove a fresh clone builds and passes `tests/run_tests.sh` (needs the user to push goose-io-epoll and goose-io-epoll-ext; ask first)
-- [ ] 6.5 goose-io documentation names tcprouter-goose-io as the worked example of the contract and links it; verify by `openspec validate` on both changes and the docs checks
+- [x] 6.5 goose-io documentation names tcprouter-goose-io as the worked example of the contract and links it; verify by `openspec validate` on both changes and the docs checks
 - [ ] 6.6 Report: what passed, what failed, what was not run, every gap found and its change, and any row without a test
 
 ## Gap records
