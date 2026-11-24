@@ -8,8 +8,7 @@
 # The whole word "group" (and "groups") is checked too, since `rename-groups-to-capabilities`: what the contract calls an optional part is a
 # capability. Allowed, line by line: the CI concurrency key `group:` in .github/workflows/ci.yml, a benchmark's "group of arms"
 # in bench/link_map_bench.goose, a regular expression's `.group(` call in bench/*.py, and the names of the two changes
-# `add-proxy-groups` and `rename-groups-to-capabilities`. openspec/specs/ is excluded until that change is archived, because the
-# archive restates it (remove that exclusion then).
+# `add-proxy-groups` and `rename-groups-to-capabilities`.
 # Also checked: no file or directory name contains the old words (the capability directory excepted).
 # Usage: tests/checks/vocabulary.sh
 set -u
@@ -21,7 +20,7 @@ allowed="provider-conformance|add-proxy-groups|rename-groups-to-capabilities|[0-
 files=()
 while IFS= read -r f; do
     case "$f" in
-        openspec/changes/*|openspec/specs/*|docs/history.md|tests/checks/vocabulary.sh|tests/conformance/table_check.sh|skills-lock.json) continue ;;
+        openspec/changes/*|docs/history.md|tests/checks/vocabulary.sh|tests/conformance/table_check.sh|skills-lock.json) continue ;;
     esac
     [ -f "$f" ] && files+=("$f")
 done < <(git ls-files --cached --others --exclude-standard)
