@@ -45,7 +45,8 @@ library look at the first bytes of a link, to choose where to send it, without t
 `write_deadline` take back or bound what a slow peer has not read, `wake` lets another thread hand a value to the
 loop's thread, and `set_limit` with the `Expired` event has the loop report a link that has been idle, silent, stalled,
 half-open or open too long. A library lists the capabilities it needs in its `// Needs:` line and calls their `require_*`
-checks, as above.
+checks, as above. Each capability has a page, with when to use it and a checked example, in
+[`docs/capabilities/`](capabilities/README.md); [limits](capabilities/limits.md) is the one for a link that ran too long.
 
 An event the loop never delivers is simply never handled: the `PeerEof` and `PassEnd` arms of the example libraries
 are never run on a loop without those capabilities.

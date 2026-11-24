@@ -33,17 +33,17 @@ An event loop has to supply **the core**: 12 operations and 5 events, enough for
 | | Operations | Events |
 |---|---|---|
 | **Core** | `listen`, `listener_port`, `dial`, `send`, `max_send`, `pause_reading`, `close`, `now_ms`, `tick_by`, `serve`, `stop`, `draining` | `Opened`, `Data`, `Writable`, `Closed`, `Tick` |
-| **Half-close** | `shutdown_write`, `set_keep_open_on_eof` | `PeerEof` |
-| **Sizing** | `send_room`, `send2` | |
-| **Abort** | `reset` | |
-| **Inspection** | `peer_address`, `stop_listening` | |
-| **Batching** | | `PassEnd` |
-| **Unix** | the address forms `unix:/path` and `unix:///path`; no operation | |
-| **Relay** | `relay`, `relayed_bytes` | |
-| **Peek** | `peek`, `wait_input`, `discard_input` | `Input` |
-| **Revoke** | `discard_unsent`, `write_deadline` | |
-| **Wake** | `waker`, `wake` | `Woken` |
-| **Limits** | `set_limit` | `Expired` |
+| **[Half-close](capabilities/half-close.md)** | `shutdown_write`, `set_keep_open_on_eof` | `PeerEof` |
+| **[Sizing](capabilities/sizing.md)** | `send_room`, `send2` | |
+| **[Abort](capabilities/abort.md)** | `reset` | |
+| **[Inspection](capabilities/inspection.md)** | `peer_address`, `stop_listening` | |
+| **[Batching](capabilities/batching.md)** | | `PassEnd` |
+| **[Unix](capabilities/unix.md)** | the address forms `unix:/path` and `unix:///path`; no operation | |
+| **[Relay](capabilities/relay.md)** | `relay`, `relayed_bytes` | |
+| **[Peek](capabilities/peek.md)** | `peek`, `wait_input`, `discard_input` | `Input` |
+| **[Revoke](capabilities/revoke.md)** | `discard_unsent`, `write_deadline` | |
+| **[Wake](capabilities/wake.md)** | `waker`, `wake` | `Woken` |
+| **[Limits](capabilities/limits.md)** | `set_limit` | `Expired` |
 
 Each capability has a compile-time **declaration**: a loop that supplies relay defines `supplies_relay(io: Loop&) -> goose_io::Supplied` in its own namespace, and the contract answers `goose_io::Absent` for every loop that does not. A library or a wrapping loop asks `goose_io::has_relay(io)`. A library may use a capability only when the loop supplies it, branching at compile time on the answer's type, and say so in its header (`// Uses if supplied:`); the branch for a capability the loop lacks is never compiled (*A loop declares each capability it supplies*, *A declaration agrees with the operations*, *A library may use a capability optionally*, *A wrapping loop passes on what it declares*). `require_<capability>` requires the declaration as well as the operations.
 
@@ -294,6 +294,8 @@ Each capability is a small set of operations and events with rules that bind onl
 
 ### Half-close
 
+A page for library authors: [capabilities/half-close.md](capabilities/half-close.md).
+
 (*Peer end of stream and half-close*) Operations `set_keep_open_on_eof(link, keep)` and `shutdown_write(link)`, event `PeerEof`.
 
 - By default, as in the core, the event loop sends what was accepted and closes the link with reason `PeerClosed` when the peer finishes.
@@ -310,6 +312,8 @@ A line server that answers what it has read after the peer finished sending need
 
 ### Sizing
 
+A page for library authors: [capabilities/sizing.md](capabilities/sizing.md).
+
 (*Send backpressure is explicit and bounded*, *Two parts can be sent as one*) Operations `send_room(link)` and `send2(link, first, second)`.
 
 - `send_room` is the number of bytes a send would accept now, never more than `max_send()`, and 0 before `Opened`, after `close`, `reset` or `shutdown_write`, and for a stale handle.
@@ -324,6 +328,8 @@ Without sizing a library joins the two parts itself into a buffer of its own, an
 
 ### Abort
 
+A page for library authors: [capabilities/abort.md](capabilities/abort.md).
+
 (*Closing*) Operation `reset(link)`: closes at once and discards unsent bytes, so the peer sees an abort (`PeerReset`). After it `send` returns `Closed` and the link's only further event is its one `Closed` with reason `Local`. No wait for the peer.
 
 | | `shutdown_write` (half-close) | `close` (core) | `reset` (abort) |
@@ -337,6 +343,8 @@ Without sizing a library joins the two parts itself into a buffer of its own, an
 
 ### Inspection
 
+A page for library authors: [capabilities/inspection.md](capabilities/inspection.md).
+
 (*A link reports its peer's address*, *Listening*) Operations `peer_address(link)` and `stop_listening(listener)`.
 
 - `peer_address` is the remote endpoint as numeric text in the form `dial` accepts. It is the address of an open, write-shut or closing link, available from the link's `Opened` until its `Closed` has been delivered, and empty for a dialling link, for a link whose `Closed` has been delivered, and for a stale or invalid handle. IPv6 is written in lower case with the longest run of two or more zero capabilities as `::`.
@@ -349,9 +357,13 @@ Without sizing a library joins the two parts itself into a buffer of its own, an
 
 ### Batching
 
+A page for library authors: [capabilities/batching.md](capabilities/batching.md).
+
 (*End-of-pass notification*) Event `PassEnd`, no operation. It is the last event of every pass that delivered at least one link event; it lets a library batch: handle ten requests, then send ten replies at once. It is never delivered for a pass that delivered only a `Tick` or nothing. Calls made while handling it behave as anywhere else; the events they cause do not produce a second `PassEnd` for the same pass. It is the last event of its pass: no link event and no `Tick` of that pass comes after it, so what a library sends while handling it covers everything the pass did. It is always delivered by a loop that supplies the capability: there is nothing to ask for and nothing to turn off, so one library cannot take it away from another. The application offers it to every library once; a library that does not batch ignores it.
 
 ### Unix
+
+A page for library authors: [capabilities/unix.md](capabilities/unix.md).
 
 (*The unix capability is the address form unix:/path*, *A Unix socket path is absolute and bounded*, *unix:///path is a spelling of unix:/path*, *A Unix path is held by one listener and has no port*, *A Unix link has no peer address text*)
 
@@ -366,6 +378,8 @@ An event loop that supplies this capability accepts `unix:/path`, or `unix:///pa
 Abstract-namespace sockets, other socket types, the peer's credentials and passing descriptors are not part of the capability.
 
 ### Relay
+
+A page for library authors: [capabilities/relay.md](capabilities/relay.md).
 
 Operations `relay(a, b)` and `relayed_bytes(link)`. `relay` joins two open links: the loop carries the bytes of each to the other and the library sees none of them. It states the intent and not the mechanism: a loop may use buffers and a pump, `splice` or anything else, and one that copies conforms.
 
@@ -385,6 +399,8 @@ A relayed link delivers no `Data` and no `Writable`. The pair ends as one. When 
 
 ### Peek
 
+A page for library authors: [capabilities/peek.md](capabilities/peek.md).
+
 Operations `peek(link)`, `wait_input(link, n)` and `discard_input(link, n)`, event `Input { link, available }`. For a library that has to look before it chooses, such as one that picks a handler from the first bytes of a connection.
 
 - `peek` returns the bytes that have arrived on an open link and have not been delivered as `Data`, valid until the handler returns, and consumes nothing: calling it twice shows the same bytes. It returns none for a link that is not open or is stale.
@@ -396,6 +412,8 @@ Operations `peek(link)`, `wait_input(link, n)` and `discard_input(link, n)`, eve
 
 ### Revoke
 
+A page for library authors: [capabilities/revoke.md](capabilities/revoke.md).
+
 Operations `discard_unsent(link)` and `write_deadline(link, at_ms)`. For a library whose fences say that no byte is written after a time.
 
 - `discard_unsent` drops every byte the loop accepted on the link and has not handed to the transport, returns how many it dropped, and treats a `Writable` owed to the link as if those bytes had been sent. Bytes already handed to the transport are not recalled; a loop that cannot recall says so.
@@ -403,9 +421,13 @@ Operations `discard_unsent(link)` and `write_deadline(link, at_ms)`. For a libra
 
 ### Wake
 
+A page for library authors: [capabilities/wake.md](capabilities/wake.md).
+
 Operations `waker()`, `wake(waker, value)` and `wake_with(waker, value, body)`, event `Woken { value, body }`. `body` is up to 64 bytes (longer text is cut), empty for a plain `wake`; it is for a library whose messages carry data (for example a tag, a deadline or an address to change). `waker()` returns a `Waker`, a fixed-size handle that may be copied to any thread. `wake` is the only operation callable from another thread: the contract says that a loop belongs to the thread that serves it, and this capability is its one exception. Each `wake` delivers one `Woken` to the loop's thread, in the order one calling thread made them (there is no order between threads). `Woken` goes to every library like `Tick`; the application decides who handles it.
 
 ### Limits
+
+A page for library authors: [capabilities/limits.md](capabilities/limits.md).
 
 Operation `set_limit(link, kind, ms)`, event `Expired { link, limit }`. The loop reports when a link has been in a state for too long, and the library decides what to do. A loop alone can see these states once a relay carries the bytes.
 

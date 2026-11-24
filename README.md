@@ -25,7 +25,7 @@ Application authors implement nothing of goose-io. They get the ecosystem: any l
 | Guide | [docs/libraries.md](docs/libraries.md) | [docs/event-loops.md](docs/event-loops.md) | [docs/libraries.md](docs/libraries.md#the-application) |
 
 No side needs another's internals. All three rely on [the same contract](docs/contract.md), which exposes no socket,
-file descriptor or poll mask.
+file descriptor or poll mask. The contract is a core and eleven optional capabilities; [docs/capabilities/](docs/capabilities/README.md) has a page for each, with an example.
 
 ## How it fits together
 
