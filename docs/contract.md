@@ -33,17 +33,17 @@ An event loop has to supply **the core**: 12 operations and 5 events, enough for
 | | Operations | Events |
 |---|---|---|
 | **Core** | `listen`, `listener_port`, `dial`, `send`, `max_send`, `pause_reading`, `close`, `now_ms`, `tick_by`, `serve`, `stop`, `draining` | `Opened`, `Data`, `Writable`, `Closed`, `Tick` |
-| **Half-close** | `shutdown_write`, `set_keep_open_on_eof` | `PeerEof` |
-| **Sizing** | `send_room`, `send2` | |
-| **Abort** | `reset` | |
-| **Inspection** | `peer_address`, `stop_listening` | |
-| **Batching** | | `PassEnd` |
-| **Unix** | the address forms `unix:/path` and `unix:///path`; no operation | |
-| **Relay** | `relay`, `relayed_bytes` | |
-| **Peek** | `peek`, `wait_input`, `discard_input` | `Input` |
-| **Revoke** | `discard_unsent`, `write_deadline` | |
-| **Wake** | `waker`, `wake` | `Woken` |
-| **Limits** | `set_limit` | `Expired` |
+| **[Half-close](capabilities/half-close.md)** | `shutdown_write`, `set_keep_open_on_eof` | `PeerEof` |
+| **[Sizing](capabilities/sizing.md)** | `send_room`, `send2` | |
+| **[Abort](capabilities/abort.md)** | `reset` | |
+| **[Inspection](capabilities/inspection.md)** | `peer_address`, `stop_listening` | |
+| **[Batching](capabilities/batching.md)** | | `PassEnd` |
+| **[Unix](capabilities/unix.md)** | the address forms `unix:/path` and `unix:///path`; no operation | |
+| **[Relay](capabilities/relay.md)** | `relay`, `relayed_bytes` | |
+| **[Peek](capabilities/peek.md)** | `peek`, `wait_input`, `discard_input` | `Input` |
+| **[Revoke](capabilities/revoke.md)** | `discard_unsent`, `write_deadline` | |
+| **[Wake](capabilities/wake.md)** | `waker`, `wake` | `Woken` |
+| **[Limits](capabilities/limits.md)** | `set_limit` | `Expired` |
 
 Each capability has a compile-time **declaration**: a loop that supplies relay defines `supplies_relay(io: Loop&) -> goose_io::Supplied` in its own namespace, and the contract answers `goose_io::Absent` for every loop that does not. A library or a wrapping loop asks `goose_io::has_relay(io)`. A library may use a capability only when the loop supplies it, branching at compile time on the answer's type, and say so in its header (`// Uses if supplied:`); the branch for a capability the loop lacks is never compiled (*A loop declares each capability it supplies*, *A declaration agrees with the operations*, *A library may use a capability optionally*, *A wrapping loop passes on what it declares*). `require_<capability>` requires the declaration as well as the operations.
 

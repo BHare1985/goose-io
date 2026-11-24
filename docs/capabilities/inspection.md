@@ -19,13 +19,15 @@ Do not store the address and use it as the identity of a link: it is text for re
 
 ## Examples
 
-The access log writes a line for each accepted connection with the address the loop reports, and answers with the same address.
+The access log writes a line for each accepted connection with the time and the address the loop reports, and answers with the address.
 
 <!-- excerpt: examples/capabilities/access_log.goose#opened -->
 ```goose
 // A connection was accepted: write its line, and answer with the address the loop reports.
 fn _on_opened<Io>(a: AccessLog&, io: Io&, link: goose_io::Link) {
     let peer = io.peer_address(link);
+    a.log.append(str(io.now_ms()));
+    a.log.append(" ");
     a.log.append(peer.text[..]);
     a.log.append("\n");
     io.send(link, peer.text[..]);

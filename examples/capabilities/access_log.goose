@@ -1,4 +1,4 @@
-// An access log: it accepts connections, writes one line to a log for each (who connected), answers with the
+// An access log: it accepts connections, writes one line to a log for each (when, and who connected), answers with the
 // address it saw and leaves the link to the client, and stops accepting when the loop is stopping. It shows the inspection capability
 // (docs/capabilities/inspection.md).
 //
@@ -16,7 +16,7 @@ struct Ref { index: i64 = 0 }
 
 root struct AccessLog {
     listener: goose_io::Listener     = goose_io::Listener { .. },
-    log:      u8[>..]                = [],     // one line per accepted connection: "<peer address>"
+    log:      u8[>..]                = [],     // one line per accepted connection: "<ms> <peer address>"
     stopped:  bool                   = false,  // stop_listening was called
     refs:     goose_io::LinkMap<Ref> = goose_io::LinkMap<Ref> {},
     conns:    Conn[>..]              = [],
@@ -42,6 +42,8 @@ fn _conn_of(a: AccessLog&, link: goose_io::Link) -> i64 {
 // A connection was accepted: write its line, and answer with the address the loop reports.
 fn _on_opened<Io>(a: AccessLog&, io: Io&, link: goose_io::Link) {
     let peer = io.peer_address(link);
+    a.log.append(str(io.now_ms()));
+    a.log.append(" ");
     a.log.append(peer.text[..]);
     a.log.append("\n");
     io.send(link, peer.text[..]);

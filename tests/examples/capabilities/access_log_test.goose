@@ -12,6 +12,15 @@ fn lines_of(text: const u8[:]) -> i64 {
     return n;
 }
 
+fn has(text: const u8[:], part: const u8[:]) -> bool {
+    var i = 0;
+    while i + part.len <= text.len {
+        if text[i..i + part.len] == part { return true; }
+        i++;
+    }
+    return false;
+}
+
 fn run<Io>(io: Io&) {
     var a = access_log::AccessLog { .. };
     kit::check(a.start(io, "127.0.0.1:7102"), "the server listens");
@@ -32,7 +41,7 @@ fn run<Io>(io: Io&) {
         }
     }; };
     kit::check(lines_of(a.log_text()) == 2, "two connections were logged");
-    kit::check(a.log_text()[0..10] == "127.0.0.1:", "a line is the client's address");
+    kit::check(has(a.log_text(), " 127.0.0.1:"), "a line is the time and the client's address");
     let told = io.peer_received(first);
     kit::check(told.len > 10 && told[0..10] == "127.0.0.1:", "the client is sent the address the server saw");
     kit::check(a.is_stopped(), "the server stopped listening when the loop was stopping");
