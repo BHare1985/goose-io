@@ -155,8 +155,15 @@ fn _on_opened<Io>(s: LineServer&, io: Io&, link: goose_io::Link) {
     c.out.clear();
     s.open++;
     s.refs.put(link, Ref { index: i });
+    s._keep_open(io, link);
+}
+
+// doc:begin keep_open
+// Called from the handler of Opened: the peer finishing is then PeerEof, not Closed.
+fn _keep_open<Io>(s: LineServer&, io: Io&, link: goose_io::Link) {
     io.set_keep_open_on_eof(link, true);
 }
+// doc:end keep_open
 
 fn _on_data<Io>(s: LineServer&, io: Io&, i: i64, bytes: const u8[:]) {
     let c .= s.conns[i];

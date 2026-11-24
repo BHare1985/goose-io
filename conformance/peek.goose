@@ -1,4 +1,4 @@
-// goose-io conformance suite, peek group: `peek`, `wait_input` and `Input`.
+// goose-io conformance suite, peek capability: `peek`, `wait_input` and `Input`.
 // Requirements: Peek waits for enough bytes and then releases them; A link holds a bounded number of unread bytes.
 namespace goose_io_conformance;
 import std;
@@ -113,7 +113,7 @@ fn c_discard_input_drops<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-fn peek_group_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+fn peek_capability_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 620 { c_wait_input_gathers(k, io, ev); return true; }
     if k.id == 621 { c_wait_input_peer_ends(k, io, ev); return true; }
     if k.id == 622 { c_peek_bound(k, io, fx, ev); return true; }

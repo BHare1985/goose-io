@@ -1,4 +1,4 @@
-// The loop that supplies only the core does not supply the unix group: `unix:/path` is refused with BadAddress, for
+// The loop that supplies only the core does not supply the unix capability: `unix:/path` is refused with BadAddress, for
 // `listen` and for `dial` (specs/provider-conformance of the change add-unix-sockets).
 import std;
 import goose_io from "../..";

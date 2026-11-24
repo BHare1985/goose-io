@@ -8,7 +8,7 @@
 //
 // It exists for two things: testing a library without a network, and giving the contract one
 // working implementation that the conformance suite can run against. It supplies the core of the
-// contract and every group of extras.
+// contract and every capability.
 //
 //     var io = goose_io_memory::Loop { .. };
 //     let listener, err = io.listen("127.0.0.1:8080");
@@ -40,13 +40,13 @@ struct Config {
     time_limit_ms:      i64  = 600000,  // a serve that runs this long in loop time has hung: fail
     exit_on_time_limit: bool = true,    // false: serve returns instead and hit_time_limit() is true
     passes_per_ms:      i64  = 64,      // busy passes at one instant before the clock moves 1 ms
-    // Supply the unix group. false: unix:/path is refused with BadAddress, as by a loop without it.
+    // Supply the unix capability. false: unix:/path is refused with BadAddress, as by a loop without it.
     unix_paths: bool = true,
-    // The peek group: most bytes held for a link that waits for input; Input is delivered at it.
+    // The peek capability: most bytes held for a link that waits for input; Input is delivered at it.
     peek_bound: i64 = 4096,
-    // The relay group: a relayed pair whose bytes cannot move for this long ends with Local on both links (0: never).
+    // The relay capability: a relayed pair whose bytes cannot move for this long ends with Local on both links (0: never).
     relay_stall_ms: i64 = 0,
-    // The relay group: a relayed link whose peer takes none of its bytes for this long ends with Error
+    // The relay capability: a relayed link whose peer takes none of its bytes for this long ends with Error
     // (the transport's timeout; 0: never).
     kernel_timeout_ms: i64 = 0,
 }
@@ -69,7 +69,7 @@ let _ERR_ADDRESS_IN_USE = 98;           // EADDRINUSE
 let _ERR_ADDRESS_NOT_AVAILABLE = 99;    // EADDRNOTAVAIL
 let _ERR_SHUT_DOWN = 108;               // ESHUTDOWN
 
-// The limits group: an index for each goose_io::Limit, into the per-slot limit arrays.
+// The limits capability: an index for each goose_io::Limit, into the per-slot limit arrays.
 let _LIMIT_IDLE = 0;
 let _LIMIT_SILENT = 1;
 let _LIMIT_STALLED = 2;
@@ -79,7 +79,7 @@ let _LIMIT_KINDS = 5;
 
 // --- internals: addresses ------------------------------------------------------------------------
 
-// A numeric endpoint, or, with `unix` set, the path of a Unix socket (the unix group): then ip, port and v6 are unused.
+// A numeric endpoint, or, with `unix` set, the path of a Unix socket (the unix capability): then ip, port and v6 are unused.
 struct _Addr {
     ok:   bool      = false,
     v6:   bool      = false,
@@ -147,9 +147,9 @@ fn _hex_value(byte: u8) -> i64 {
 }
 
 fn _parse_v6(text: const u8[:], addr: _Addr&) -> bool {
-    var groups: i64[8] = [0; 8];
+    var capabilities: i64[8] = [0; 8];
     var count = 0;
-    var gap = -1;           // the group index where "::" stands, or -1
+    var gap = -1;           // the capability index where "::" stands, or -1
     var index = 0;
     guard text.len >= 2 else { return false; }
     if text[0] == ':' {
@@ -167,7 +167,7 @@ fn _parse_v6(text: const u8[:], addr: _Addr&) -> bool {
             index++;
         }
         guard digits > 0 && digits <= 4 else { return false; }
-        groups[count] = value;
+        capabilities[count] = value;
         count++;
         if index == text.len { break; }
         guard text[index] == ':' else { return false; }
@@ -179,19 +179,19 @@ fn _parse_v6(text: const u8[:], addr: _Addr&) -> bool {
             index++;
         }
     }
-    // Without "::" all eight groups are written out; with it, at least one is left for it to stand for.
+    // Without "::" all eight capabilities are written out; with it, at least one is left for it to stand for.
     guard (gap < 0 && count == 8) || (gap >= 0 && count < 8) else { return false; }
     var full: i64[8] = [0; 8];
     if gap < 0 {
-        full = groups;
+        full = capabilities;
     } else {
-        for group in gap { full[group] = groups[group]; }
+        for capability in gap { full[capability] = capabilities[capability]; }
         let tail = count - gap;
-        for group in tail { full[8 - tail + group] = groups[gap + group]; }
+        for capability in tail { full[8 - tail + capability] = capabilities[gap + capability]; }
     }
-    for group in 8 {
-        addr.ip[group * 2] = (full[group] >> 8) as u8;
-        addr.ip[group * 2 + 1] = (full[group] & 0xff) as u8;
+    for capability in 8 {
+        addr.ip[capability * 2] = (full[capability] >> 8) as u8;
+        addr.ip[capability * 2 + 1] = (full[capability] & 0xff) as u8;
     }
     return true;
 }
@@ -255,7 +255,7 @@ fn _push_decimal(out: u8[..56]&, value: i64) {
     for position in count { out.push(digits[count - 1 - position]); }
 }
 
-// One IPv6 group in lower-case hex, without leading zeros.
+// One IPv6 capability in lower-case hex, without leading zeros.
 fn _push_hex(out: u8[..56]&, value: i64) {
     var started = false;
     for position in 4 {
@@ -267,20 +267,20 @@ fn _push_hex(out: u8[..56]&, value: i64) {
     }
 }
 
-// Where the longest run of two or more zero groups starts and how long it is; -1 when there is none.
+// Where the longest run of two or more zero capabilities starts and how long it is; -1 when there is none.
 // That run is written as "::".
-fn _longest_zero_run(groups: i64[8]) -> i64, i64 {
+fn _longest_zero_run(capabilities: i64[8]) -> i64, i64 {
     var best_start = -1;
     var best_length = 1;
-    var group = 0;
-    while group < 8 {
-        if groups[group] == 0 {
+    var capability = 0;
+    while capability < 8 {
+        if capabilities[capability] == 0 {
             var run = 0;
-            while group + run < 8 && groups[group + run] == 0 { run++; }
-            if run > best_length { best_start = group; best_length = run; }
-            group += run;
+            while capability + run < 8 && capabilities[capability + run] == 0 { run++; }
+            if run > best_length { best_start = capability; best_length = run; }
+            capability += run;
         } else {
-            group++;
+            capability++;
         }
     }
     return best_start, best_length;
@@ -290,20 +290,20 @@ fn _format_address(addr: _Addr) -> goose_io::Address {
     var out = goose_io::Address { .. };
     guard addr.ok && !addr.unix else { return out; }
     if addr.v6 {
-        var groups: i64[8] = [0; 8];
-        for group in 8 { groups[group] = ((addr.ip[group * 2] as i64) << 8) | addr.ip[group * 2 + 1]; }
-        let gap_start, gap_length = _longest_zero_run(groups);
+        var capabilities: i64[8] = [0; 8];
+        for capability in 8 { capabilities[capability] = ((addr.ip[capability * 2] as i64) << 8) | addr.ip[capability * 2 + 1]; }
+        let gap_start, gap_length = _longest_zero_run(capabilities);
         out.text.push('[');
-        var group = 0;
-        while group < 8 {
-            if group == gap_start {
+        var capability = 0;
+        while capability < 8 {
+            if capability == gap_start {
                 out.text.push(':');
                 out.text.push(':');
-                group += gap_length;
+                capability += gap_length;
             } else {
-                if group > 0 && group != gap_start + gap_length { out.text.push(':'); }
-                _push_hex(out.text, groups[group]);
-                group++;
+                if capability > 0 && capability != gap_start + gap_length { out.text.push(':'); }
+                _push_hex(out.text, capabilities[capability]);
+                capability++;
             }
         }
         out.text.push(']');
@@ -374,16 +374,16 @@ struct _Slot {
     write_shut:    bool = false,                    // this end finished sending
     want_writable: bool = false,                    // a send was refused with Full
     want_room:     i64  = 0,                        // the largest send refused since the last Writable
-    // the relay group
+    // the relay capability
     relay_partner:  i64  = -1,                      // the slot this one is joined to, -1 when it is not relayed
     relay_finished: bool = false,                   // its stream ended and the end was carried to the partner
     carried:        i64  = 0,                       // bytes carried from this link by a relay
-    // the peek group
+    // the peek capability
     wait_for:    i64  = 0,                          // wait_input's byte count, 0 when not waiting
     input_given: bool = false,                      // the Input for the current wait_input was queued
-    // the revoke group
+    // the revoke capability
     write_deadline_at: i64 = 0,                     // write_deadline, 0 for none
-    // the limits group, indexed by _LIMIT_*
+    // the limits capability, indexed by _LIMIT_*
     limit_ms: i64[5] = [0, 0, 0, 0, 0],                         // set_limit, 0 for off
     // when the limit was armed (set_limit sets it on every arming)
     limit_armed_at: i64[5]  = [0, 0, 0, 0, 0],
@@ -487,7 +487,7 @@ root struct Loop {
     _draining:      bool = false,
     _finished:      bool = false, // serve has returned: every operation does nothing (*A finished loop does nothing*)
     _stop_deadline: i64  = _FOREVER,
-    // the wake group
+    // the wake capability
     _waker_id:     u32          = 0,        // this loop's id, 0 until waker() is first called
     _woken_values: _Woken[>..<] = [],       // values taken from the queue, to be delivered as Woken
     _woken_head:   i64          = 0,
@@ -984,7 +984,7 @@ fn shutdown_write(io: Loop&, link: goose_io::Link) {
     if link_end.eof_seen { io._close_gracefully(slot, goose_io::CloseReason.PeerClosed); }
 }
 
-// --- the contract: the relay group -----------------------------------------------------------------
+// --- the contract: the relay capability -----------------------------------------------------------------
 
 // The write deadline passed with bytes still unsent: they are discarded and the link ends Local.
 fn _expire_deadline(io: Loop&, slot: i64) {
@@ -1360,6 +1360,21 @@ fn stop(io: Loop&, grace_ms: i64) {
 }
 
 fn draining(io: Loop&) -> bool { io._draining || io._finished }
+
+// The capabilities this loop supplies (docs/event-loops.md): every one of the eleven.
+fn supplies_half_close(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_sizing(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_abort(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_inspection(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_batching(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_unix(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+// doc:begin declare_relay
+fn supplies_relay(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+// doc:end declare_relay
+fn supplies_peek(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_revoke(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_wake(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_limits(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
 
 fn serve<F>(io: Loop&) {
     if io._finished {          // a second serve returns at once, without calling its handler
@@ -2052,7 +2067,7 @@ fn silent(io: Loop&, address: const u8[:]) {
 // A fault is a deliberate break of one behaviour of the contract, so that the conformance suite can
 // be shown to fail on it (see tests/conformance/faults.sh). Faults are chosen by name, so the order
 // here means nothing. The previous version numbered them by position in a list and kept empty
-// strings for retired ones (UserReadAtDial, and three in the relay and revoke groups); those are gone.
+// strings for retired ones (UserReadAtDial, and three in the relay and revoke capabilities); those are gone.
 
 enum Fault {
     None,
@@ -2081,19 +2096,19 @@ enum Fault {
     // time and stopping
     TickEvery250, TickByIgnored, TickByKeepsLatest, NoPassEnd, IdlePassEnd, StopWaitsForGrace, ShutdownEarly,
     ListenAfterStop, DialFailsWhileDraining, StopLatestWins, SecondServeRuns, SetupEventsDropped,
-    // the unix group
+    // the unix capability
     UnixListenerIgnored, UnixOverlapIgnored, UnixRefusedAsBadAddress, UnixPortInvented, UnixRelativeAccepted,
     UnixLongestRefused, UnixTripleSlashRefused, UnixAliasNotHeld,
-    // the relay group
+    // the relay capability
     RelayDropsLastByte, RelayedSendAccepted, RelayedCountsHeld, RelayedBytesLostAtClose, RelayPartnerPeerReset, RelayJoinsRelayed,
     RelayCloseEndsOne,
-    // the peek and revoke groups
+    // the peek and revoke capabilities
     BoundIgnored, DeadlineNotReplaced, DiscardInputKeeps, DiscardKeepsBytes, InputNeverDelivered,
     DeadlineOnlyAtSend, InputEarly, PeerEndIgnored,
-    // the limits group
+    // the limits capability
     ReplaceKeepsFirst, IdleFromArming, SilentCountsWrites, AgeResetByActivity, StalledResetByReads,
     StalledNoProgressReset, StalledAlways, HalfOpenAlways, ExpiredRepeats, ExpiredAfterClose, AgeNeverExpires,
-    // the wake group
+    // the wake capability
     WakeOrderReversed, WakeBodyDropped,
 }
 

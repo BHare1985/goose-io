@@ -12,7 +12,7 @@ checked=0
 tmp=$(mktemp "${TMPDIR:-/tmp}/goose-io-docs.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
 
-for doc in README.md docs/*.md; do
+for doc in README.md docs/*.md docs/capabilities/*.md; do
     [ -f "$doc" ] || continue
     while IFS= read -r path; do
         checked=$((checked + 1))
@@ -40,7 +40,7 @@ while IFS= read -r ref; do
     name="${ref##*#}"
     checked=$((checked + 1))
     doc_file=""
-    for doc in README.md docs/*.md; do
+    for doc in README.md docs/*.md docs/capabilities/*.md; do
         [ -f "$doc" ] && grep -qF "<!-- excerpt: $ref -->" "$doc" && doc_file="$doc" && break
     done
     awk -v want="<!-- excerpt: $ref -->" '
@@ -64,7 +64,7 @@ while IFS= read -r ref; do
             echo "ok    $doc_file excerpts $ref"
         fi
     fi
-done < <(cat README.md docs/*.md 2>/dev/null | sed -n 's|^<!-- excerpt: \(.*\) -->$|\1|p')
+done < <(cat README.md docs/*.md docs/capabilities/*.md 2>/dev/null | sed -n 's|^<!-- excerpt: \(.*\) -->$|\1|p')
 
 echo "$checked quoted files, $failed failed"
 [ $failed -eq 0 ]

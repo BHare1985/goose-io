@@ -54,7 +54,7 @@ Every event loop supplies these.
 
 ### Half-close
 
-Only a loop that supplies the half-close group needs these.
+Only a loop that supplies the half-close capability needs these.
 
 | Contract item | io_uring (c_proxy) | Status | Adapter work |
 |---|---|---|---|
@@ -64,7 +64,7 @@ Only a loop that supplies the half-close group needs these.
 
 ### Sizing
 
-Only a loop that supplies the sizing group needs these.
+Only a loop that supplies the sizing capability needs these.
 
 | Contract item | io_uring (c_proxy) | Status | Adapter work |
 |---|---|---|---|
@@ -73,7 +73,7 @@ Only a loop that supplies the sizing group needs these.
 
 ### Abort
 
-Only a loop that supplies the abort group needs this.
+Only a loop that supplies the abort capability needs this.
 
 | Contract item | io_uring (c_proxy) | Status | Adapter work |
 |---|---|---|---|
@@ -81,7 +81,7 @@ Only a loop that supplies the abort group needs this.
 
 ### Inspection
 
-Only a loop that supplies the inspection group needs these.
+Only a loop that supplies the inspection capability needs these.
 
 | Contract item | io_uring (c_proxy) | Status | Adapter work |
 |---|---|---|---|
@@ -90,7 +90,7 @@ Only a loop that supplies the inspection group needs these.
 
 ### Batching
 
-Only a loop that supplies the batching group needs this.
+Only a loop that supplies the batching capability needs this.
 
 | Contract item | io_uring (c_proxy) | Status | Adapter work |
 |---|---|---|---|
@@ -99,7 +99,7 @@ Only a loop that supplies the batching group needs this.
 
 ## What a loop with only the core costs
 
-An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the groups: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each group is a separate, later addition.
+An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the capabilities: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each capability is a separate, later addition.
 
 - `listen`: A runtime listener: the same calls, then the multishot accept. `bind` failure by errno gives `AddressInUse`.
 - `listener_port`: Plain call after binding port 0.

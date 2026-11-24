@@ -5,13 +5,17 @@
 # files with the number of lines for each, most first, which is the order to sweep them in.
 # Allowed: tests/conformance/table_check.sh, which names the old words to translate them; the capability id `provider-conformance` (OpenSpec does not rename a capability: design D1), and the records of changes under
 # openspec/changes/ and docs/history.md, which say what was true when they were written.
+# The whole word "group" (and "groups") is checked too, since `rename-groups-to-capabilities`: what the contract calls an optional part is a
+# capability. Allowed, line by line: the CI concurrency key `group:` in .github/workflows/ci.yml, a benchmark's "group of arms"
+# in bench/link_map_bench.goose, a regular expression's `.group(` call in bench/*.py, and the names of the two changes
+# `add-proxy-groups` and `rename-groups-to-capabilities`.
 # Also checked: no file or directory name contains the old words (the capability directory excepted).
 # Usage: tests/checks/vocabulary.sh
 set -u
 cd "$(dirname "$0")/../.."
 
-words="(^|[^A-Za-z0-9_])(provider)(s|'s)?($|[^A-Za-z0-9_])"
-allowed="provider-conformance"
+words="(^|[^A-Za-z0-9_])(provider|groups?)(s|'s)?($|[^A-Za-z0-9_])"
+allowed="provider-conformance|add-proxy-groups|rename-groups-to-capabilities|[0-9]+:[[:space:]]*group: ci-|group of arms|\\.group\\("
 
 files=()
 while IFS= read -r f; do
@@ -35,7 +39,7 @@ done
 names=$(printf '%s\n' "${files[@]}" | grep -iE "provider" | grep -v '^openspec/specs/provider-conformance/' || true)
 
 if [ -s "$report" ] || [ -n "$names" ]; then
-    echo "old words found: $found lines (provider), in the files below, most first"
+    echo "old words found: $found lines (provider, group), in the files below, most first"
     sort -rn "$report" | sed 's/^/  /'
     if [ -n "$names" ]; then echo "file names that contain an old word:"; sed 's/^/  /' <<<"$names"; fi
     if [ "${VOCABULARY_LINES:-}" = 1 ]; then

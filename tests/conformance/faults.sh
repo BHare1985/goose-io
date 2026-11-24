@@ -30,13 +30,13 @@ goose build tests/conformance/memory_conformance.goose -o "$bin" || exit 2
 bad=0
 tested=0
 unfaulted=()
-while IFS=$'\t' read -r check part req scenarios fault group; do
+while IFS=$'\t' read -r check part req scenarios fault capability; do
     case "$check" in ''|'#'*) continue ;; esac
     want "$check" || continue
     if [ "$fault" = "-" ]; then unfaulted+=("$check"); continue; fi
     # the fault column holds one fault, or several separated by commas: the check must fail under each of them
     for one in ${fault//,/ }; do
-        out=$(GOOSE_IO_FAULT="$one" limited "$bin" "$part" "$group" 2>&1)
+        out=$(GOOSE_IO_FAULT="$one" limited "$bin" "$part" "$capability" 2>&1)
         code=$?
         tested=$((tested + 1))
         if grep -q "^FAIL $check " <<<"$out"; then

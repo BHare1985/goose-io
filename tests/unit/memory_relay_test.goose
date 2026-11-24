@@ -1,4 +1,4 @@
-// Combinations of the relay group with other groups and the end of a relayed pair, on the in-memory loop (design D6 of
+// Combinations of the relay capability with other capabilities and the end of a relayed pair, on the in-memory loop (design D6 of
 // add-proxy-groups). These need the loop to break a transport or to limit a relay, which a conformance check cannot ask
 // of a loop, so they are tests of this loop and not entries of the suite.
 import std;

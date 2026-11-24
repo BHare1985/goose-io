@@ -1,7 +1,7 @@
-// goose-io conformance suite, limits group: `set_limit` and `Expired`.
+// goose-io conformance suite, limits capability: `set_limit` and `Expired`.
 // Requirements: A limit tells the library that a link has run too long in a state; Idle, Silent and Age measure quiet and lifetime;
 // Stalled bounds a link whose peer does not read; A half-closed link is bounded; Expired reports and the library decides.
-// Every check works on pair 0; times are small so that a loop on the real clock runs the group in a few seconds.
+// Every check works on pair 0; times are small so that a loop on the real clock runs the capability in a few seconds.
 namespace goose_io_conformance;
 import std;
 import goose_io;
@@ -247,7 +247,7 @@ fn c_limit_closed_link<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
     }
 }
 
-fn limits_group_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
+fn limits_capability_step<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) -> bool {
     if k.id == 660 { c_limit_idle_and_age(k, io, ev); return true; }
     if k.id == 661 { c_limit_replace_and_off(k, io, ev); return true; }
     if k.id == 662 { c_limit_idle_activity_moves(k, io, ev); return true; }

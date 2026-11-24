@@ -1,4 +1,4 @@
-// A library that dials a Unix socket (the unix group, `unix:/path`), run on the in-memory event loop against a
+// A library that dials a Unix socket (the unix capability, `unix:/path`), run on the in-memory event loop against a
 // scripted peer waiting at the path: the same calls as for a numeric address, only the string differs. The excerpt
 // is in docs/libraries.md, "Scripted peers".
 import std;

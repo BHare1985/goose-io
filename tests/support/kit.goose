@@ -62,7 +62,7 @@ fn note<Io>(log: Log&, io: Io&, ev: goose_io::Event) {
         Closed e => { log.entries.push(Entry { kind: CLOSED, link: e.link, why: e.why, at_ms: now, .. }); },
         Tick t => { if log.ticks { log.entries.push(Entry { kind: TICK, at_ms: t.now_ms, .. }); } },
         PassEnd => { log.entries.push(Entry { kind: PASS_END, at_ms: now, .. }); },
-        Input i => {},      // the groups of relay, peek, wake and limits are not exercised through the kit
+        Input i => {},      // the capabilities of relay, peek, wake and limits are not exercised through the kit
         Expired x => {},
         Woken w => {},
     }
@@ -205,7 +205,7 @@ fn track<Io>(p: Pair&, log: Log&, io: Io&, ev: goose_io::Event) -> bool {
 // Like `track`, and asks for the end of stream to be kept open as the contract allows: on the accepted end ("server") and
 // the dialled end ("client") in the handler of that link's own `Opened`. A call made after that handler has returned has
 // no effect (*Keep-open is configured no later than Opened*), so a test that wants PeerEof calls this and not
-// `set_keep_open_on_eof` from its first `true` of `track`. It needs the half-close group.
+// `set_keep_open_on_eof` from its first `true` of `track`. It needs the half-close capability.
 fn track_keep<Io>(p: Pair&, log: Log&, io: Io&, ev: goose_io::Event, server: bool, client: bool) -> bool {
     match ev {
         Opened e => {

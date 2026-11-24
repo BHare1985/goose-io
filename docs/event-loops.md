@@ -1,7 +1,7 @@
 # Writing an event loop and running the conformance suite
 
 **In short:** you write the engine, and every library written for the contract runs on it. The job is the 13
-operations and 5 events of the core, and as many of the eleven optional groups as you like; the conformance suite tells
+operations and 5 events of the core, and as many of the eleven optional capabilities as you like; the conformance suite tells
 you when you are done. [`tests/support/core_only.goose`](../tests/support/core_only.goose) is the smallest example of
 the shape (it sits over the in-memory loop, where yours would sit over your sockets).
 
@@ -17,9 +17,9 @@ The **core**, which every event loop supplies: the operations `listen`, `listene
 events `Opened`, `Data`, `Writable`, `Closed` and `Tick`, with the types of `goose_io.goose`, as functions that a
 library calls by method syntax on the event loop's type.
 
-And any of eleven **groups**, which it may supply or leave out (`docs/contract.md`, section 2):
+And any of eleven **capabilities**, which it may supply or leave out (`docs/contract.md`, section 2):
 
-| Group | Operations | Events |
+| Capability | Operations | Events |
 |---|---|---|
 | half-close | `shutdown_write`, `set_keep_open_on_eof` | `PeerEof` |
 | sizing | `send_room`, `send2` | |
@@ -33,29 +33,48 @@ And any of eleven **groups**, which it may supply or leave out (`docs/contract.m
 | wake | `waker`, `wake` | `Woken` |
 | limits | `set_limit` | `Expired` |
 
-Call `goose_io::require_core(io)` once from the event loop's root program, and the check of each group it supplies
+Call `goose_io::require_core(io)` once from the event loop's root program, and the check of each capability it supplies
 (`require_half_close`, `require_sizing`, `require_abort`, `require_inspection`, `require_relay`, `require_peek`, `require_revoke`, `require_wake`, `require_limits`; batching and unix have no operation and so no check). Each names every operation of its
 part with the contract's argument and result types and never runs, so a missing or mistyped operation is a compile
 error at that one line, naming the operation, and not deep inside a library. An event loop with nothing more than
 the core conforms; anything it adds (name resolution, TLS, other transports) is not part of the contract and no
-library may need it (*What the contract covers*). A group an event loop leaves out is a group its libraries may
+library may need it (*What the contract covers*). A capability an event loop leaves out is a capability its libraries may
 not use: a library that needs `send2` fails to build on it, which is the intended answer.
+
+A loop says that it supplies a capability with one line, defined in the loop's own namespace and not qualified. The contract answers
+`Absent` for every capability a loop does not declare, so a loop that leaves a capability out writes nothing:
+
+<!-- excerpt: memory.goose#declare_relay -->
+```goose
+fn supplies_relay(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+```
+
+`require_<capability>` also requires the declaration, so a loop that has every operation of relay and no declaration fails to
+build, and the error names `supplies_relay`. A loop that declares relay and lacks `relayed_bytes` fails naming `relayed_bytes`.
+Batching and unix have no operation, so `require_batching` and `require_unix` check the declaration alone. A library or a wrapper
+asks `goose_io::has_relay(io)`, never `io.supplies_relay()`: the loop's own overload is visible only to method syntax inside the
+contract's namespace. A wrapping loop answers for what it passes through by asking the loop beneath:
+
+<!-- excerpt: tests/support/wrapper.goose#forward_half_close -->
+```goose
+fn supplies_half_close(w: Layer&) { return goose_io::has_half_close(inner); }
+```
 
 ## Running the suite
 
 The suite is the directory `conformance/` (import `goose_io.conformance.suite`; the namespace is `goose_io_conformance`): `suite.goose` is the driver and the entry points, `support.goose` holds what every check shares, and `handles`, `net`, `data`, `close` and `time` hold the checks. It
-imports the contract and nothing that names an event loop. **The suite is divided by group**: the checks of the core call nothing outside the core, and the checks of each group are their own entry point, so a loop is tested for what it supplies and no more. A check that needs two groups is split into one check for each (`checks.tsv` has a `group` column for every check). Both ends of every link are on the event loop under test:
+imports the contract and nothing that names an event loop. **The suite is divided by capability**: the checks of the core call nothing outside the core, and the checks of each capability are their own entry point, so a loop is tested for what it supplies and no more. A check that needs two capabilities is split into one check for each (`checks.tsv` has a `capability` column for every check). Both ends of every link are on the event loop under test:
 a check listens on the loopback with port 0 and dials the port it was given, and makes the peer's behaviour with
-contract calls (`close`, `pause_reading`, not sending; a check of a group also uses that group's operations). It therefore runs unchanged on any
+contract calls (`close`, `pause_reading`, not sending; a check of a capability also uses that capability's operations). It therefore runs unchanged on any
 event loop, over IPv4 and IPv6 loopback.
 
-An event loop's root program constructs its loop, builds a fixture and calls the entry point of the core and of each group it supplies (`conformance_core_part`, `conformance_half_close_part`, `conformance_sizing_part`, `conformance_abort_part`, `conformance_inspection_part`, `conformance_batching_part`, `conformance_unix_part`, `conformance_relay_part`, `conformance_peek_part`, `conformance_revoke_part`, `conformance_wake_part`, `conformance_limits_part`) with a part number.
+An event loop's root program constructs its loop, builds a fixture and calls the entry point of the core and of each capability it supplies (`conformance_core_part`, `conformance_half_close_part`, `conformance_sizing_part`, `conformance_abort_part`, `conformance_inspection_part`, `conformance_batching_part`, `conformance_unix_part`, `conformance_relay_part`, `conformance_peek_part`, `conformance_revoke_part`, `conformance_wake_part`, `conformance_limits_part`) with a part number.
 This is the program that runs the in-memory event loop, whose suite results the tests of this repository rely on:
 
 <!-- source: tests/conformance/memory_conformance.goose -->
 ```goose
 // Runs one part of the conformance suite against the in-memory event loop: `goose run tests/conformance/memory_conformance.goose -- 3 core`.
-// The part is the first argument (default 0) and the group the second (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake or limits; default core).
+// The part is the first argument (default 0) and the capability the second (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake or limits; default core).
 // The environment variable GOOSE_IO_FAULT, when set, switches the in-memory event loop to one of its named faults
 // (see tests/conformance/faults.sh).
 import std;
@@ -72,8 +91,8 @@ fn main() {
         part = 0;
         for c in text { if c >= '0' && c <= '9' { part = part * 10 + (c - '0'); } }
     }
-    var group: u8[>..] = [];
-    if arg_count() > 2 { arg(2, group); }
+    var capability: u8[>..] = [];
+    if arg_count() > 2 { arg(2, capability); }
     var io = goose_io_memory::Loop { .. };
     io.cfg.peek_bound = 16;
     var fault: u8[>..] = [];
@@ -83,17 +102,17 @@ fn main() {
     let up = io.add_peer();
     io.peer_accept(up, "10.255.0.2:80");
     let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80", unix: "/run/goose-io-test.sock", peek_bound: 16 };
-    if group == "half-close" { exit(goose_io_conformance::conformance_half_close_part(io, fixture, part)); }
-    if group == "sizing" { exit(goose_io_conformance::conformance_sizing_part(io, fixture, part)); }
-    if group == "abort" { exit(goose_io_conformance::conformance_abort_part(io, fixture, part)); }
-    if group == "inspection" { exit(goose_io_conformance::conformance_inspection_part(io, fixture, part)); }
-    if group == "batching" { exit(goose_io_conformance::conformance_batching_part(io, fixture, part)); }
-    if group == "unix" { exit(goose_io_conformance::conformance_unix_part(io, fixture, part)); }
-    if group == "relay" { exit(goose_io_conformance::conformance_relay_part(io, fixture, part)); }
-    if group == "peek" { exit(goose_io_conformance::conformance_peek_part(io, fixture, part)); }
-    if group == "revoke" { exit(goose_io_conformance::conformance_revoke_part(io, fixture, part)); }
-    if group == "wake" { exit(goose_io_conformance::conformance_wake_part(io, fixture, part)); }
-    if group == "limits" { exit(goose_io_conformance::conformance_limits_part(io, fixture, part)); }
+    if capability == "half-close" { exit(goose_io_conformance::conformance_half_close_part(io, fixture, part)); }
+    if capability == "sizing" { exit(goose_io_conformance::conformance_sizing_part(io, fixture, part)); }
+    if capability == "abort" { exit(goose_io_conformance::conformance_abort_part(io, fixture, part)); }
+    if capability == "inspection" { exit(goose_io_conformance::conformance_inspection_part(io, fixture, part)); }
+    if capability == "batching" { exit(goose_io_conformance::conformance_batching_part(io, fixture, part)); }
+    if capability == "unix" { exit(goose_io_conformance::conformance_unix_part(io, fixture, part)); }
+    if capability == "relay" { exit(goose_io_conformance::conformance_relay_part(io, fixture, part)); }
+    if capability == "peek" { exit(goose_io_conformance::conformance_peek_part(io, fixture, part)); }
+    if capability == "revoke" { exit(goose_io_conformance::conformance_revoke_part(io, fixture, part)); }
+    if capability == "wake" { exit(goose_io_conformance::conformance_wake_part(io, fixture, part)); }
+    if capability == "limits" { exit(goose_io_conformance::conformance_limits_part(io, fixture, part)); }
     exit(goose_io_conformance::conformance_core_part(io, fixture, part));
 }
 ```
@@ -101,12 +120,12 @@ fn main() {
 Only one `stop` can be observed in one `serve`, so the suite is divided into **parts** and each part is run in
 its own process. Part 0 is every check that does not need `stop`, ending with *stop with nothing open*. Parts 1
 to 5 are one scenario of `stop` each: a link that stays open, libraries that finish, listening while draining,
-dialling while draining, and `stop` called twice. The core has parts 0 to 5; every group has part 0 only. The root program
-above takes the part as its first argument and the group as its second; `tests/conformance/run.sh` runs all of them:
+dialling while draining, and `stop` called twice. The core has parts 0 to 5; every capability has part 0 only. The root program
+above takes the part as its first argument and the capability as its second; `tests/conformance/run.sh` runs all of them:
 
 ```
-tests/conformance/run.sh                 # every part of every group once
-tests/conformance/run.sh --group sizing  # one group only
+tests/conformance/run.sh                 # every part of every capability once
+tests/conformance/run.sh --capability sizing  # one capability only
 tests/conformance/run.sh --repeat 50     # fifty times: any failure in any repetition fails the run
 ```
 
@@ -130,8 +149,8 @@ A fixture supplies the two things that contract calls cannot produce:
 
 Each check prints `ok   <name>` or `FAIL <name> [<requirement>]: <what was wrong>`. The requirement is the name of
 the requirement in `specs/io-contract/spec.md` and in `docs/contract.md` (each requirement is named there, in
-italics). The suite is run one group at a time, so the process that failed says which group the requirement belongs
-to: a failure in the `sizing` run is a requirement of the sizing group, and a loop that does not supply that group
+italics). The suite is run one capability at a time, so the process that failed says which capability the requirement belongs
+to: a failure in the `sizing` run is a requirement of the sizing capability, and a loop that does not supply that capability
 need not pass it. The last line gives the number of checks run and failed. A failed check stops that check only, so one
 output shows every failing requirement of the part. A check that did not finish by its deadline on the loop's
 clock fails with *not finished in time*; one whose events arrive from inside another handler fails with *an event
@@ -150,8 +169,8 @@ table below to name every scenario of the specification and every check of the s
 ## Being listed as conforming
 
 An event loop is described as conforming to the core only after every part of the core has passed against it, and to
-a group of extras only after that group's entry point has passed; its documentation lists the core and each
-group it conforms to. Passing a group while failing the core is not conforming to anything. The runs are on the
+a capability only after that capability's entry point has passed; its documentation lists the core and each
+capability it conforms to. Passing a capability while failing the core is not conforming to anything. The runs are on the
 operating system it targets, and its documentation says which contract version (`goose_io::VERSION_MAJOR` and
 `VERSION_MINOR`) and which commit of the event loop that was. An event loop that fails any check of a part it claims is not listed for that part.
 While the contract is at major version 0 an event loop may find that a requirement cannot be met on its backend; it
@@ -263,7 +282,7 @@ fails when this table, that file, the suite and the specification disagree.
 | Listening | A system-chosen port can be discovered | check `listen_port_zero` | 0 | `PortZeroReportsZero` |
 | Listening | Stopping a listener keeps its links | check `listen_stop_keeps_links` | 0 | `StopListeningClosesLinks` |
 | Listener handles are never reused | A stale listener handle cannot reach a newer listener | check `listener_handle_never_reused` | 0 | `ListenerHandleReused` |
-| Listener handles are never reused | Handles run out and do not wrap | unit test: `tests/unit/memory_links_test.goose` (`listener_exhaustion`); for a socket event loop, its mapping document (group 6) | - | - |
+| Listener handles are never reused | Handles run out and do not wrap | unit test: `tests/unit/memory_links_test.goose` (`listener_exhaustion`); for a socket event loop, its mapping document (capability 6) | - | - |
 | A link reports its peer's address | An accepted link names its peer | check `peer_address_names_peer` | 0 | `StalePeerAddress` |
 | A link reports its peer's address | A dialled link names its target | check `peer_address_names_peer`, `peer_address_ipv6` | 0 | `StalePeerAddress`, `Ipv6Unsupported` |
 | A link reports its peer's address | A closed link has no peer address | check `peer_address_names_peer` | 0 | `StalePeerAddress` |
@@ -274,7 +293,7 @@ fails when this table, that file, the suite and the specification disagree.
 | A failed dial says why | A malformed address or a host name | check `dial_bad_address` | 0 | `BadAddressAsRefused` |
 | A failed dial says why | A dial that times out says so | check `dial_times_out` | 0 | `TimeoutEarly` |
 | A failed dial says why | A refused dial | check `dial_refused` | 0 | `RefusedAsUnreachable` |
-| A failed dial says why | An event loop out of links | unit test: `tests/unit/memory_links_test.goose` (`link_limit`); for a socket event loop, its mapping document (group 6) | - | - |
+| A failed dial says why | An event loop out of links | unit test: `tests/unit/memory_links_test.goose` (`link_limit`); for a socket event loop, its mapping document (capability 6) | - | - |
 | A failed dial says why | A library handles every kind | test: `tests/examples/lineclient_test.goose` (task 5.3) | - | - |
 | Received bytes are lent for the duration of the event | Bytes arrive as a slice | check `data_arrives_as_slices` | 0 | `DataCorrupted` |
 | Received bytes are lent for the duration of the event | A slow handler holds one buffer | check `data_slice_stable_in_handler` | 0 | `SendClobbersLentBytes` |
@@ -333,10 +352,10 @@ event loop.
 | The peer closes while a send is refused | check `full_resolved_when_peer_closes` | `FullUnresolvedOnPeerClose` |
 | The retry after the peer is gone | check `full_resolved_when_peer_closes` | `FullUnresolvedOnPeerClose` |
 
-### Scenarios added by the core and the groups
+### Scenarios added by the core and the capabilities
 
-The change that made the contract a core and five groups added these scenarios (the others it restated keep the
-checks of the table above, now run by group). `tests/conformance/run.sh --core-only` runs the core of the suite on
+The change that made the contract a core and five capabilities added these scenarios (the others it restated keep the
+checks of the table above, now run by capability). `tests/conformance/run.sh --core-only` runs the core of the suite on
 `tests/support/core_only.goose`, a loop that supplies the core and nothing else.
 
 | Scenario | Proved by |
@@ -345,40 +364,40 @@ checks of the table above, now run by group). `tests/conformance/run.sh --core-o
 | A library uses an extra the loop lacks | `tests/unit/core_only_sizing_mustfail.goose` and `tests/examples/lineserver_core_only_mustfail.goose`: the build fails and names `send_room` and `set_keep_open_on_eof`; `tests/unit/stub_no_send2_mustfail.goose` names `send2` |
 | An event the loop never delivers | the core-only loop delivers no `PeerEof`, and the line client's tests, which handle it, pass on it (`tests/examples/over_wrapper.sh`) |
 | The core is enough for a client | `tests/examples/lineclient_test.goose` on the core-only loop, run by `tests/examples/over_wrapper.sh` |
-| The core check, A group check | `tests/unit/groups_test.goose`, `tests/unit/incomplete_core_mustfail.goose`, `tests/unit/stub_sizing_mustfail.goose` |
+| The core check, A capability check | `tests/unit/capabilities_test.goose`, `tests/unit/incomplete_core_mustfail.goose`, `tests/unit/stub_sizing_mustfail.goose` |
 | A library runs on two event loops unchanged | `tests/unit/library_example_test.goose`, `tests/examples/over_wrapper.sh` (the wrapper and the core-only loop) |
 | A library imports no event loop | `tests/examples/imports_test.sh`; `tests/examples/needs_check.sh` holds each header to what its library calls |
 | IPv6 is covered | check `peer_address_ipv6` and the core checks that listen on `[::1]` |
 | An event loop without extras conforms to the core | as *A loop that supplies only the core* |
-| Default behaviour on peer end of stream, Answering after the peer half-closes | checks `peer_eof_closes_by_default`, `half_close_then_answer`, `shutdown_write_ends_sending` (half-close group) |
-| Batching replies, PassEnd is last, An idle pass | checks `pass_end_follows_link_events`, `pass_end_not_on_idle_pass` (batching group) |
+| Default behaviour on peer end of stream, Answering after the peer half-closes | checks `peer_eof_closes_by_default`, `half_close_then_answer`, `shutdown_write_ends_sending` (half-close capability) |
+| Batching replies, PassEnd is last, An idle pass | checks `pass_end_follows_link_events`, `pass_end_not_on_idle_pass` (batching capability) |
 | A loop without batching | the core-only loop does not give on the `PassEnd` of the loop beneath, and the core suite and the line client pass on it |
-| A header and a body, Neither part is taken when both do not fit | checks `send2_joins_parts`, `send2_all_or_nothing` (sizing group) |
-| No room on a link that cannot send | check `send_room_is_zero_when_closed` (sizing group) |
-| Reset | check `reset_aborts_the_peer` (abort group) |
-| An accepted link names its peer, A dialled link names its target, A closed link has no peer address | check `peer_address_names_peer` (inspection group) |
+| A header and a body, Neither part is taken when both do not fit | checks `send2_joins_parts`, `send2_all_or_nothing` (sizing capability) |
+| No room on a link that cannot send | check `send_room_is_zero_when_closed` (sizing capability) |
+| Reset | check `reset_aborts_the_peer` (abort capability) |
+| An accepted link names its peer, A dialled link names its target, A closed link has no peer address | check `peer_address_names_peer` (inspection capability) |
 
-### Scenarios added by the unix group
+### Scenarios added by the unix capability
 
-The change that added the unix group (the address forms `unix:/path` and `unix:///path`) added these scenarios. The group's checks need
+The change that added the unix capability (the address forms `unix:/path` and `unix:///path`) added these scenarios. The capability's checks need
 `Fixture.unix`, an absolute path at which the loop may create a socket, and run by their own entry point,
-`conformance_unix_part`, against a loop that supplies the core and the group (`tests/conformance/run.sh --group unix`).
+`conformance_unix_part`, against a loop that supplies the core and the capability (`tests/conformance/run.sh --capability unix`).
 
 | Scenario | Proved by | Fault |
 |---|---|---|
-| A listener and a dial on a path | check `unix_listen_dial` (unix group) | `UnixListenerIgnored` |
-| The path is held | check `unix_held_path` (unix group) | `UnixOverlapIgnored` |
-| Nothing listens on the path | check `unix_nothing_listens` (unix group) | `UnixRefusedAsBadAddress` |
-| No port | check `unix_no_port` (unix group) | `UnixPortInvented` |
-| Malformed paths | check `unix_malformed_paths` (unix group) | `UnixRelativeAccepted` |
-| The longest path | check `unix_longest_path` (unix group) | `UnixLongestRefused` |
-| The URL spelling names the same path | check `unix_url_spelling` (unix group) | `UnixTripleSlashRefused` |
-| A held path is held under either spelling | check `unix_alias_held` (unix group) | `UnixAliasNotHeld` |
-| A loop without the group | `tests/unit/core_only_unix_test.goose` (the core-only loop) and `tests/unit/memory_unix_test.goose` (the in-memory loop configured with `unix_paths` off): `BadAddress` for `listen` and `dial`; the suite does not check it, since a loop that supplies the group accepts the text |
-| No peer text | `tests/unit/memory_unix_test.goose`: `peer_address` is empty on both ends of a path link; no check of the suite can say so, since it needs the inspection group and the unix group |
+| A listener and a dial on a path | check `unix_listen_dial` (unix capability) | `UnixListenerIgnored` |
+| The path is held | check `unix_held_path` (unix capability) | `UnixOverlapIgnored` |
+| Nothing listens on the path | check `unix_nothing_listens` (unix capability) | `UnixRefusedAsBadAddress` |
+| No port | check `unix_no_port` (unix capability) | `UnixPortInvented` |
+| Malformed paths | check `unix_malformed_paths` (unix capability) | `UnixRelativeAccepted` |
+| The longest path | check `unix_longest_path` (unix capability) | `UnixLongestRefused` |
+| The URL spelling names the same path | check `unix_url_spelling` (unix capability) | `UnixTripleSlashRefused` |
+| A held path is held under either spelling | check `unix_alias_held` (unix capability) | `UnixAliasNotHeld` |
+| A loop without the capability | `tests/unit/core_only_unix_test.goose` (the core-only loop) and `tests/unit/memory_unix_test.goose` (the in-memory loop configured with `unix_paths` off): `BadAddress` for `listen` and `dial`; the suite does not check it, since a loop that supplies the capability accepts the text |
+| No peer text | `tests/unit/memory_unix_test.goose`: `peer_address` is empty on both ends of a path link; no check of the suite can say so, since it needs the inspection capability and the unix capability |
 | A scripted peer at a path, Paths conflict only when equal | `tests/unit/memory_unix_test.goose` |
-| A check that reaches into another group | `tests/conformance/groups_check.sh` |
-| A loop that does not supply the group | `tests/conformance/run.sh --core-only` runs no unix part |
+| A check that reaches into another capability | `tests/conformance/capabilities_check.sh` |
+| A loop that does not supply the capability | `tests/conformance/run.sh --core-only` runs no unix part |
 
 ### Scenarios added by the link-keyed state
 
@@ -402,25 +421,25 @@ scenarios. A library finds its state from the link of an event; the event loop p
 
 The change `lifecycle-guarantees` (contract 0.2) states the life of a link and of a loop: the states, the result of every
 operation in each state, the keep-open window, the handles and the loop's own states. Its scenarios are proved here, as
-each group of them lands.
+each capability of them lands.
 
 | Scenario | Proved by | Fault |
 |---|---|---|
-| Handles in a long run are distinct, No issued link has generation 0 | check `handles_pair_unique`; the driver also records every handle in every part of every group's suite and fails the running check on a pair issued twice | `GenerationNotAdvanced` |
+| Handles in a long run are distinct, No issued link has generation 0 | check `handles_pair_unique`; the driver also records every handle in every part of every capability's suite and fails the running check on a pair issued twice | `GenerationNotAdvanced` |
 | A slot is not reused while its Closed is pending | check `handles_slot_held`; the driver fails the running check in every other part | `SlotFreedOnClose` |
-| The invalid link is never issued | check `handles_unset` (and its group variants); `tests/unit/memory_links_test.goose` | `UnsetHandleAccepted` |
+| The invalid link is never issued | check `handles_unset` (and its capability variants); `tests/unit/memory_links_test.goose` | `UnsetHandleAccepted` |
 | The last generation retires the slot, A retired slot does not lower the link limit | `tests/unit/memory_links_test.goose` (`age_slot`); no check of the suite can age a slot | |
 | A dialled link seen twice is one issuance, A loop that does not advance the generation fails, A loop that reuses a slot early fails | `tests/conformance/driver_test.goose` and the two faults above | |
 | Sending has one result in each link state, A link is in one of five states: one link in each state, a dialled link moves through the states, the event loop ends a link the library sees as open | check `states_send` (and `states_sizing` for `send2` and `send_room`) | `SendBeforeOpenSent`; `RoomWhenClosed`, `SendBeforeOpenSent` |
 | A Closed send result is final: the peer goes away, a refused send then a Closed result | checks `states_closed_is_final`, `states_closed_wakes_nothing` | `ClosedResultNotFinal`; `WritableAfterClosedResult` |
-| Ending a link has one result in each link state: close twice, reset a dial in progress, reset after close | checks `states_close`, `states_reset` (abort group) | `SecondCloseClosesAgain`; `ResetDialOpens`, `ResetAfterCloseClosesAgain` |
-| Sending on a write-shut link, shutdown before the link opens, close after shutdown, a Closed result concerns only sending | check `states_half_close` (half-close group) | `ShutdownBeforeOpenRemembered`, `ClosedResultEndsShutLink` |
+| Ending a link has one result in each link state: close twice, reset a dial in progress, reset after close | checks `states_close`, `states_reset` (abort capability) | `SecondCloseClosesAgain`; `ResetDialOpens`, `ResetAfterCloseClosesAgain` |
+| Sending on a write-shut link, shutdown before the link opens, close after shutdown, a Closed result concerns only sending | check `states_half_close` (half-close capability) | `ShutdownBeforeOpenRemembered`, `ClosedResultEndsShutLink` |
 | Pausing takes effect in every live state: pause before Opened | check `states_pause` | `PauseBeforeOpenIgnored` |
-| Keep-open is configured no later than Opened: while dialling, while handling Opened, a late call has no effect, an end of stream before Opened is handled | check `states_keep_open` (half-close group) | `KeepOpenWhileDiallingIgnored`, `KeepOpenLateHonoured`, `EarlyEofActedOn` |
+| Keep-open is configured no later than Opened: while dialling, while handling Opened, a late call has no effect, an end of stream before Opened is handled | check `states_keep_open` (half-close capability) | `KeepOpenWhileDiallingIgnored`, `KeepOpenLateHonoured`, `EarlyEofActedOn` |
 | Each operation says how it completes: pausing is complete when it returns, one Tick may answer several requests | check `states_completion` | `TickByIgnored` |
-| A dialling link has no peer address, a closing link still names its peer, a closed link has no peer address | check `states_inspection` (inspection group) | `PeerAddressGoneOnClose` |
+| A dialling link has no peer address, a closing link still names its peer, a closed link has no peer address | check `states_inspection` (inspection capability) | `PeerAddressGoneOnClose` |
 | Sending on a write-shut link (`send2`, `send_room`), `peer_address` while write-shut | `tests/unit/memory_data_test.goose`, `tests/unit/memory_links_test.goose`: the sizing and inspection suites cannot call `shutdown_write` | |
-| The batching and unix groups | no link operation and no states check: batching has only an event, unix only address forms | |
+| The batching and unix capabilities | no link operation and no states check: batching has only an event, unix only address forms | |
 | Setting up on the serving thread | inspection (task 4.7 of `lifecycle-guarantees`): `grep -rn "thread\|spawn" --include=*.goose examples tests conformance memory.goose` prints nothing, so `examples/gateway.goose`, `examples/echo/`, `examples/lineserver/`, `examples/lineclient/`, every root program under `tests/` (`tests/unit/`, `tests/examples/`, `tests/conformance/memory_conformance.goose`, `wrapped_conformance.goose`, `core_only_conformance.goose`) and every entry point of `conformance/suite.goose` construct their loop, set it up and call `serve` on one thread | |
 | Listening and dialling before serve: no event is delivered before serve, and serve delivers Opened for both links | check `setup_before_serve` (the entry point listens and dials before it calls `serve`), `tests/unit/memory_loop_test.goose` | `SetupEventsDropped` |
 | Operations after serve returns, Serve a second time | checks `finished_loop` (core, part 1), `finished_loop_sizing`, `finished_loop_inspection`: each runs after `serve` has returned (ids of 900 and more); the half-close and abort operations return nothing, so their cells are covered by `tests/unit/memory_loop_test.goose` and `tests/unit/wrapper_loop_test.goose` | `SendAfterFinishSent`, `FinishedDialIssues`, `SecondServeRuns`; `PeerAddressAfterFinish` |
@@ -442,7 +461,7 @@ An event loop that conforms to contract 0.2 keeps these obligations, each shown 
 ### What cannot be shown by a fault
 
 `events_not_reentrant` (*A close does not re-enter the handler*), `events_not_reentrant_after_reset` (*A send that closes
-the link does not re-enter the handler*, in the abort group) and `dial_no_event_inside` (*No event inside the dial*) have no fault in the in-memory event loop. An operation of a queue-based event loop has no handler to call, so
+the link does not re-enter the handler*, in the abort capability) and `dial_no_event_inside` (*No event inside the dial*) have no fault in the in-memory event loop. An operation of a queue-based event loop has no handler to call, so
 it cannot be made to deliver an event from inside itself. The check is the driver's own guard: every check runs
 under a counter of handler nesting, and the check fails if an event arrives while another is being handled. The
 guard is shown to work by `tests/conformance/reentry_test.goose`, which tells the driver that a handler is already
@@ -452,44 +471,44 @@ A few scenarios depend on a limit a socket event loop cannot be asked to reach (
 *An event loop out of links*). They are tested on the in-memory event loop and, for a socket event loop, answered in its
 mapping document under `docs/event-loops/`.
 
-The unix group's checks share one loop, so each derives its own paths from `Fixture.unix` (a suffix of the check's number),
-and the group's malformed-path check needs no file system. The loop creates and removes the socket file, and the suite
+The unix capability's checks share one loop, so each derives its own paths from `Fixture.unix` (a suffix of the check's number),
+and the capability's malformed-path check needs no file system. The loop creates and removes the socket file, and the suite
 stops its listeners before it ends.
 
 `dial_while_draining` is complete only when the fixture supplies an address that still answers after `stop`
 (`Fixture.answers`): every listener of the loop has stopped by then, so no call can make one. Without it the check
 proves that the dial still ends in exactly one event and does not extend the grace period.
 
-### Scenarios added by the proxy groups
+### Scenarios added by the proxy capabilities
 
-The change add-proxy-groups added the groups relay, peek, revoke, wake and limits. Each has an entry point (`conformance_<group>_part`) and runs
-against a loop that supplies the core and the group (`tests/conformance/run.sh --group <group>`). Combinations of groups are held by
+The change add-proxy-groups added the capabilities relay, peek, revoke, wake and limits. Each has an entry point (`conformance_<capability>_part`) and runs
+against a loop that supplies the core and the capability (`tests/conformance/run.sh --capability <capability>`). Combinations of capabilities are held by
 `tests/unit/memory_relay_combo_test.goose` and `tests/unit/memory_relay_test.goose`.
 
 | Scenario | Proved by | Fault |
 |---|---|---|
-| Relay joins two links inside the loop | check `relay_carries_bytes` (relay group) | `RelayDropsLastByte` |
-| Relay joins two links inside the loop | check `relay_refusals` (relay group) | `RelayJoinsRelayed` |
-| A relay holds back and ends as a pair | check `relay_holds_back_unread` (relay group) | `RelayDropsLastByte`,`RelayedCountsHeld` |
-| A relayed link is owned by the relay | check `relay_send_refused_and_close_ends_both` (relay group) | `RelayDropsLastByte`,`RelayedSendAccepted`,`RelayCloseEndsOne` |
-| A relayed link is owned by the relay | check `relayed_bytes_in_closed` (relay group) | `RelayedBytesLostAtClose` |
-| Peek waits for enough bytes and then releases them | check `wait_input_gathers` (peek group) | `InputNeverDelivered`,`InputEarly` |
-| Peek waits for enough bytes and then releases them | check `wait_input_peer_ends` (peek group) | `InputNeverDelivered`,`PeerEndIgnored` |
-| Peek waits for enough bytes and then releases them | check `discard_input_drops` (peek group) | `DiscardInputKeeps` |
-| A link holds a bounded number of unread bytes | check `peek_bound` (peek group) | `BoundIgnored`,`InputNeverDelivered` |
-| Revoke takes back unsent bytes | check `discard_unsent_drops` (revoke group) | `DiscardKeepsBytes` |
-| A write deadline stops writes at a time | check `write_deadline_stops` (revoke group) | `DeadlineOnlyAtSend` |
-| A write deadline stops writes at a time | check `write_deadline_moved` (revoke group) | `DeadlineNotReplaced` |
-| Wakes are delivered in order and lost by no pass | check `wake_in_order` (wake group) | `WakeOrderReversed` |
-| A wake can carry a body of up to 64 bytes, delivered with its value | check `wake_carries_body` (wake group) | `WakeBodyDropped` |
-| A limit tells the library that a link has run too long in a state | check `limit_idle_and_age` (limits group) | `ExpiredRepeats`,`AgeNeverExpires` |
-| A limit tells the library that a link has run too long in a state | check `limit_replace_and_off` (limits group) | `ReplaceKeepsFirst` |
-| Idle, Silent and Age measure quiet and lifetime | check `limit_idle_activity_moves` (limits group) | `IdleFromArming` |
-| Idle, Silent and Age measure quiet and lifetime | check `limit_silent_while_sending` (limits group) | `SilentCountsWrites` |
-| Idle, Silent and Age measure quiet and lifetime | check `limit_age_not_moved` (limits group) | `AgeResetByActivity`,`AgeNeverExpires` |
-| Stalled bounds a link whose peer does not read | check `limit_stalled_never_reads` (limits group) | `StalledResetByReads` |
-| Stalled bounds a link whose peer does not read | check `limit_stalled_slow_reader` (limits group) | `StalledNoProgressReset` |
-| Stalled bounds a link whose peer does not read | check `limit_stalled_nothing_waits` (limits group) | `StalledAlways` |
-| A half-closed link is bounded | check `limit_halfopen_not_ended` (limits group) | `HalfOpenAlways` |
-| Expired reports and the library decides | check `limit_one_event_per_arming` (limits group) | `ReplaceKeepsFirst` |
-| Expired reports and the library decides | check `limit_closed_link` (limits group) | `ExpiredAfterClose` |
+| Relay joins two links inside the loop | check `relay_carries_bytes` (relay capability) | `RelayDropsLastByte` |
+| Relay joins two links inside the loop | check `relay_refusals` (relay capability) | `RelayJoinsRelayed` |
+| A relay holds back and ends as a pair | check `relay_holds_back_unread` (relay capability) | `RelayDropsLastByte`,`RelayedCountsHeld` |
+| A relayed link is owned by the relay | check `relay_send_refused_and_close_ends_both` (relay capability) | `RelayDropsLastByte`,`RelayedSendAccepted`,`RelayCloseEndsOne` |
+| A relayed link is owned by the relay | check `relayed_bytes_in_closed` (relay capability) | `RelayedBytesLostAtClose` |
+| Peek waits for enough bytes and then releases them | check `wait_input_gathers` (peek capability) | `InputNeverDelivered`,`InputEarly` |
+| Peek waits for enough bytes and then releases them | check `wait_input_peer_ends` (peek capability) | `InputNeverDelivered`,`PeerEndIgnored` |
+| Peek waits for enough bytes and then releases them | check `discard_input_drops` (peek capability) | `DiscardInputKeeps` |
+| A link holds a bounded number of unread bytes | check `peek_bound` (peek capability) | `BoundIgnored`,`InputNeverDelivered` |
+| Revoke takes back unsent bytes | check `discard_unsent_drops` (revoke capability) | `DiscardKeepsBytes` |
+| A write deadline stops writes at a time | check `write_deadline_stops` (revoke capability) | `DeadlineOnlyAtSend` |
+| A write deadline stops writes at a time | check `write_deadline_moved` (revoke capability) | `DeadlineNotReplaced` |
+| Wakes are delivered in order and lost by no pass | check `wake_in_order` (wake capability) | `WakeOrderReversed` |
+| A wake can carry a body of up to 64 bytes, delivered with its value | check `wake_carries_body` (wake capability) | `WakeBodyDropped` |
+| A limit tells the library that a link has run too long in a state | check `limit_idle_and_age` (limits capability) | `ExpiredRepeats`,`AgeNeverExpires` |
+| A limit tells the library that a link has run too long in a state | check `limit_replace_and_off` (limits capability) | `ReplaceKeepsFirst` |
+| Idle, Silent and Age measure quiet and lifetime | check `limit_idle_activity_moves` (limits capability) | `IdleFromArming` |
+| Idle, Silent and Age measure quiet and lifetime | check `limit_silent_while_sending` (limits capability) | `SilentCountsWrites` |
+| Idle, Silent and Age measure quiet and lifetime | check `limit_age_not_moved` (limits capability) | `AgeResetByActivity`,`AgeNeverExpires` |
+| Stalled bounds a link whose peer does not read | check `limit_stalled_never_reads` (limits capability) | `StalledResetByReads` |
+| Stalled bounds a link whose peer does not read | check `limit_stalled_slow_reader` (limits capability) | `StalledNoProgressReset` |
+| Stalled bounds a link whose peer does not read | check `limit_stalled_nothing_waits` (limits capability) | `StalledAlways` |
+| A half-closed link is bounded | check `limit_halfopen_not_ended` (limits capability) | `HalfOpenAlways` |
+| Expired reports and the library decides | check `limit_one_event_per_arming` (limits capability) | `ReplaceKeepsFirst` |
+| Expired reports and the library decides | check `limit_closed_link` (limits capability) | `ExpiredAfterClose` |
