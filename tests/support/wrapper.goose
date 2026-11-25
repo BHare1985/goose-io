@@ -22,13 +22,16 @@ var inner: goose_io_memory::Loop = goose_io_memory::Loop { .. };
 
 // One event the wrapper holds back.
 struct Held {
-    kind:     u8                    = 0,        // 'O' 'D' 'W' 'E' 'C'
-    link:     goose_io::Link        = goose_io::Link { .. },
-    listener: goose_io::Listener    = goose_io::Listener { .. },
-    why:      goose_io::CloseReason = goose_io::CloseReason.Error,
-    pass:     i64                   = 0,
-    off:      i64                   = 0,
-    len:      i64                   = 0,
+    kind:     u8                      = 0,      // 'O' 'D' 'W' 'E' 'C'
+    link:     goose_io::Link          = goose_io::Link { .. },
+    listener: goose_io::Listener      = goose_io::Listener { .. },
+    why:      goose_io::CloseReason   = goose_io::CloseReason.Error,
+    pass:     i64                     = 0,
+    off:      i64                     = 0,
+    len:      i64                     = 0,
+    query:    goose_io::Query         = goose_io::Query { .. },       // 'R' only
+    status:   goose_io::ResolveStatus = goose_io::ResolveStatus.NotFound,
+    count:    i64                     = 0,
 }
 
 // What a library chose for a link. A mode is made when the link is issued (the handle `dial` returns, or an accepted link),
@@ -212,6 +215,7 @@ fn _on_event(w: Layer&, ev: goose_io::Event) {
         Input i => {},      // the wrapper supplies none of the capabilities that give these
         Expired x => {},
         Woken w => {},
+        Resolved r => { w._out('R', Held { query: r.query, status: r.status, count: r.count, .. }); },      // passed on at once; the inner loop lends the addresses while it is handled
         Opened e => {
             inner.set_keep_open_on_eof(e.link, true);
             if w._mode(e.link) < 0 { w.modes.push(Mode { link: e.link, live: true, .. }); }       // an accepted link; a dialled one has its mode already
@@ -265,6 +269,7 @@ fn _event_of(w: Layer&, o: Out) -> goose_io::Event {
     let h = o.h;
     if o.kind == 'T' { return goose_io::Event.Tick { now_ms: h.pass }; }
     if o.kind == 'P' { return goose_io::Event.PassEnd {}; }
+    if o.kind == 'R' { return goose_io::Event.Resolved { query: h.query, status: h.status, count: h.count }; }
     if h.kind == 'O' { return goose_io::Event.Opened { link: h.link, listener: h.listener }; }
     if h.kind == 'D' { return goose_io::Event.Data { link: h.link, bytes: w.bytes[h.off..h.off + h.len] }; }
     if h.kind == 'W' { return goose_io::Event.Writable { link: h.link }; }
@@ -321,6 +326,7 @@ fn _supplied(w: Layer&) {
     goose_io::require_sizing(w);
     goose_io::require_abort(w);
     goose_io::require_inspection(w);
+    goose_io::require_name_resolution(w);
 }
 
 // Declarations: the wrapper supplies what it passes through, and answers what the loop beneath answers (D5 of rename-groups-to-capabilities).
@@ -332,6 +338,14 @@ fn supplies_abort(w: Layer&) { return goose_io::has_abort(inner); }
 fn supplies_inspection(w: Layer&) { return goose_io::has_inspection(inner); }
 fn supplies_batching(w: Layer&) { return goose_io::has_batching(inner); }
 fn supplies_unix(w: Layer&) { return goose_io::has_unix(inner); }
+fn supplies_name_resolution(w: Layer&) { return goose_io::has_name_resolution(inner); }
+
+// Name resolution is passed through: the inner event loop resolves, and the wrapper changes nothing (it carries no bytes).
+fn resolve(w: Layer&, host: const u8[:], port: i64, timeout_ms: i64) -> goose_io::Query { w._prepare(); return inner.resolve(host, port, timeout_ms); }
+fn resolved_address(w: Layer&, query: goose_io::Query, index: i64) -> goose_io::Address { return inner.resolved_address(query, index); }
+fn cancel_resolve(w: Layer&, query: goose_io::Query) { inner.cancel_resolve(query); }
+fn script_name(w: Layer&, host: const u8[:], delay_ms: i64, addresses: const u8[:]) { w._prepare(); inner.script_name(host, delay_ms, addresses); }
+fn script_name_failure(w: Layer&, host: const u8[:], delay_ms: i64) { w._prepare(); inner.script_name_failure(host, delay_ms); }
 
 // --- for tests: the inner event loop's extras, with the bytes changed for the scripted peer ------------------------
 

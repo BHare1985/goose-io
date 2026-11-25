@@ -100,6 +100,14 @@ Only a loop that supplies the batching capability needs this.
 | `PassEnd` | None examined. | unverified | After the events of one `uv_run` iteration have been delivered, if any was a link event. |
 
 
+### Name resolution
+
+Only a loop that supplies the name-resolution capability needs this. A loop that does not supply it needs no row.
+
+| Contract item | libuv | Status | Adapter work |
+|---|---|---|---|
+| `Resolved` | `uv_getaddrinfo` runs `getaddrinfo` on the thread pool and calls back on the loop | checked: documented API | `resolve` calls `uv_getaddrinfo`; its callback queues `Resolved`. `cancel_resolve` is `uv_cancel` on the request (it can fail once the work has started: the result is then dropped). The timeout is a `uv_timer_t`. |
+
 ## What a loop with only the core costs
 
 An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the capabilities: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each capability is a separate, later addition.

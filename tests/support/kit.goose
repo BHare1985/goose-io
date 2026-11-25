@@ -65,6 +65,7 @@ fn note<Io>(log: Log&, io: Io&, ev: goose_io::Event) {
         Input i => {},      // the capabilities of relay, peek, wake and limits are not exercised through the kit
         Expired x => {},
         Woken w => {},
+        Resolved r => {},
     }
 }
 

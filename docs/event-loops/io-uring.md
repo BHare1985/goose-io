@@ -97,6 +97,14 @@ Only a loop that supplies the batching capability needs this.
 | `PassEnd` | The end of a batch of completions (`io_uring_submit_and_wait_timeout` with a batch count, `cfg.batch_n`) | checked: batch wait | One per pass that delivered a link event. |
 
 
+### Name resolution
+
+Only a loop that supplies the name-resolution capability needs this. A loop that does not supply it needs no row.
+
+| Contract item | io-uring | Status | Adapter work |
+|---|---|---|---|
+| `Resolved` | None: the kernel has no resolver. c_proxy resolves nothing on the ring | n/a | A resolver thread runs `getaddrinfo`, or a DNS query over a datagram socket the ring drives (a library such as c-ares needs descriptors, which the ring can poll), and posts its result to the ring with `IORING_OP_MSG_RING` or an eventfd read; the loop queues `Resolved`. The timeout is an `io_uring_prep_timeout`. |
+
 ## What a loop with only the core costs
 
 An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the capabilities: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each capability is a separate, later addition.

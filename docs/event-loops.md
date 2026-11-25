@@ -1,7 +1,7 @@
 # Writing an event loop and running the conformance suite
 
 **In short:** you write the engine, and every library written for the contract runs on it. The job is the 13
-operations and 5 events of the core, and as many of the eleven optional capabilities as you like; the conformance suite tells
+operations and 5 events of the core, and as many of the twelve optional capabilities as you like; the conformance suite tells
 you when you are done. [`tests/support/core_only.goose`](../tests/support/core_only.goose) is the smallest example of
 the shape (it sits over the in-memory loop, where yours would sit over your sockets).
 
@@ -17,7 +17,7 @@ The **core**, which every event loop supplies: the operations `listen`, `listene
 events `Opened`, `Data`, `Writable`, `Closed` and `Tick`, with the types of `goose_io.goose`, as functions that a
 library calls by method syntax on the event loop's type.
 
-And any of eleven **capabilities**, which it may supply or leave out (`docs/contract.md`, section 2):
+And any of twelve **capabilities**, which it may supply or leave out (`docs/contract.md`, section 2):
 
 | Capability | Operations | Events |
 |---|---|---|
@@ -32,12 +32,13 @@ And any of eleven **capabilities**, which it may supply or leave out (`docs/cont
 | revoke | `discard_unsent`, `write_deadline` | |
 | wake | `waker`, `wake` | `Woken` |
 | limits | `set_limit` | `Expired` |
+| name-resolution | `resolve`, `resolved_address`, `cancel_resolve` | `Resolved` |
 
 Call `goose_io::require_core(io)` once from the event loop's root program, and the check of each capability it supplies
-(`require_half_close`, `require_sizing`, `require_abort`, `require_inspection`, `require_relay`, `require_peek`, `require_revoke`, `require_wake`, `require_limits`; batching and unix have no operation and so no check). Each names every operation of its
+(`require_half_close`, `require_sizing`, `require_abort`, `require_inspection`, `require_relay`, `require_peek`, `require_revoke`, `require_wake`, `require_limits`, `require_name_resolution`; batching and unix have no operation and so no check). Each names every operation of its
 part with the contract's argument and result types and never runs, so a missing or mistyped operation is a compile
 error at that one line, naming the operation, and not deep inside a library. An event loop with nothing more than
-the core conforms; anything it adds (name resolution, TLS, other transports) is not part of the contract and no
+the core conforms; anything it adds beyond the capabilities (TLS, other transports) is not part of the contract and no
 library may need it (*What the contract covers*). A capability an event loop leaves out is a capability its libraries may
 not use: a library that needs `send2` fails to build on it, which is the intended answer.
 
@@ -74,7 +75,7 @@ This is the program that runs the in-memory event loop, whose suite results the 
 <!-- source: tests/conformance/memory_conformance.goose -->
 ```goose
 // Runs one part of the conformance suite against the in-memory event loop: `goose run tests/conformance/memory_conformance.goose -- 3 core`.
-// The part is the first argument (default 0) and the capability the second (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake or limits; default core).
+// The part is the first argument (default 0) and the capability the second (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits or name-resolution; default core).
 // The environment variable GOOSE_IO_FAULT, when set, switches the in-memory event loop to one of its named faults
 // (see tests/conformance/faults.sh).
 import std;
@@ -101,7 +102,11 @@ fn main() {
     io.hold("127.0.0.1:9999");
     let up = io.add_peer();
     io.peer_accept(up, "10.255.0.2:80");
-    let fixture = goose_io_conformance::Fixture { silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80", unix: "/run/goose-io-test.sock", peek_bound: 16 };
+    io.script_name("found.test", 0, "127.0.0.1");
+    io.script_name("missing.test", 0, "");
+    io.script_name("slow.test", 5000, "127.0.0.1");
+    io.script_name("db.test", 0, "10.0.0.1,10.0.0.2");
+    let fixture = goose_io_conformance::Fixture { found: "found.test", missing: "missing.test", slow: "slow.test", pair: "db.test", pair_first: "10.0.0.1:80", pair_second: "10.0.0.2:80", silent: "10.255.0.1:81", held: "127.0.0.1:9999", refused: "10.255.0.3:9", answers: "10.255.0.2:80", unix: "/run/goose-io-test.sock", peek_bound: 16 };
     if capability == "half-close" { exit(goose_io_conformance::conformance_half_close_part(io, fixture, part)); }
     if capability == "sizing" { exit(goose_io_conformance::conformance_sizing_part(io, fixture, part)); }
     if capability == "abort" { exit(goose_io_conformance::conformance_abort_part(io, fixture, part)); }
@@ -112,6 +117,7 @@ fn main() {
     if capability == "peek" { exit(goose_io_conformance::conformance_peek_part(io, fixture, part)); }
     if capability == "revoke" { exit(goose_io_conformance::conformance_revoke_part(io, fixture, part)); }
     if capability == "wake" { exit(goose_io_conformance::conformance_wake_part(io, fixture, part)); }
+    if capability == "name-resolution" { exit(goose_io_conformance::conformance_name_resolution_part(io, fixture, part)); }
     if capability == "limits" { exit(goose_io_conformance::conformance_limits_part(io, fixture, part)); }
     exit(goose_io_conformance::conformance_core_part(io, fixture, part));
 }
@@ -512,3 +518,20 @@ against a loop that supplies the core and the capability (`tests/conformance/run
 | A half-closed link is bounded | check `limit_halfopen_not_ended` (limits capability) | `HalfOpenAlways` |
 | Expired reports and the library decides | check `limit_one_event_per_arming` (limits capability) | `ReplaceKeepsFirst` |
 | Expired reports and the library decides | check `limit_closed_link` (limits capability) | `ExpiredAfterClose` |
+
+### Scenarios added by name resolution
+
+The change add-name-resolution added the capability name-resolution. Its entry point is `conformance_name_resolution_part` (`tests/conformance/run.sh --capability name-resolution`); the wrapper passes it through.
+
+| Scenario | Proved by | Fault |
+|---|---|---|
+| A lookup ends in one Resolved | check `resolve_found` (name-resolution capability) | `ResolveNeverFinds` |
+| A lookup ends in one Resolved | check `resolve_not_found` (name-resolution capability) | `ResolveCountOnNotFound` |
+| A lookup ends in one Resolved | check `resolve_invalid` (name-resolution capability) | `ResolveEmptyHostIssued` |
+| Resolved addresses are valid while the event is handled | check `resolve_dial_result` (name-resolution capability) | `ResolveNeverFinds`,`ResolveWrongPort` |
+| Resolved addresses are valid while the event is handled | check `resolve_address_order` (name-resolution capability) | `ResolveOrderReversed`,`ResolveWrongPort` |
+| Resolved addresses are valid while the event is handled | check `resolve_address_after` (name-resolution capability) | `ResolveAddressKept` |
+| A lookup is bounded and can be cancelled | check `resolve_timeout` (name-resolution capability) | `ResolveNoTimeout` |
+| A lookup is bounded and can be cancelled | check `resolve_cancel` (name-resolution capability) | `ResolveCancelIgnored` |
+| A lookup is bounded and can be cancelled | check `resolve_cancelled_at_finish` (name-resolution capability) | `ResolveLeftAtFinish` |
+| Dial still takes only addresses | check `resolve_dial_name` (name-resolution capability) | `DialTakesNames` |

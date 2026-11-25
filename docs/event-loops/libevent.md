@@ -98,6 +98,14 @@ Only a loop that supplies the batching capability needs this.
 | `PassEnd` | None examined. | unverified | After each `event_base_loop(EVLOOP_ONCE)` that delivered a link event. |
 
 
+### Name resolution
+
+Only a loop that supplies the name-resolution capability needs this. A loop that does not supply it needs no row.
+
+| Contract item | libevent | Status | Adapter work |
+|---|---|---|---|
+| `Resolved` | `evdns_getaddrinfo` (evdns) resolves without blocking and calls back on the loop | checked: documented API | `resolve` calls `evdns_getaddrinfo` with the host and a numeric port; the callback queues `Resolved`. `cancel_resolve` is `evdns_getaddrinfo_cancel`. The timeout is an `event` timer. |
+
 ## What a loop with only the core costs
 
 An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the capabilities: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each capability is a separate, later addition.

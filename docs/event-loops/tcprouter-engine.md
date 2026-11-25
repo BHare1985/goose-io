@@ -100,6 +100,14 @@ Only a loop that supplies the batching capability needs this.
 | `PassEnd` | `want_pass_end(w, on)` opts in; one per pass that delivered handler events; none for Tick-only or idle passes; sends during it cause no second one (`handler.goose` `_finish_pass`). | checked | The contract has no switch: call `want_pass_end(true)` always. |
 
 
+### Name resolution
+
+Only a loop that supplies the name-resolution capability needs this. A loop that does not supply it needs no row.
+
+| Contract item | tcprouter-engine | Status | Adapter work |
+|---|---|---|---|
+| `Resolved` | None: the engine resolves nothing | n/a | A resolver thread with a wake, or c-ares on the engine's epoll descriptors; `Resolved` is queued from the wake. The timeout is the engine's own clock (`_dial_due` generalised, see `tick_by`). |
+
 ## What a loop with only the core costs
 
 An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the capabilities: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each capability is a separate, later addition.

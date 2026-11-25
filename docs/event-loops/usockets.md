@@ -98,6 +98,14 @@ Only a loop that supplies the batching capability needs this.
 | `PassEnd` | `post_cb(loop)` after each iteration (`loop.c`, `us_internal_loop_post`). | checked | Deliver one `PassEnd` from there if the iteration delivered a link event. |
 
 
+### Name resolution
+
+Only a loop that supplies the name-resolution capability needs this. A loop that does not supply it needs no row.
+
+| Contract item | usockets | Status | Adapter work |
+|---|---|---|---|
+| `Resolved` | `us_socket_context_connect` resolves the host name with a blocking `getaddrinfo` inside connect (it stalls the loop) | unverified | Not usable as it is: a loop must not resolve on its own thread. Run `getaddrinfo` on a worker thread, and deliver `Resolved` from the loop's wakeup (`us_wakeup_loop`); the timeout is a loop timer. |
+
 ## What a loop with only the core costs
 
 An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the capabilities: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each capability is a separate, later addition.

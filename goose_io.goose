@@ -4,9 +4,9 @@
 // owns the thread and the sockets, delivers events and performs operations; a library handles events and
 // calls operations; the application runs the loop and passes each event to its libraries.
 //
-// The contract is a core, which every event loop supplies, and eleven capabilities it may add:
-// half-close, sizing, abort, inspection, batching and unix (the address forms `unix:/path` and `unix:///path`), and
-// relay, peek, revoke, wake and limits. A library uses what
+// The contract is a core, which every event loop supplies, and twelve capabilities it may add:
+// half-close, sizing, abort, inspection, batching and unix (the address forms `unix:/path` and `unix:///path`),
+// relay, peek, revoke, wake and limits, and name-resolution. A library uses what
 // it needs, and fails to compile on a loop that lacks an operation; a loop without unix answers BadAddress.
 //
 // This file is the whole contract surface: the shared types, pure helpers over them, the version, and
@@ -21,7 +21,7 @@ import std;
 
 // While the major number is 0 a minor increase may change or remove behaviour.
 let VERSION_MAJOR = 0;
-let VERSION_MINOR = 4;
+let VERSION_MINOR = 5;
 
 // --- handles -------------------------------------------------------------------------------------
 
@@ -110,6 +110,22 @@ enum RelayStatus {
 // A handle that wakes a loop from another thread (the wake capability). Fixed size: it may be copied to any thread.
 struct Waker { id: u32 = 0, gen: u32 = 0 }
 
+// A name lookup started with resolve (the name-resolution capability). Valid from the call until its Resolved has been
+// handled, or until cancel_resolve. An id is never given to a second lookup of the same loop. The default value is invalid.
+struct Query { id: u32 = 0 }
+
+fn is_valid(q: Query) -> bool { q.id != 0 }
+fn same(a: Query, b: Query) -> bool { a.id == b.id }
+
+// How a lookup ended (the name-resolution capability), for logs and fallbacks.
+enum ResolveStatus {
+    Found,          // at least one address: count above 0
+    NotFound,       // the system knows no address for the name: count 0
+    TimedOut,       // no result within timeout_ms of the loop's clock: count 0
+    Failed,         // the lookup could not be made (no resolver, no resources, a bad answer): count 0
+    Cancelled,      // the loop finished while the lookup ran: count 0
+}
+
 // The kinds of limit a link can run too long in (the limits capability).
 enum Limit {
     Idle,       // no byte read from or written to the link's transport
@@ -164,19 +180,23 @@ enum Event {
     Woken { value: i64, body: u8[..64] = [] },
     // The limits capability. The link has been in the state of `limit` for the time it was armed with; the library decides.
     Expired { link: Link, limit: Limit },
+    // The name-resolution capability. The one result of a lookup `resolve` started, unless it was cancelled. While it is handled,
+    // `resolved_address(query, i)` gives the addresses, `i` from 0 to `count - 1`, in the order a client should try them.
+    Resolved { query: Query, status: ResolveStatus, count: i64 },
 }
 
-// True for Opened, Data, Writable, PeerEof, Closed, Input and Expired. Tick, PassEnd and Woken belong to every library.
+// True for Opened, Data, Writable, PeerEof, Closed, Input and Expired. Tick, PassEnd, Woken and Resolved belong to every library.
 fn is_link_event(ev: Event) -> bool {
     match ev {
         Tick t => false,
         PassEnd => false,
         Woken w => false,
+        Resolved r => false,
         _ => true,
     }
 }
 
-// The link of a link event, an invalid Link for Tick, PassEnd and Woken.
+// The link of a link event, an invalid Link for Tick, PassEnd, Woken and Resolved.
 fn link_of(ev: Event) -> Link {
     match ev {
         Opened e => e.link,
@@ -281,9 +301,12 @@ fn has_wake<Io>(io: Io&) { return io.supplies_wake(); }
 fn supplies_limits<Io>(io: Io&) -> Absent { return Absent {}; }
 fn has_limits<Io>(io: Io&) { return io.supplies_limits(); }
 
+fn supplies_name_resolution<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_name_resolution<Io>(io: Io&) { return io.supplies_name_resolution(); }
+
 // --- what an event loop must supply ---------------------------------------------------------------
 
-// The contract is a core and eleven capabilities (docs/contract.md). Each check below names every operation of its part
+// The contract is a core and twelve capabilities (docs/contract.md). Each check below names every operation of its part
 // once, with the contract's argument and result types, and never runs anything. An event loop's root program calls
 // require_core and the check of each capability it supplies, so that a missing or mistyped operation is a compile error
 // here, naming the operation, and not somewhere inside a library. The batching capability has no operation, only the
@@ -413,6 +436,17 @@ fn require_limits<Io>(io: Io&) {
         io.set_limit(Link { .. }, Limit.Idle, 0);
     }
     _is_supplied(io.supplies_limits());
+}
+
+// Name resolution: resolve(host, port, timeout_ms) -> Query, resolved_address(query, i) -> Address, cancel_resolve(query), the event
+// Resolved, and the types Query and ResolveStatus.
+fn require_name_resolution<Io>(io: Io&) {
+    if _never() {
+        let q: Query = io.resolve("example.test", 80, 0);
+        _is_address_type(io.resolved_address(q, 0));
+        io.cancel_resolve(q);
+    }
+    _is_supplied(io.supplies_name_resolution());
 }
 
 fn _never() -> bool { false }
