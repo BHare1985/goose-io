@@ -22,9 +22,10 @@ ops_of() {
         wake) echo 'waker|wake|wake_with' ;;
         limits) echo 'set_limit' ;;
         name-resolution) echo 'resolve|resolved_address|cancel_resolve' ;;
+        shared-listen) echo 'listen_shared' ;;
     esac
 }
-capabilities=(half-close sizing abort inspection relay peek revoke wake limits name-resolution)
+capabilities=(half-close sizing abort inspection relay peek revoke wake limits name-resolution shared-listen)
 
 files=("$@")
 if [ ${#files[@]} -eq 0 ]; then

@@ -41,6 +41,7 @@ import conformance.revoke;
 import conformance.wake;
 import conformance.limits;
 import conformance.name_resolution;
+import conformance.shared_listen;
 
 // Part -1 holds two checks that exist to test the driver: one passes and one fails on purpose.
 let SELFTEST = -1;
@@ -59,6 +60,7 @@ fn info(id: i64) -> Info {
     if i.name.len == 0 { i = wake_info(id); }
     if i.name.len == 0 { i = limits_info(id); }
     if i.name.len == 0 { i = name_resolution_info(id); }
+    if i.name.len == 0 { i = shared_listen_info(id); }
     i.capability = capability_of(i.name);
     return i;
 }
@@ -79,6 +81,7 @@ fn capability_of(name: const u8[:]) -> Capability {
     if name == "wake_in_order" { return Capability.Wake; }
     if name == "wake_carries_body" { return Capability.Wake; }
     if name == "resolve_found" || name == "resolve_not_found" || name == "resolve_invalid" || name == "resolve_dial_result" || name == "resolve_address_order" || name == "resolve_address_after" || name == "resolve_timeout" || name == "resolve_cancel" || name == "resolve_dial_name" || name == "resolve_cancelled_at_finish" { return Capability.NameResolution; }
+    if name.len > 7 && starts_with(name, "shared_") { return Capability.SharedListen; }
     if name.len > 6 && starts_with(name, "limit_") { return Capability.Limits; }
     return Capability.None;
 }
@@ -237,6 +240,19 @@ fn takes(g: NameResolutionSuite&, i: Info) -> bool { i.capability == Capability.
 fn conformance_name_resolution_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
     goose_io::require_name_resolution(io);
     var g = NameResolutionSuite { .. };
+    return _run_part(g, io, fx, part);
+}
+
+fn step<Io>(g: SharedListenSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
+    if shared_listen_capability_step(k, fx, io, ev) { return; }
+    k.fail("the check is not known to the driver");
+}
+fn setup<Io>(g: SharedListenSuite&, k: Case&, io: Io&) {}
+fn after<Io>(g: SharedListenSuite&, k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) { k.fail("the check is not known to the driver"); }
+fn takes(g: SharedListenSuite&, i: Info) -> bool { i.capability == Capability.SharedListen }
+fn conformance_shared_listen_part<Io>(io: Io&, fx: Fixture, part: i64) -> i32 {
+    goose_io::require_shared_listen(io);
+    var g = SharedListenSuite { .. };
     return _run_part(g, io, fx, part);
 }
 

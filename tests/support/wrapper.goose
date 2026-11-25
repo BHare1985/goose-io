@@ -86,6 +86,7 @@ fn _plain(bytes: const u8[:]) -> u8[>..] {
 // --- the contract: operations, given to the inner event loop ----------------------------------------------
 
 fn listen(w: Layer&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError { w._prepare(); return inner.listen(address); }
+fn listen_shared(w: Layer&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError { w._prepare(); return inner.listen_shared(address); }
 fn listener_port(w: Layer&, l: goose_io::Listener) -> u16 { w._prepare(); return inner.listener_port(l); }
 fn stop_listening(w: Layer&, l: goose_io::Listener) { w._prepare(); inner.stop_listening(l); }
 fn dial(w: Layer&, address: const u8[:], connect_ms: i64) -> goose_io::Link {
@@ -327,6 +328,7 @@ fn _supplied(w: Layer&) {
     goose_io::require_abort(w);
     goose_io::require_inspection(w);
     goose_io::require_name_resolution(w);
+    goose_io::require_shared_listen(w);
 }
 
 // Declarations: the wrapper supplies what it passes through, and answers what the loop beneath answers (D5 of rename-groups-to-capabilities).
@@ -339,6 +341,7 @@ fn supplies_inspection(w: Layer&) { return goose_io::has_inspection(inner); }
 fn supplies_batching(w: Layer&) { return goose_io::has_batching(inner); }
 fn supplies_unix(w: Layer&) { return goose_io::has_unix(inner); }
 fn supplies_name_resolution(w: Layer&) { return goose_io::has_name_resolution(inner); }
+fn supplies_shared_listen(w: Layer&) { return goose_io::has_shared_listen(inner); }
 
 // Name resolution is passed through: the inner event loop resolves, and the wrapper changes nothing (it carries no bytes).
 fn resolve(w: Layer&, host: const u8[:], port: i64, timeout_ms: i64) -> goose_io::Query { w._prepare(); return inner.resolve(host, port, timeout_ms); }

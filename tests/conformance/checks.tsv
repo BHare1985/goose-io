@@ -5,7 +5,7 @@
 # A check with an id of 900 or more (finished_loop and its capability variants) runs after serve has returned, on the finished loop.
 # The half-close and abort capabilities have no finished-loop check: their link operations return nothing, so their finished-loop cells
 # are covered by the unit tests of tests/unit/memory_loop_test.goose and tests/unit/wrapper_loop_test.goose.
-# The capability is the one the check belongs to (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits, name-resolution); "pending" is a check
+# The capability is the one the check belongs to (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits, name-resolution, shared-listen); "pending" is a check
 # not yet assigned (tasks 4.2 to 4.4 of simplify-contract). "-" in the fault column means no fault can be injected in a queue-based event loop; the reason is in docs/event-loops.md.
 handles_stale_reuse	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	core
 handles_stale_reset	0	Links are generation-checked handles	A stale handle cannot reach a reused slot	StaleHandleAccepted	abort
@@ -137,3 +137,9 @@ resolve_timeout	0	A lookup is bounded and can be cancelled	A slow name	ResolveNo
 resolve_cancel	0	A lookup is bounded and can be cancelled	A cancelled lookup	ResolveCancelIgnored	name-resolution
 resolve_dial_name	0	Dial still takes only addresses	A host name to dial	DialTakesNames	name-resolution
 resolve_cancelled_at_finish	1	A lookup is bounded and can be cancelled	A lookup still running when the loop finishes ends Cancelled	ResolveLeftAtFinish	name-resolution
+shared_two_listeners	0	Shared listeners hold one address together	Two loops on one port	SharedNotShared	shared-listen
+shared_each_once	0	Shared listeners hold one address together	Two loops on one port	SharedAlwaysFirst,SharedNotShared	shared-listen
+shared_plain_after_shared	0	Shared and plain listeners conflict	A plain listen after a shared one	SharedPlainOverlaps	shared-listen
+shared_shared_after_plain	0	Shared and plain listeners conflict	A plain listen after a shared one	SharedPlainOverlaps	shared-listen
+shared_unix_refused	0	Shared and plain listeners conflict	A plain listen after a shared one	SharedUnixAllowed	shared-listen
+shared_stop_one	0	A stopped shared listener says what it does with waiting connections	One loop of several stops	SharedStopStopsAll	shared-listen

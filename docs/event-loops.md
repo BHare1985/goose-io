@@ -1,7 +1,7 @@
 # Writing an event loop and running the conformance suite
 
 **In short:** you write the engine, and every library written for the contract runs on it. The job is the 13
-operations and 5 events of the core, and as many of the twelve optional capabilities as you like; the conformance suite tells
+operations and 5 events of the core, and as many of the thirteen optional capabilities as you like; the conformance suite tells
 you when you are done. [`tests/support/core_only.goose`](../tests/support/core_only.goose) is the smallest example of
 the shape (it sits over the in-memory loop, where yours would sit over your sockets).
 
@@ -17,7 +17,7 @@ The **core**, which every event loop supplies: the operations `listen`, `listene
 events `Opened`, `Data`, `Writable`, `Closed` and `Tick`, with the types of `goose_io.goose`, as functions that a
 library calls by method syntax on the event loop's type.
 
-And any of twelve **capabilities**, which it may supply or leave out (`docs/contract.md`, section 2):
+And any of thirteen **capabilities**, which it may supply or leave out (`docs/contract.md`, section 2):
 
 | Capability | Operations | Events |
 |---|---|---|
@@ -33,9 +33,10 @@ And any of twelve **capabilities**, which it may supply or leave out (`docs/cont
 | wake | `waker`, `wake` | `Woken` |
 | limits | `set_limit` | `Expired` |
 | name-resolution | `resolve`, `resolved_address`, `cancel_resolve` | `Resolved` |
+| shared-listen | `listen_shared` | |
 
 Call `goose_io::require_core(io)` once from the event loop's root program, and the check of each capability it supplies
-(`require_half_close`, `require_sizing`, `require_abort`, `require_inspection`, `require_relay`, `require_peek`, `require_revoke`, `require_wake`, `require_limits`, `require_name_resolution`; batching and unix have no operation and so no check). Each names every operation of its
+(`require_half_close`, `require_sizing`, `require_abort`, `require_inspection`, `require_relay`, `require_peek`, `require_revoke`, `require_wake`, `require_limits`, `require_name_resolution`, `require_shared_listen`; batching and unix have no operation and so no check). Each names every operation of its
 part with the contract's argument and result types and never runs, so a missing or mistyped operation is a compile
 error at that one line, naming the operation, and not deep inside a library. An event loop with nothing more than
 the core conforms; anything it adds beyond the capabilities (TLS, other transports) is not part of the contract and no
@@ -75,7 +76,7 @@ This is the program that runs the in-memory event loop, whose suite results the 
 <!-- source: tests/conformance/memory_conformance.goose -->
 ```goose
 // Runs one part of the conformance suite against the in-memory event loop: `goose run tests/conformance/memory_conformance.goose -- 3 core`.
-// The part is the first argument (default 0) and the capability the second (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits or name-resolution; default core).
+// The part is the first argument (default 0) and the capability the second (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits, name-resolution or shared-listen; default core).
 // The environment variable GOOSE_IO_FAULT, when set, switches the in-memory event loop to one of its named faults
 // (see tests/conformance/faults.sh).
 import std;
@@ -117,6 +118,7 @@ fn main() {
     if capability == "peek" { exit(goose_io_conformance::conformance_peek_part(io, fixture, part)); }
     if capability == "revoke" { exit(goose_io_conformance::conformance_revoke_part(io, fixture, part)); }
     if capability == "wake" { exit(goose_io_conformance::conformance_wake_part(io, fixture, part)); }
+    if capability == "shared-listen" { exit(goose_io_conformance::conformance_shared_listen_part(io, fixture, part)); }
     if capability == "name-resolution" { exit(goose_io_conformance::conformance_name_resolution_part(io, fixture, part)); }
     if capability == "limits" { exit(goose_io_conformance::conformance_limits_part(io, fixture, part)); }
     exit(goose_io_conformance::conformance_core_part(io, fixture, part));
@@ -535,3 +537,16 @@ The change add-name-resolution added the capability name-resolution. Its entry p
 | A lookup is bounded and can be cancelled | check `resolve_cancel` (name-resolution capability) | `ResolveCancelIgnored` |
 | A lookup is bounded and can be cancelled | check `resolve_cancelled_at_finish` (name-resolution capability) | `ResolveLeftAtFinish` |
 | Dial still takes only addresses | check `resolve_dial_name` (name-resolution capability) | `DialTakesNames` |
+
+### Scenarios added by shared listen
+
+The change add-shared-listen added the capability shared-listen. Its entry point is `conformance_shared_listen_part` (`tests/conformance/run.sh --capability shared-listen`); the wrapper passes it through. The suite gets one loop, so the checks hold two shared listeners in it.
+
+| Scenario | Proved by | Fault |
+|---|---|---|
+| Two loops on one port | check `shared_two_listeners` (shared-listen capability) | `SharedNotShared` |
+| Two loops on one port | check `shared_each_once` (shared-listen capability) | `SharedAlwaysFirst`,`SharedNotShared` |
+| A plain listen after a shared one | check `shared_plain_after_shared` (shared-listen capability) | `SharedPlainOverlaps` |
+| A plain listen after a shared one | check `shared_shared_after_plain` (shared-listen capability) | `SharedPlainOverlaps` |
+| A plain listen after a shared one | check `shared_unix_refused` (shared-listen capability) | `SharedUnixAllowed` |
+| One loop of several stops | check `shared_stop_one` (shared-listen capability) | `SharedStopStopsAll` |

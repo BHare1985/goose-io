@@ -18,7 +18,7 @@ while IFS=$'\t' read -r check part req scenarios fault capability; do
     if [ -z "$body" ]; then echo "BAD   $check: no function c_$check in conformance/"; bad=$((bad + 1)); continue; fi
     used=$(
         {
-            echo "$body" | grep -oE 'io\.(shutdown_write|set_keep_open_on_eof|send_room|send2|reset|peer_address|stop_listening|user|relay|relayed_bytes|waker|wait_input|peek|discard_unsent|write_deadline|wake|set_limit|resolve|resolved_address|cancel_resolve)\(' | sed 's/^io\.//; s/($//'
+            echo "$body" | grep -oE 'io\.(shutdown_write|set_keep_open_on_eof|send_room|send2|reset|peer_address|stop_listening|user|relay|relayed_bytes|waker|wait_input|peek|discard_unsent|write_deadline|wake|set_limit|resolve|resolved_address|cancel_resolve|listen_shared)\(' | sed 's/^io\.//; s/($//'
             echo "$body" | grep -q 'fill_to_room(' && echo send_room
             echo "$body" | grep -qE "'E'|PeerEof" && echo PeerEof
         } | sort -u
@@ -35,7 +35,10 @@ while IFS=$'\t' read -r check part req scenarios fault capability; do
             wake|waker) g=wake ;;
             set_limit) g=limits ;;
             resolve|resolved_address|cancel_resolve) g=name-resolution ;;
+            listen_shared) g=shared-listen ;;
         esac
+        # a stopped shared listener is the scenario of shared-listen, and stop_listening belongs to the loop that has listeners
+        if [ "$op" = stop_listening ] && [ "$capability" = shared-listen ]; then continue; fi
         if [ "$g" != "$capability" ]; then
             echo "BAD   $check (capability $capability) calls $op, which belongs to the capability $g"
             bad=$((bad + 1))

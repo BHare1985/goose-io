@@ -23,6 +23,7 @@ fn main() {
     goose_io::require_abort(io);
     goose_io::require_inspection(io);
     goose_io::require_name_resolution(io);
+    goose_io::require_shared_listen(io);
     io.silent("10.255.0.1:81");
     io.hold("127.0.0.1:9999");
     let up = io.add_peer();
@@ -38,6 +39,7 @@ fn main() {
     if capability == "inspection" { exit(goose_io_conformance::conformance_inspection_part(io, fixture, part)); }
     if capability == "batching" { exit(goose_io_conformance::conformance_batching_part(io, fixture, part)); }
     if capability == "unix" { exit(goose_io_conformance::conformance_unix_part(io, fixture, part)); }
+    if capability == "shared-listen" { exit(goose_io_conformance::conformance_shared_listen_part(io, fixture, part)); }
     if capability == "name-resolution" { exit(goose_io_conformance::conformance_name_resolution_part(io, fixture, part)); }
     exit(goose_io_conformance::conformance_core_part(io, fixture, part));
 }

@@ -105,6 +105,14 @@ Only a loop that supplies the name-resolution capability needs this. A loop that
 |---|---|---|---|
 | `Resolved` | None: the kernel has no resolver. c_proxy resolves nothing on the ring | n/a | A resolver thread runs `getaddrinfo`, or a DNS query over a datagram socket the ring drives (a library such as c-ares needs descriptors, which the ring can poll), and posts its result to the ring with `IORING_OP_MSG_RING` or an eventfd read; the loop queues `Resolved`. The timeout is an `io_uring_prep_timeout`. |
 
+### Shared listen
+
+Only a loop that supplies the shared-listen capability needs this. A loop that does not supply it needs no row. Where `SO_REUSEPORT` does not balance connections (it does on Linux and the BSDs; FreeBSD also has `SO_REUSEPORT_LB`), do not supply the capability.
+
+| Contract item | io-uring | Status | Adapter work |
+|---|---|---|---|
+| `listen_shared` | Linux 6.x: `SO_REUSEPORT` on each loop's listening socket (the ring is per thread already); the kernel spreads connections by a hash of the address pair | checked: documented API | `listen_shared` sets `SO_REUSEPORT` before `bind`; each ring has its own multishot accept. A plain `listen` leaves it unset, so the two conflict as the contract says (`EADDRINUSE`). |
+
 ## What a loop with only the core costs
 
 An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the capabilities: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each capability is a separate, later addition.

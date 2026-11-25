@@ -51,7 +51,7 @@ struct Info { name: const u8[:] = "", req: const u8[:] = "", part: i64 = 0, capa
 // functions `step` and `takes` of the suite are overloaded on it, so that a suite for one capability compiles only the
 // checks of that capability (design D5). Every check belongs to exactly one capability; Capability.None is the answer for a name that
 // is not a check.
-enum Capability { Core, HalfClose, Sizing, Abort, Inspection, Batching, Unix, Relay, Peek, Revoke, Wake, Limits, NameResolution, None }
+enum Capability { Core, HalfClose, Sizing, Abort, Inspection, Batching, Unix, Relay, Peek, Revoke, Wake, Limits, NameResolution, SharedListen, None }
 
 struct CoreSuite { n: i64 = 0 }
 struct BatchingSuite { n: i64 = 0 }
@@ -66,6 +66,7 @@ struct RevokeSuite { n: i64 = 0 }
 struct WakeSuite { n: i64 = 0 }
 struct LimitsSuite { n: i64 = 0 }
 struct NameResolutionSuite { n: i64 = 0 }
+struct SharedListenSuite { n: i64 = 0 }
 
 struct Rec {
     role:     i64                   = 0,

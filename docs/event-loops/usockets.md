@@ -106,6 +106,14 @@ Only a loop that supplies the name-resolution capability needs this. A loop that
 |---|---|---|---|
 | `Resolved` | `us_socket_context_connect` resolves the host name with a blocking `getaddrinfo` inside connect (it stalls the loop) | unverified | Not usable as it is: a loop must not resolve on its own thread. Run `getaddrinfo` on a worker thread, and deliver `Resolved` from the loop's wakeup (`us_wakeup_loop`); the timeout is a loop timer. |
 
+### Shared listen
+
+Only a loop that supplies the shared-listen capability needs this. A loop that does not supply it needs no row. Where `SO_REUSEPORT` does not balance connections (it does on Linux and the BSDs; FreeBSD also has `SO_REUSEPORT_LB`), do not supply the capability.
+
+| Contract item | usockets | Status | Adapter work |
+|---|---|---|---|
+| `listen_shared` | `us_socket_context_listen_socket` with `LIBUS_LISTEN_REUSE_PORT` | checked: documented API | `listen_shared` passes the option; the plain `listen` passes `LIBUS_LISTEN_EXCLUSIVE_PORT`. Each loop is one thread. |
+
 ## What a loop with only the core costs
 
 An event loop on this substrate that supplies only the core does the adapter work of the core rows above, listed here, and none of the work of the capabilities: no `shutdown_write` or `PeerEof` (so a library that must answer after the peer finishes sending cannot run on it), no `send_room` or `send2`, no `reset`, no `peer_address` or `stop_listening`, and no `PassEnd`. Each capability is a separate, later addition.

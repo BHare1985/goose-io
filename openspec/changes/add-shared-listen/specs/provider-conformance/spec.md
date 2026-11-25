@@ -12,11 +12,11 @@ The conformance suite SHALL have an entry point for the shared listen capability
 - **THEN** each has at least one check that names it, or names the build or inspection step that proves it
 
 ### Requirement: The in-memory loop supplies shared listen
-The in-memory loop SHALL declare and supply shared-listen,  with a process-wide table of in-memory addresses, so several in-memory loops can share one, spreading connections round-robin in a fixed order so tests repeat. For every check of shared-listen it SHALL have a named fault that makes the check fail, shown by the fault script.
+The in-memory loop SHALL declare and supply shared-listen,  so several shared listeners of one in-memory loop can hold one address (an in-memory address belongs to one loop; the suite gets one loop and checks with two listeners in it), spreading connections round-robin in a fixed order so tests repeat. For every check of shared-listen it SHALL have a named fault that makes the check fail, shown by the fault script.
 
 #### Scenario: Connections are spread
-- **WHEN** two in-memory loops listen shared on one address and ten clients connect
-- **THEN** each connection is accepted by exactly one loop, five each
+- **WHEN** two shared listeners of an in-memory loop hold one address and ten clients connect
+- **THEN** each connection is accepted by exactly one listener, five each
 
 #### Scenario: A check with no fault
 - **WHEN** the table of checks is compared with the table of faults

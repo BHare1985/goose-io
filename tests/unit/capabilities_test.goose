@@ -42,6 +42,7 @@ fn main() {
     kit::check(is_supplied(goose_io::has_wake(io)), "memory: wake");
     kit::check(is_supplied(goose_io::has_limits(io)), "memory: limits");
     kit::check(is_supplied(goose_io::has_name_resolution(io)), "memory: name_resolution");
+    kit::check(is_supplied(goose_io::has_shared_listen(io)), "memory: shared_listen");
 
     // the core-only loop and the stub declare none
     var core = core_only::Core { .. };
@@ -57,6 +58,7 @@ fn main() {
     kit::check(!is_supplied(goose_io::has_wake(core)), "core-only: wake");
     kit::check(!is_supplied(goose_io::has_limits(core)), "core-only: limits");
     kit::check(!is_supplied(goose_io::has_name_resolution(core)), "core-only: name_resolution");
+    kit::check(!is_supplied(goose_io::has_shared_listen(core)), "core-only: shared_listen");
     kit::check(!is_supplied(goose_io::has_relay(stubbed)), "stub: relay");
 
     // a loop in a third namespace that declares relay and wake: exactly those two are supplied

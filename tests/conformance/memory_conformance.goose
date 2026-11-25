@@ -1,5 +1,5 @@
 // Runs one part of the conformance suite against the in-memory event loop: `goose run tests/conformance/memory_conformance.goose -- 3 core`.
-// The part is the first argument (default 0) and the capability the second (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits or name-resolution; default core).
+// The part is the first argument (default 0) and the capability the second (core, half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits, name-resolution or shared-listen; default core).
 // The environment variable GOOSE_IO_FAULT, when set, switches the in-memory event loop to one of its named faults
 // (see tests/conformance/faults.sh).
 import std;
@@ -41,6 +41,7 @@ fn main() {
     if capability == "peek" { exit(goose_io_conformance::conformance_peek_part(io, fixture, part)); }
     if capability == "revoke" { exit(goose_io_conformance::conformance_revoke_part(io, fixture, part)); }
     if capability == "wake" { exit(goose_io_conformance::conformance_wake_part(io, fixture, part)); }
+    if capability == "shared-listen" { exit(goose_io_conformance::conformance_shared_listen_part(io, fixture, part)); }
     if capability == "name-resolution" { exit(goose_io_conformance::conformance_name_resolution_part(io, fixture, part)); }
     if capability == "limits" { exit(goose_io_conformance::conformance_limits_part(io, fixture, part)); }
     exit(goose_io_conformance::conformance_core_part(io, fixture, part));

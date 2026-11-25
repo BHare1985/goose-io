@@ -4,9 +4,9 @@
 // owns the thread and the sockets, delivers events and performs operations; a library handles events and
 // calls operations; the application runs the loop and passes each event to its libraries.
 //
-// The contract is a core, which every event loop supplies, and twelve capabilities it may add:
+// The contract is a core, which every event loop supplies, and thirteen capabilities it may add:
 // half-close, sizing, abort, inspection, batching and unix (the address forms `unix:/path` and `unix:///path`),
-// relay, peek, revoke, wake and limits, and name-resolution. A library uses what
+// relay, peek, revoke, wake and limits, name-resolution and shared-listen. A library uses what
 // it needs, and fails to compile on a loop that lacks an operation; a loop without unix answers BadAddress.
 //
 // This file is the whole contract surface: the shared types, pure helpers over them, the version, and
@@ -304,9 +304,12 @@ fn has_limits<Io>(io: Io&) { return io.supplies_limits(); }
 fn supplies_name_resolution<Io>(io: Io&) -> Absent { return Absent {}; }
 fn has_name_resolution<Io>(io: Io&) { return io.supplies_name_resolution(); }
 
+fn supplies_shared_listen<Io>(io: Io&) -> Absent { return Absent {}; }
+fn has_shared_listen<Io>(io: Io&) { return io.supplies_shared_listen(); }
+
 // --- what an event loop must supply ---------------------------------------------------------------
 
-// The contract is a core and twelve capabilities (docs/contract.md). Each check below names every operation of its part
+// The contract is a core and thirteen capabilities (docs/contract.md). Each check below names every operation of its part
 // once, with the contract's argument and result types, and never runs anything. An event loop's root program calls
 // require_core and the check of each capability it supplies, so that a missing or mistyped operation is a compile error
 // here, naming the operation, and not somewhere inside a library. The batching capability has no operation, only the
@@ -440,6 +443,21 @@ fn require_limits<Io>(io: Io&) {
 
 // Name resolution: resolve(host, port, timeout_ms) -> Query, resolved_address(query, i) -> Address, cancel_resolve(query), the event
 // Resolved, and the types Query and ResolveStatus.
+// Shared listen: listen_shared(address) -> Listener, ListenError. It listens as `listen` does, except that it succeeds while other
+// shared listeners, in this loop or another loop of the process, hold the address, and each connection to the address is accepted
+// by exactly one of them. A `listen` on an address shared listeners hold fails with AddressInUse, and so does a `listen_shared` on an
+// address a plain listener holds; on a unix path it fails with BadAddress. When a shared listener stops the others go on accepting;
+// connections waiting on the stopped one may be reset, and a loop documents which. The core's stop_listening and listener_port
+// stop a shared listener and read its port.
+fn require_shared_listen<Io>(io: Io&) {
+    if _never() {
+        let listener, error = io.listen_shared("127.0.0.1:0");
+        _is_listener_type(listener);
+        _is_listen_error_type(error);
+    }
+    _is_supplied(io.supplies_shared_listen());
+}
+
 fn require_name_resolution<Io>(io: Io&) {
     if _never() {
         let q: Query = io.resolve("example.test", 80, 0);

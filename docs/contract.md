@@ -45,6 +45,7 @@ An event loop has to supply **the core**: 12 operations and 5 events, enough for
 | **[Wake](capabilities/wake.md)** | `waker`, `wake` | `Woken` |
 | **[Limits](capabilities/limits.md)** | `set_limit` | `Expired` |
 | **[Name resolution](capabilities/name-resolution.md)** | `resolve`, `resolved_address`, `cancel_resolve` | `Resolved` |
+| **[Shared listen](capabilities/shared-listen.md)** | `listen_shared` | |
 
 Each capability has a compile-time **declaration**: a loop that supplies relay defines `supplies_relay(io: Loop&) -> goose_io::Supplied` in its own namespace, and the contract answers `goose_io::Absent` for every loop that does not. A library or a wrapping loop asks `goose_io::has_relay(io)`. A library may use a capability only when the loop supplies it, branching at compile time on the answer's type, and say so in its header (`// Uses if supplied:`); the branch for a capability the loop lacks is never compiled (*A loop declares each capability it supplies*, *A declaration agrees with the operations*, *A library may use a capability optionally*, *A wrapping loop passes on what it declares*). `require_<capability>` requires the declaration as well as the operations.
 
@@ -456,6 +457,16 @@ Operations `resolve(host, port, timeout_ms)`, `resolved_address(query, i)` and `
 - A lookup with no result after `timeout_ms` ends with `TimedOut` at that time on the loop's clock. `cancel_resolve` ends a lookup with no `Resolved` after it. A lookup still running when the loop finishes ends with `Cancelled` before the last pass.
 - Supplying the capability does not change `dial`: a host name still ends with `ConnectFailed`, `BadAddress`. A loop never resolves on its own thread.
 
+### Shared listening
+
+A page for library authors: [capabilities/shared-listen.md](capabilities/shared-listen.md).
+
+Operation `listen_shared(address) -> Listener, ListenError`. A program that runs a loop per thread gives each loop a shared listener on one address, and the system spreads the connections among them.
+
+- `listen_shared` behaves as `listen` except that it succeeds while other shared listeners hold the address (in the same loop, or in another loop of the process). Each connection to the address is accepted by exactly one of them.
+- A `listen` on an address that shared listeners hold fails with `AddressInUse`, and so does a `listen_shared` on an address a plain listener holds. A `listen_shared` on a unix path fails with `BadAddress`.
+- When a shared listener stops, the others go on accepting. Connections that were waiting on the stopped listener may be reset by the system; a loop documents whether it moves them to another listener or resets them.
+
 A library's own deadlines (a connect timeout, a table of fences, a drain deadline) need no capability: `tick_by` and `Tick` give them.
 
 ## 7. Layering
@@ -476,7 +487,7 @@ The contract covers TCP byte streams over IPv4 and IPv6, stream sockets at a pat
 
 `goose_io::VERSION_MAJOR` and `goose_io::VERSION_MINOR`. While the major number is 0, a minor increase may change or remove behaviour. From major version 1, a minor increase only adds. An event loop states the contract version it conforms to, the core and the capabilities it supplies.
 
-The version of this document is **0.5** (`VERSION_MAJOR` 0, `VERSION_MINOR` 5 in `goose_io.goose`). Version 0.5 adds the capability name-resolution, the types `Query` and `ResolveStatus`, and the event `Resolved`; code that matches on every `Event` must name `Resolved`. Version 0.4 named the optional parts capabilities and added their declarations. Version 0.3 adds the capabilities relay, peek, revoke, wake and limits, the types `RelayStatus`, `Waker` and `Limit`, and the events `Input`, `Woken` and `Expired`; code that matches on every `Event` must name the new ones. Version 0.1 was the first release and is the version on `main`; 0.2 is the next one and adds the unix capability, removes the tag and the user value from the events and the operations (`set_user`, `user`) and the tag from `listen` and `dial`, adds `LinkMap` and the rule that slots are dense, and states the life of a link and of a loop (the link states and the result of each operation in each, the invalid link, retirement of an exhausted slot, slots held until `Closed`, the finished loop and the end of the grace period). The keep-open window is a tightening: a `set_keep_open_on_eof` call made after the link's `Opened` handler has returned, which 0.1 allowed while the peer had not yet finished, has no effect, so a library that called it late moves the call into `Opened`. No event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
+The version of this document is **0.5** (`VERSION_MAJOR` 0, `VERSION_MINOR` 5 in `goose_io.goose`). Version 0.5 adds the capabilities name-resolution and shared-listen, the types `Query` and `ResolveStatus`, and the event `Resolved`; code that matches on every `Event` must name `Resolved`. Version 0.4 named the optional parts capabilities and added their declarations. Version 0.3 adds the capabilities relay, peek, revoke, wake and limits, the types `RelayStatus`, `Waker` and `Limit`, and the events `Input`, `Woken` and `Expired`; code that matches on every `Event` must name the new ones. Version 0.1 was the first release and is the version on `main`; 0.2 is the next one and adds the unix capability, removes the tag and the user value from the events and the operations (`set_user`, `user`) and the tag from `listen` and `dial`, adds `LinkMap` and the rule that slots are dense, and states the life of a link and of a loop (the link states and the result of each operation in each, the invalid link, retirement of an exhausted slot, slots held until `Closed`, the finished loop and the end of the grace period). The keep-open window is a tightening: a `set_keep_open_on_eof` call made after the link's `Opened` handler has returned, which 0.1 allowed while the peer had not yet finished, has no effect, so a library that called it late moves the call into `Opened`. No event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
 
 ## 10. Known gaps
 

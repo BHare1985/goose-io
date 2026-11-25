@@ -406,7 +406,7 @@ struct _Slot {
     writable_given: bool = false,                   // fault OneWritableOnly
 }
 
-struct _Listener { addr: _Addr = _Addr { .. }, active: bool = false }
+struct _Listener { addr: _Addr = _Addr { .. }, active: bool = false, shared: bool = false }
 
 // A dial to addr fails with this kind (fail_dials).
 struct _Failing { addr: _Addr = _Addr { .. }, kind: goose_io::ConnectFailure = goose_io::ConnectFailure.Other }
@@ -487,11 +487,12 @@ root struct Loop {
     _pending:       _Pending[>..<] = [],
     _pending_head:  i64            = 0,
     // addresses
-    _listeners: _Listener[>..] = [],
-    _held:      _Addr[>..]     = [],
-    _silent:    _Addr[>..]     = [],
-    _failing:   _Failing[>..]  = [],
-    _next_port: i64            = 49152,
+    _listeners:   _Listener[>..] = [],
+    _held:        _Addr[>..]     = [],
+    _silent:      _Addr[>..]     = [],
+    _failing:     _Failing[>..]  = [],
+    _next_port:   i64            = 49152,
+    _shared_turn: i64            = 0,               // the next shared listener to take a connection (round robin)
     // time
     _clock:       i64  = 0,
     _next_tick:   i64  = 0,
@@ -710,13 +711,19 @@ fn _addr(io: Loop&, text: const u8[:]) -> _Addr {
     return addr;
 }
 
-// No held address and no active listener overlaps addr.
-fn _binding_free(io: Loop&, addr: _Addr) -> bool {
+// No held address and no active listener overlaps addr (shared listeners overlap only plain ones).
+fn _binding_free(io: Loop&, addr: _Addr, shared: bool) -> bool {
     if !io._fault_is(Fault.HeldIgnored) {
         for held in io._held { if _overlaps(held, addr) { return false; } }
     }
     if io._fault_is(Fault.UnixOverlapIgnored) && addr.unix { return true; }      // a path can be listened on twice
-    for listener in io._listeners { if listener.active && _overlaps(listener.addr, addr) { return false; } }
+    for listener in io._listeners {
+        if listener.active && _overlaps(listener.addr, addr) {
+            if shared && listener.shared && !io._fault_is(Fault.SharedNotShared) { continue; }
+            if io._fault_is(Fault.SharedPlainOverlaps) && shared != listener.shared { continue; }    // shared listeners may hold one address together
+            return false;
+        }
+    }
     return true;
 }
 
@@ -737,7 +744,19 @@ fn _listener_index(io: Loop&, listener: goose_io::Listener) -> i64 {
 
 // --- the contract: listening ---------------------------------------------------------------------
 
-fn listen(io: Loop&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError {
+fn listen(io: Loop&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError { return io._listen(address, false); }
+
+// Like listen, but any number of shared listeners may hold the same address; each connection goes to exactly one of them.
+fn listen_shared(io: Loop&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError {
+    guard !io._fault_is(Fault.SharedListenMissing) else { return _listen_failed(goose_io::ListenErrorKind.Other, _ERR_INVALID); }
+    if io._finished { return _listen_failed(goose_io::ListenErrorKind.Other, _ERR_SHUT_DOWN); }
+    io._start();
+    let probe = io._addr(address);
+    if probe.ok && probe.unix && !io._fault_is(Fault.SharedUnixAllowed) { return _listen_failed(goose_io::ListenErrorKind.BadAddress, _ERR_INVALID); }
+    return io._listen(address, true);
+}
+
+fn _listen(io: Loop&, address: const u8[:], shared: bool) -> goose_io::Listener, goose_io::ListenError {
     if io._finished { return _listen_failed(goose_io::ListenErrorKind.Other, _ERR_SHUT_DOWN); }
     io._start();
     var addr = io._addr(address);
@@ -752,11 +771,11 @@ fn listen(io: Loop&, address: const u8[:]) -> goose_io::Listener, goose_io::List
         var found = false;
         for _ in _EPHEMERAL_PORTS {
             addr.port = io._take_port() as u16;
-            if io._binding_free(addr) { found = true; break; }
+            if io._binding_free(addr, shared) { found = true; break; }
         }
         guard found else { return _listen_failed(goose_io::ListenErrorKind.NoResources, _ERR_ADDRESS_NOT_AVAILABLE); }
     }
-    guard io._binding_free(addr) else { return _listen_failed(goose_io::ListenErrorKind.AddressInUse, _ERR_ADDRESS_IN_USE); }
+    guard io._binding_free(addr, shared) else { return _listen_failed(goose_io::ListenErrorKind.AddressInUse, _ERR_ADDRESS_IN_USE); }
     if io._fault_is(Fault.ListenerHandleReused) {      // a stopped listener's handle comes back
         for listener, index in io._listeners {
             if !listener.active && _same_endpoint(listener.addr, addr) {
@@ -765,7 +784,7 @@ fn listen(io: Loop&, address: const u8[:]) -> goose_io::Listener, goose_io::List
             }
         }
     }
-    io._listeners.push(_Listener { addr: addr, active: true });
+    io._listeners.push(_Listener { addr: addr, active: true, shared: shared });
     return goose_io::Listener { id: io._listeners.len as u32 }, goose_io::ListenError { .. };
 }
 
@@ -782,6 +801,11 @@ fn stop_listening(io: Loop&, listener: goose_io::Listener) {
     let index = io._listener_index(listener);
     guard index >= 0 else { return; }
     io._listeners[index].active = false;
+    if io._fault_is(Fault.SharedStopStopsAll) && io._listeners[index].shared {
+        for other in io._listeners.len {
+            if io._listeners[other].shared && _same_endpoint(io._listeners[other].addr, io._listeners[index].addr) { io._listeners[other].active = false; }
+        }
+    }
     if io._fault_is(Fault.StopListeningClosesLinks) {
         for slot in io._slots.len {
             if io._slots[slot].listener == listener.id && io._slots[slot].script < 0 { io._close_gracefully(slot, goose_io::CloseReason.Local); }
@@ -1399,7 +1423,7 @@ fn stop(io: Loop&, grace_ms: i64) {
 
 fn draining(io: Loop&) -> bool { io._draining || io._finished }
 
-// The capabilities this loop supplies (docs/event-loops.md): every one of the twelve.
+// The capabilities this loop supplies (docs/event-loops.md): every one of the thirteen.
 fn supplies_half_close(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
 fn supplies_sizing(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
 fn supplies_abort(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
@@ -1414,6 +1438,7 @@ fn supplies_revoke(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied 
 fn supplies_wake(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
 fn supplies_limits(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
 fn supplies_name_resolution(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_shared_listen(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
 
 fn serve<F>(io: Loop&) {
     if io._finished {          // a second serve returns at once, without calling its handler
@@ -1529,6 +1554,15 @@ fn _connect(io: Loop&, dialled_slot: i64) {
     for listener, index in io._listeners {
         let ignored = io._fault_is(Fault.UnixListenerIgnored) && listener.addr.unix;      // a dial to a path never reaches its listener
         if listener.active && _listener_takes(listener.addr, target) && !ignored { listener_index = index; break; }
+    }
+    if listener_index >= 0 && io._listeners[listener_index].shared && !io._fault_is(Fault.SharedAlwaysFirst) {
+        // shared listeners on one address take connections in turn: the n-th of them takes the n-th connection
+        var same: i64[>..] = [];
+        for listener, index in io._listeners {
+            if listener.active && listener.shared && _same_endpoint(listener.addr, io._listeners[listener_index].addr) { same.push(index); }
+        }
+        listener_index = same[io._shared_turn % same.len];
+        io._shared_turn++;
     }
     for failing in io._failing {
         if _same_endpoint(failing.addr, target) { io._fail_dial(dialled_slot, failing.kind); return; }
@@ -2293,6 +2327,8 @@ enum Fault {
     ResolveNeverFinds, ResolveCountOnNotFound, ResolveOrderReversed, ResolveAddressKept, ResolveNoTimeout,
     ResolveCancelIgnored, ResolveWrongPort, ResolveEmptyHostIssued, ResolveLeftAtFinish, ResolveFinishedIssues,
     DialTakesNames,
+    // the shared-listen capability
+    SharedListenMissing, SharedNotShared, SharedAlwaysFirst, SharedPlainOverlaps, SharedUnixAllowed, SharedStopStopsAll,
 }
 
 // Switches the loop to the fault of that name (a Fault variant without the "Fault." in front). A name that is no
