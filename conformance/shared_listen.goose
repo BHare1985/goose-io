@@ -95,10 +95,10 @@ fn c_shared_shared_after_plain<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
 
 fn c_shared_unix_refused<Io>(k: Case&, fx: Fixture, io: Io&, ev: goose_io::Event) {
     if k.step == 0 {
-        k.expect(fx.unix.len > 0, "the fixture supplied no unix path");
+        // a loop without the unix capability has no unix fixture: any path will do, since it is refused either way
         var path: u8[>..] = [];
         path.append("unix:");
-        path.append(fx.unix);
+        if fx.unix.len > 0 { path.append(fx.unix); } else { path.append("/tmp/goose-io-shared-listen.sock"); }
         let l, err = io.listen_shared(path[..]);
         k.expect(!goose_io::is_listener(l), "listen_shared on a unix path succeeded");
         k.expect(err.kind == goose_io::ListenErrorKind.BadAddress, "listen_shared on a unix path did not fail with BadAddress");
