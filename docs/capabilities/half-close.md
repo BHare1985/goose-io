@@ -37,7 +37,7 @@ A library that calls these operations says `// Needs: core and half-close` in it
 
 ## Supplied by
 
-The in-memory loop, the wrapper, and [goose-io-epoll](https://github.com/BHare1985/goose-io-epoll) and [goose-io-epoll-ext](https://github.com/BHare1985/goose-io-epoll-ext) supply it. The loop that supplies only the core does not, and the line server fails to build on it. The mapping documents in [`docs/event-loops/`](../event-loops/) say how each other candidate loop would.
+The in-memory loop, the wrapper, and [goose-io-epoll](https://github.com/BHare1985/goose-io-epoll) [goose-io-epoll-ext](https://github.com/BHare1985/goose-io-epoll-ext) and [goose-io-iouring](https://github.com/BHare1985/goose-io-iouring) supply it. The loop that supplies only the core does not, and the line server fails to build on it. The mapping documents in [`docs/event-loops/`](../event-loops/) say how each other candidate loop would.
 
 ## See also
 

@@ -45,7 +45,7 @@ A server that must run a loop per core says `// Needs: core and shared-listen`. 
 
 ## Supplied by
 
-The in-memory loop and the wrapper when its inner loop does. goose-io-epoll, goose-io-epoll-ext and goose-io-iouring (with `SO_REUSEPORT`). Not the loop that supplies only the core.
+The in-memory loop and the wrapper when its inner loop does. goose-io-epoll, goose-io-epoll-ext and goose-io-iouring (with `SO_REUSEPORT`); not the wrapper unless its inner loop does. Not the loop that supplies only the core.
 
 ## See also
 

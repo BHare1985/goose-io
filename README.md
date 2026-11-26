@@ -309,7 +309,7 @@ way. A layer is not an event loop of its own: it conforms by passing the suite o
 | Event loop | Kind | Contract | Core | Capabilities |
 |---|---|---|---|---|
 | in-memory (`memory.goose`) | event loop, for tests | 0.5 | yes | half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits, name-resolution, shared-listen |
-| wrapper (`tests/support/wrapper.goose`) | a layer over another event loop | 0.2 | yes | half-close, sizing, abort, inspection, batching, unix |
+| wrapper (`tests/support/wrapper.goose`) | a layer over another event loop | 0.5 | yes | half-close, sizing, abort, inspection, batching, unix, name-resolution, shared-listen |
 | core only (`tests/support/core_only.goose`) | test scaffold | 0.2 | yes | none |
 
 ## Documentation

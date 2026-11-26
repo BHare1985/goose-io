@@ -47,7 +47,7 @@ A library that cannot work without it says `// Needs: core and relay`. A forward
 
 ## Supplied by
 
-The in-memory loop, and goose-io-epoll-ext. Not goose-io-epoll, the wrapper (which forwards only the capabilities of the loop under it that it knows) or the loop that supplies only the core.
+The in-memory loop, and goose-io-epoll-ext. Not goose-io-epoll, goose-io-iouring, the wrapper (which forwards only the capabilities of the loop under it that it knows) or the loop that supplies only the core.
 
 ## See also
 
