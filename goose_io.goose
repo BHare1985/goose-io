@@ -441,8 +441,6 @@ fn require_limits<Io>(io: Io&) {
     _is_supplied(io.supplies_limits());
 }
 
-// Name resolution: resolve(host, port, timeout_ms) -> Query, resolved_address(query, i) -> Address, cancel_resolve(query), the event
-// Resolved, and the types Query and ResolveStatus.
 // Shared listen: listen_shared(address) -> Listener, ListenError. It listens as `listen` does, except that it succeeds while other
 // shared listeners, in this loop or another loop of the process, hold the address, and each connection to the address is accepted
 // by exactly one of them. A `listen` on an address shared listeners hold fails with AddressInUse, and so does a `listen_shared` on an
@@ -458,6 +456,8 @@ fn require_shared_listen<Io>(io: Io&) {
     _is_supplied(io.supplies_shared_listen());
 }
 
+// Name resolution: resolve(host, port, timeout_ms) -> Query, resolved_address(query, i) -> Address, cancel_resolve(query), the event
+// Resolved, and the types Query and ResolveStatus.
 fn require_name_resolution<Io>(io: Io&) {
     if _never() {
         let q: Query = io.resolve("example.test", 80, 0);
