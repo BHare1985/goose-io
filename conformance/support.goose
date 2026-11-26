@@ -34,6 +34,13 @@ struct Fixture {
     // The peek capability only: the loop's bound on `peek` and `wait_input` (the bytes an `Input` can report); 0 when the loop's
     // bound is not known to the runner, which skips the check of the bound.
     peek_bound: i64 = 0,
+    // The name-resolution capability only. Names a call cannot make; the loop (or its resolver) must answer them like this:
+    found:       const u8[:] = "",   // has at least one address that can be listened on locally (127.0.0.1)
+    missing:     const u8[:] = "",   // has no addresses
+    slow:        const u8[:] = "",   // answers after more than 1000 ms, and the answer is not awaited by the checks; "" skips the checks of the timeout
+    pair:        const u8[:] = "",   // has exactly two addresses, in the order a client should try them
+    pair_first:  const u8[:] = "",   // the text of the first one with port 80 (an address `dial` takes)
+    pair_second: const u8[:] = "",   // and the second
 }
 
 // One recorded link event.
@@ -44,7 +51,7 @@ struct Info { name: const u8[:] = "", req: const u8[:] = "", part: i64 = 0, capa
 // functions `step` and `takes` of the suite are overloaded on it, so that a suite for one capability compiles only the
 // checks of that capability (design D5). Every check belongs to exactly one capability; Capability.None is the answer for a name that
 // is not a check.
-enum Capability { Core, HalfClose, Sizing, Abort, Inspection, Batching, Unix, Relay, Peek, Revoke, Wake, Limits, None }
+enum Capability { Core, HalfClose, Sizing, Abort, Inspection, Batching, Unix, Relay, Peek, Revoke, Wake, Limits, NameResolution, SharedListen, None }
 
 struct CoreSuite { n: i64 = 0 }
 struct BatchingSuite { n: i64 = 0 }
@@ -58,15 +65,18 @@ struct PeekSuite { n: i64 = 0 }
 struct RevokeSuite { n: i64 = 0 }
 struct WakeSuite { n: i64 = 0 }
 struct LimitsSuite { n: i64 = 0 }
+struct NameResolutionSuite { n: i64 = 0 }
+struct SharedListenSuite { n: i64 = 0 }
 
 struct Rec {
     role:     i64                   = 0,
-    kind:     u8                    = 0,    // 'O' 'D' 'W' 'E' 'C'; 'I' Input (len = available), 'X' Expired (off = limit), 'K' Woken (len = value, role -1)
+    kind:     u8                    = 0,    // 'O' 'D' 'W' 'E' 'C'; 'I' Input (len = available), 'X' Expired (off = limit), 'K' Woken (len = value, role -1), 'R' Resolved (role -1)
     at:       i64                   = 0,
     off:      i64                   = 0,    // Data: its bytes in Case.bytes
     len:      i64                   = 0,
     why:      goose_io::CloseReason = goose_io::CloseReason.Error,
     listener: goose_io::Listener    = goose_io::Listener { .. }, // Opened: the listener that accepted it
+    query:    u32                   = 0,     // 'R' Resolved (len = count, off = status)
 }
 
 // The two checks that carry the handle rules (conformance/handles.goose). The driver fails whichever check is running
@@ -331,6 +341,7 @@ fn track<Io>(k: Case&, io: Io&, ev: goose_io::Event) {
         Input e => { if k.role(e.link) >= 0 { k._record(e.link, Rec { kind: 'I', at: now, len: e.available, .. }); } },
         Expired e => { if k.role(e.link) >= 0 { k._record(e.link, Rec { kind: 'X', at: now, off: limit_index(e.limit), .. }); } },
         Woken e => { k.recs.push(Rec { role: -1, kind: 'K', at: now, len: e.value, .. }); },
+        Resolved e => { k.recs.push(Rec { role: -1, kind: 'R', at: now, len: e.count, query: e.query.id, .. }); },
         Closed e => {
             if k.role(e.link) >= 0 {
                 k._record(e.link, Rec { kind: 'C', at: now, why: e.why, .. });

@@ -53,7 +53,7 @@ A library that uses threads says `// Needs: core and wake`, since without it the
 
 ## Supplied by
 
-The in-memory loop and goose-io-epoll-ext. Not goose-io-epoll, the wrapper or the loop that supplies only the core.
+The in-memory loop and goose-io-epoll-ext. Not goose-io-epoll, goose-io-iouring, the wrapper or the loop that supplies only the core.
 
 ## See also
 

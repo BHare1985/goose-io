@@ -1,6 +1,6 @@
 # Capabilities
 
-The contract is a core and eleven optional capabilities ([the contract, section 2](../contract.md#2-a-core-and-optional-capabilities)). The core is enough for a client and for a server that answers as bytes arrive. A capability adds a few operations or events, with rules that bind only a loop that supplies it. There is one page for each, written for the author of a library: what it is, when to use it and when not to, how it is commonly used, a checked example, whether a library needs it or can use it if present, and which loops supply it.
+The contract is a core and thirteen optional capabilities ([the contract, section 2](../contract.md#2-a-core-and-optional-capabilities)). The core is enough for a client and for a server that answers as bytes arrive. A capability adds a few operations or events, with rules that bind only a loop that supplies it. There is one page for each, written for the author of a library: what it is, when to use it and when not to, how it is commonly used, a checked example, whether a library needs it or can use it if present, and which loops supply it.
 
 ## Declaring and asking
 
@@ -33,5 +33,7 @@ const if same<type_of(goose_io::has_relay(io)), goose_io::Supplied> { /* relay *
 | [Revoke](revoke.md) | `discard_unsent`, `write_deadline`: take back unsent bytes | `examples/capabilities/fenced_writer.goose` |
 | [Wake](wake.md) | another thread tells the loop something | `examples/capabilities/worker_reply.goose` |
 | [Limits](limits.md) | the loop reports a link idle, silent, stalled or old | `examples/capabilities/idle_reaper.goose` |
+| [Name resolution](name-resolution.md) | `resolve`: a host name becomes addresses, bounded in time | `examples/capabilities/dial_by_name.goose` |
+| [Shared listen](shared-listen.md) | `listen_shared`: several listeners hold one address, each connection goes to one | `examples/capabilities/loop_per_core.goose` |
 
 The examples marked `examples/capabilities` are small programs for reading and copying from, not libraries to depend on.

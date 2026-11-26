@@ -1,6 +1,6 @@
 # The goose-io contract
 
-Version 0.4. The declarations are in [`goose_io.goose`](../goose_io.goose); this document is the meaning. The normative requirements, each with test scenarios, are in the OpenSpec capability `io-contract`. Requirement names from it are quoted in *italics* below so that every rule here can be traced to its tests.
+Version 0.5. The declarations are in [`goose_io.goose`](../goose_io.goose); this document is the meaning. The normative requirements, each with test scenarios, are in the OpenSpec capability `io-contract`. Requirement names from it are quoted in *italics* below so that every rule here can be traced to its tests.
 
 **In plain words.** An *event loop* moves the bytes (epoll, io_uring, libuv, or the in-memory one used for tests). A
 *library* speaks a protocol (a server, a client). The contract is the small set of operations and events between them,
@@ -44,6 +44,8 @@ An event loop has to supply **the core**: 12 operations and 5 events, enough for
 | **[Revoke](capabilities/revoke.md)** | `discard_unsent`, `write_deadline` | |
 | **[Wake](capabilities/wake.md)** | `waker`, `wake` | `Woken` |
 | **[Limits](capabilities/limits.md)** | `set_limit` | `Expired` |
+| **[Name resolution](capabilities/name-resolution.md)** | `resolve`, `resolved_address`, `cancel_resolve` | `Resolved` |
+| **[Shared listen](capabilities/shared-listen.md)** | `listen_shared` | |
 
 Each capability has a compile-time **declaration**: a loop that supplies relay defines `supplies_relay(io: Loop&) -> goose_io::Supplied` in its own namespace, and the contract answers `goose_io::Absent` for every loop that does not. A library or a wrapping loop asks `goose_io::has_relay(io)`. A library may use a capability only when the loop supplies it, branching at compile time on the answer's type, and say so in its header (`// Uses if supplied:`); the branch for a capability the loop lacks is never compiled (*A loop declares each capability it supplies*, *A declaration agrees with the operations*, *A library may use a capability optionally*, *A wrapping loop passes on what it declares*). `require_<capability>` requires the declaration as well as the operations.
 
@@ -444,6 +446,27 @@ Operation `set_limit(link, kind, ms)`, event `Expired { link, limit }`. The loop
 - The loop does not close the link: the library closes (and chooses the reason it records) or arms again. A close of one link of a relayed pair ends both.
 - The loop never delivers `Expired` for a link after its `Closed`. A loop may use a clock that keeps counting while the machine is suspended; the contract does not require it.
 
+### Name resolution
+
+A page for library authors: [capabilities/name-resolution.md](capabilities/name-resolution.md).
+
+Operations `resolve(host, port, timeout_ms)`, `resolved_address(query, i)` and `cancel_resolve(query)`, event `Resolved { query, status, count }`, types `Query` and `ResolveStatus`. `dial` takes only addresses, so a client that is given a name resolves it first, as a step of its own.
+
+- `resolve` returns a valid `Query` and delivers exactly one `Resolved` for it, unless the lookup is cancelled. `status` is `Found`, `NotFound` (the system has no address for the name), `TimedOut`, `Failed` (the resolver could not answer) or `Cancelled`. `count` is above 0 only for `Found`. An empty host, a port outside 0 to 65535, or a finished loop returns an invalid query and delivers nothing. `timeout_ms` of 0 means the loop's own default.
+- While a `Resolved` with `Found` is handled, `resolved_address(query, i)` for `i` from 0 to `count - 1` returns an address that `dial` accepts, with the port given to `resolve`, in the order a client should try them (the system's, RFC 6724). In any other place, or for another `i`, it returns an empty address. A library copies what it keeps.
+- A lookup with no result after `timeout_ms` ends with `TimedOut` at that time on the loop's clock. `cancel_resolve` ends a lookup with no `Resolved` after it. A lookup still running when the loop finishes ends with `Cancelled` before the last pass.
+- Supplying the capability does not change `dial`: a host name still ends with `ConnectFailed`, `BadAddress`. A loop never resolves on its own thread.
+
+### Shared listening
+
+A page for library authors: [capabilities/shared-listen.md](capabilities/shared-listen.md).
+
+Operation `listen_shared(address) -> Listener, ListenError`. A program that runs a loop per thread gives each loop a shared listener on one address, and the system spreads the connections among them.
+
+- `listen_shared` behaves as `listen` except that it succeeds while other shared listeners hold the address (in the same loop, or in another loop of the process). Each connection to the address is accepted by exactly one of them.
+- A `listen` on an address that shared listeners hold fails with `AddressInUse`, and so does a `listen_shared` on an address a plain listener holds. A `listen_shared` on a unix path fails with `BadAddress`.
+- When a shared listener stops, the others go on accepting. Connections that were waiting on the stopped listener may be reset by the system; a loop documents whether it moves them to another listener or resets them.
+
 A library's own deadlines (a connect timeout, a table of fences, a drain deadline) need no capability: `tick_by` and `Tick` give them.
 
 ## 7. Layering
@@ -464,7 +487,7 @@ The contract covers TCP byte streams over IPv4 and IPv6, stream sockets at a pat
 
 `goose_io::VERSION_MAJOR` and `goose_io::VERSION_MINOR`. While the major number is 0, a minor increase may change or remove behaviour. From major version 1, a minor increase only adds. An event loop states the contract version it conforms to, the core and the capabilities it supplies.
 
-The version of this document is **0.3** (`VERSION_MAJOR` 0, `VERSION_MINOR` 3 in `goose_io.goose`). Version 0.3 adds the capabilities relay, peek, revoke, wake and limits, the types `RelayStatus`, `Waker` and `Limit`, and the events `Input`, `Woken` and `Expired`; code that matches on every `Event` must name the new ones. Version 0.1 was the first release and is the version on `main`; 0.2 is the next one and adds the unix capability, removes the tag and the user value from the events and the operations (`set_user`, `user`) and the tag from `listen` and `dial`, adds `LinkMap` and the rule that slots are dense, and states the life of a link and of a loop (the link states and the result of each operation in each, the invalid link, retirement of an exhausted slot, slots held until `Closed`, the finished loop and the end of the grace period). The keep-open window is a tightening: a `set_keep_open_on_eof` call made after the link's `Opened` handler has returned, which 0.1 allowed while the peer had not yet finished, has no effect, so a library that called it late moves the call into `Opened`. No event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
+The version of this document is **0.5** (`VERSION_MAJOR` 0, `VERSION_MINOR` 5 in `goose_io.goose`). Version 0.5 adds the capabilities name-resolution and shared-listen, the types `Query` and `ResolveStatus`, and the event `Resolved`; code that matches on every `Event` must name `Resolved`. Version 0.4 named the optional parts capabilities and added their declarations. Version 0.3 adds the capabilities relay, peek, revoke, wake and limits, the types `RelayStatus`, `Waker` and `Limit`, and the events `Input`, `Woken` and `Expired`; code that matches on every `Event` must name the new ones. Version 0.1 was the first release and is the version on `main`; 0.2 is the next one and adds the unix capability, removes the tag and the user value from the events and the operations (`set_user`, `user`) and the tag from `listen` and `dial`, adds `LinkMap` and the rule that slots are dense, and states the life of a link and of a loop (the link states and the result of each operation in each, the invalid link, retirement of an exhausted slot, slots held until `Closed`, the finished loop and the end of the grace period). The keep-open window is a tightening: a `set_keep_open_on_eof` call made after the link's `Opened` handler has returned, which 0.1 allowed while the peer had not yet finished, has no effect, so a library that called it late moves the call into `Opened`. No event loop on sockets has passed the suite yet, and the first one may amend the contract. It has been exercised by the in-memory event loop, by the wrapper over it, and by a loop that supplies only the core.
 
 ## 10. Known gaps
 
@@ -484,7 +507,7 @@ Three behaviours that every adapter has to supply, found by the reading and wort
 
 | Need | Who has it | Position |
 |---|---|---|
-| Host-name resolution | uSockets (blocking `getaddrinfo` inside connect), libuv (`uv_getaddrinfo`), libevent (`bufferevent_socket_connect_hostname`) | Not in the contract. An event loop never resolves; a host name given to `dial` fails with `ConnectFailed`, `BadAddress`. Needed before the first real client: a resolver library on the contract, or a wake from another thread so a resolver thread can post a result. |
+| Host-name resolution | uSockets (blocking `getaddrinfo` inside connect), libuv (`uv_getaddrinfo`), libevent (`bufferevent_socket_connect_hostname`) | The optional capability name-resolution (section 6). `dial` still takes only addresses: a host name given to it fails with `ConnectFailed`, `BadAddress`. A loop without the capability leaves resolving to a library with wake, which runs a resolver thread and posts each address with `wake_with`. |
 | TLS | inside uSockets; separate in libuv | A wrapping event loop (*Event loops can be layered*; `tests/support/wrapper.goose` shows the layering). |
 | Hosting existing C clients (libpq, hiredis, libcurl, c-ares) | They need "tell me when this descriptor is readable"; every readiness substrate offers it | Cannot be in the contract: an in-memory or completion-only event loop has no descriptors. A later optional capability. |
 | Wake from another thread | `us_wakeup_loop`, `uv_async_send`, ring `MSG_RING`, a proxy's message pipes | A later optional capability. |
@@ -494,9 +517,7 @@ Three behaviours that every adapter has to supply, found by the reading and wort
 ## 12. Open questions
 
 - **Zero-copy sends and more than two parts.** A block form in which the event loop lends part of its send queue for the library to fill. Decide when a real event loop shows the cost of the copy; it is an addition.
-- **Name resolution** (see section 11).
 - **Descriptor readiness as an optional capability**, so existing C clients can be hosted on event loops that have descriptors.
-- **A wake from another thread**, for a resolver thread for example. Outside the contract; decide with the first library that needs it.
 - **A readiness adapter** so goose-http and goose-wing can provide the contract cheaply: decide when one of them adopts.
 - **How a `Data` slice maps onto a coroutine resume value** once `coro fn` exists.
 - **Can the uSockets example deliver received bytes without a copy?** The reading says not with upstream as it is (`docs/event-loops/usockets.md`, row `Data`): the receive buffer is one buffer for the loop and is reused at once. Open for a build that adds a synchronous call into Goose from the read callback.

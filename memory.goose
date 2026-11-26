@@ -49,6 +49,8 @@ struct Config {
     // The relay capability: a relayed link whose peer takes none of its bytes for this long ends with Error
     // (the transport's timeout; 0: never).
     kernel_timeout_ms: i64 = 0,
+    // The name-resolution capability: what timeout_ms 0 means for resolve.
+    resolve_timeout_ms: i64 = 5000,
 }
 
 // --- constants -----------------------------------------------------------------------------------
@@ -404,7 +406,7 @@ struct _Slot {
     writable_given: bool = false,                   // fault OneWritableOnly
 }
 
-struct _Listener { addr: _Addr = _Addr { .. }, active: bool = false }
+struct _Listener { addr: _Addr = _Addr { .. }, active: bool = false, shared: bool = false }
 
 // A dial to addr fails with this kind (fail_dials).
 struct _Failing { addr: _Addr = _Addr { .. }, kind: goose_io::ConnectFailure = goose_io::ConnectFailure.Other }
@@ -453,6 +455,22 @@ struct _Step {
 // A piece of what a scripted peer received, in Loop._captured.
 struct _Chunk { script: i64 = 0, start: i64 = 0, length: i64 = 0 }
 
+// The name-resolution capability. A scripted name (script_name): how long its answer takes, whether the
+// lookup fails, and its addresses, which are _name_addrs[first .. first + count].
+struct _Name { host: u8[..253] = [], delay_ms: i64 = 0, fails: bool = false, first: i64 = 0, count: i64 = 0 }
+
+enum _LookupState { Running, Settled, Done }
+
+// One call of resolve. `Settled` has its result and waits for delivery as Resolved; `Done` is delivered or cancelled.
+struct _Lookup {
+    port:       i64                     = 0,
+    name:       i64                     = -1,   // index into _names, -1 for a name nobody scripted
+    due_at:     i64                     = 0,    // when the answer comes
+    timeout_at: i64                     = 0,
+    state:      _LookupState            = _LookupState.Running,
+    status:     goose_io::ResolveStatus = goose_io::ResolveStatus.NotFound,
+}
+
 // --- the event loop --------------------------------------------------------------------------------
 
 // One loop. Declare it as a local or global (`var io = goose_io_memory::Loop { .. };`) and pass it
@@ -469,11 +487,12 @@ root struct Loop {
     _pending:       _Pending[>..<] = [],
     _pending_head:  i64            = 0,
     // addresses
-    _listeners: _Listener[>..] = [],
-    _held:      _Addr[>..]     = [],
-    _silent:    _Addr[>..]     = [],
-    _failing:   _Failing[>..]  = [],
-    _next_port: i64            = 49152,
+    _listeners:   _Listener[>..] = [],
+    _held:        _Addr[>..]     = [],
+    _silent:      _Addr[>..]     = [],
+    _failing:     _Failing[>..]  = [],
+    _next_port:   i64            = 49152,
+    _shared_turn: i64            = 0,               // the next shared listener to take a connection (round robin)
     // time
     _clock:       i64  = 0,
     _next_tick:   i64  = 0,
@@ -492,6 +511,11 @@ root struct Loop {
     _woken_values: _Woken[>..<] = [],       // values taken from the queue, to be delivered as Woken
     _woken_head:   i64          = 0,
     _expect_wakes: i64          = 0,        // scripting: wakes a test thread will still make; an idle loop waits for them
+    // the name-resolution capability
+    _lookups:    _Lookup[>..] = [],   // Query.id is the index + 1; a query is never used again
+    _names:      _Name[>..]   = [],
+    _name_addrs: _Addr[>..]   = [],
+    _resolving:  i64          = -1,   // the lookup whose Resolved is being handled: resolved_address answers only for it
     // scripting
     _scripts:    _Script[>..] = [],
     _steps:      _Step[>..]   = [],
@@ -652,8 +676,23 @@ fn _listen_failed(kind: goose_io::ListenErrorKind, code: i64) -> goose_io::Liste
 }
 
 // The address a text names, as this loop understands it.
+// Fault DialTakesNames: "host:port" for a scripted name is taken as its first address.
+fn _resolve_now(io: Loop&, text: const u8[:]) -> _Addr {
+    var colon = -1;
+    for byte, index in text { if byte == ':' { colon = index; } }
+    guard colon > 0 else { return _Addr { .. }; }
+    let name = io._name_index(text[..colon]);
+    guard name >= 0 && io._names[name].count > 0 else { return _Addr { .. }; }
+    let port, ok = _parse_number(text[colon + 1..], _LAST_PORT);
+    guard ok else { return _Addr { .. }; }
+    var addr = io._name_addrs[io._names[name].first];
+    addr.port = port as u16;
+    return addr;
+}
+
 fn _addr(io: Loop&, text: const u8[:]) -> _Addr {
     var addr = _parse_address(text);
+    if io._fault_is(Fault.DialTakesNames) && !addr.ok { addr = io._resolve_now(text); }
     if io._fault_is(Fault.Ipv6Unsupported) && addr.v6 { addr = _Addr { .. }; }
     if !io.cfg.unix_paths && addr.unix { addr = _Addr { .. }; }
     if io._fault_is(Fault.UnixRelativeAccepted) && !addr.ok && starts_with(text, "unix:") && text.len > 5 && text[5] != '/' && text[5] != '@' && text.len <= 108 {
@@ -672,13 +711,19 @@ fn _addr(io: Loop&, text: const u8[:]) -> _Addr {
     return addr;
 }
 
-// No held address and no active listener overlaps addr.
-fn _binding_free(io: Loop&, addr: _Addr) -> bool {
+// No held address and no active listener overlaps addr (shared listeners overlap only plain ones).
+fn _binding_free(io: Loop&, addr: _Addr, shared: bool) -> bool {
     if !io._fault_is(Fault.HeldIgnored) {
         for held in io._held { if _overlaps(held, addr) { return false; } }
     }
     if io._fault_is(Fault.UnixOverlapIgnored) && addr.unix { return true; }      // a path can be listened on twice
-    for listener in io._listeners { if listener.active && _overlaps(listener.addr, addr) { return false; } }
+    for listener in io._listeners {
+        if listener.active && _overlaps(listener.addr, addr) {
+            if shared && listener.shared && !io._fault_is(Fault.SharedNotShared) { continue; }
+            if io._fault_is(Fault.SharedPlainOverlaps) && shared != listener.shared { continue; }    // shared listeners may hold one address together
+            return false;
+        }
+    }
     return true;
 }
 
@@ -699,7 +744,19 @@ fn _listener_index(io: Loop&, listener: goose_io::Listener) -> i64 {
 
 // --- the contract: listening ---------------------------------------------------------------------
 
-fn listen(io: Loop&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError {
+fn listen(io: Loop&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError { return io._listen(address, false); }
+
+// Like listen, but any number of shared listeners may hold the same address; each connection goes to exactly one of them.
+fn listen_shared(io: Loop&, address: const u8[:]) -> goose_io::Listener, goose_io::ListenError {
+    guard !io._fault_is(Fault.SharedListenMissing) else { return _listen_failed(goose_io::ListenErrorKind.Other, _ERR_INVALID); }
+    if io._finished { return _listen_failed(goose_io::ListenErrorKind.Other, _ERR_SHUT_DOWN); }
+    io._start();
+    let probe = io._addr(address);
+    if probe.ok && probe.unix && !io._fault_is(Fault.SharedUnixAllowed) { return _listen_failed(goose_io::ListenErrorKind.BadAddress, _ERR_INVALID); }
+    return io._listen(address, true);
+}
+
+fn _listen(io: Loop&, address: const u8[:], shared: bool) -> goose_io::Listener, goose_io::ListenError {
     if io._finished { return _listen_failed(goose_io::ListenErrorKind.Other, _ERR_SHUT_DOWN); }
     io._start();
     var addr = io._addr(address);
@@ -714,11 +771,11 @@ fn listen(io: Loop&, address: const u8[:]) -> goose_io::Listener, goose_io::List
         var found = false;
         for _ in _EPHEMERAL_PORTS {
             addr.port = io._take_port() as u16;
-            if io._binding_free(addr) { found = true; break; }
+            if io._binding_free(addr, shared) { found = true; break; }
         }
         guard found else { return _listen_failed(goose_io::ListenErrorKind.NoResources, _ERR_ADDRESS_NOT_AVAILABLE); }
     }
-    guard io._binding_free(addr) else { return _listen_failed(goose_io::ListenErrorKind.AddressInUse, _ERR_ADDRESS_IN_USE); }
+    guard io._binding_free(addr, shared) else { return _listen_failed(goose_io::ListenErrorKind.AddressInUse, _ERR_ADDRESS_IN_USE); }
     if io._fault_is(Fault.ListenerHandleReused) {      // a stopped listener's handle comes back
         for listener, index in io._listeners {
             if !listener.active && _same_endpoint(listener.addr, addr) {
@@ -727,7 +784,7 @@ fn listen(io: Loop&, address: const u8[:]) -> goose_io::Listener, goose_io::List
             }
         }
     }
-    io._listeners.push(_Listener { addr: addr, active: true });
+    io._listeners.push(_Listener { addr: addr, active: true, shared: shared });
     return goose_io::Listener { id: io._listeners.len as u32 }, goose_io::ListenError { .. };
 }
 
@@ -744,6 +801,11 @@ fn stop_listening(io: Loop&, listener: goose_io::Listener) {
     let index = io._listener_index(listener);
     guard index >= 0 else { return; }
     io._listeners[index].active = false;
+    if io._fault_is(Fault.SharedStopStopsAll) && io._listeners[index].shared {
+        for other in io._listeners.len {
+            if io._listeners[other].shared && _same_endpoint(io._listeners[other].addr, io._listeners[index].addr) { io._listeners[other].active = false; }
+        }
+    }
     if io._fault_is(Fault.StopListeningClosesLinks) {
         for slot in io._slots.len {
             if io._slots[slot].listener == listener.id && io._slots[slot].script < 0 { io._close_gracefully(slot, goose_io::CloseReason.Local); }
@@ -1361,7 +1423,7 @@ fn stop(io: Loop&, grace_ms: i64) {
 
 fn draining(io: Loop&) -> bool { io._draining || io._finished }
 
-// The capabilities this loop supplies (docs/event-loops.md): every one of the eleven.
+// The capabilities this loop supplies (docs/event-loops.md): every one of the thirteen.
 fn supplies_half_close(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
 fn supplies_sizing(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
 fn supplies_abort(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
@@ -1375,6 +1437,8 @@ fn supplies_peek(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}
 fn supplies_revoke(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
 fn supplies_wake(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
 fn supplies_limits(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_name_resolution(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
+fn supplies_shared_listen(io: Loop&) -> goose_io::Supplied { return goose_io::Supplied {}; }
 
 fn serve<F>(io: Loop&) {
     if io._finished {          // a second serve returns at once, without calling its handler
@@ -1390,6 +1454,7 @@ fn serve<F>(io: Loop&) {
     loop {
         io._passes++;
         io._run_due();
+        io._settle_lookups();
         io._pump_relays();
         io._take_wakes(false);
         io._watch();
@@ -1416,6 +1481,7 @@ fn serve<F>(io: Loop&) {
         }
         io._woken_values.clear();
         io._woken_head = 0;
+        io._deliver_resolved(F);
         let link_events = io._deliver(F);
         let wants_pass_end = link_events > 0 || (io._fault_is(Fault.IdlePassEnd) && ticked);
         if wants_pass_end && !io._fault_is(Fault.NoPassEnd) {
@@ -1438,6 +1504,7 @@ fn _can_return(io: Loop&) -> bool {
     guard io._draining && io._library_links == 0 else { return false; }
     guard io._pending_head >= io._pending.len && io._expect_wakes == 0 else { return false; }
     guard !io._peer_read_work() else { return false; }
+    guard io._fault_is(Fault.ResolveLeftAtFinish) || !io._lookups_open() else { return false; }
     return !io._fault_is(Fault.StopWaitsForGrace) || io._clock >= io._stop_deadline;
 }
 
@@ -1449,6 +1516,11 @@ fn _run_due(io: Loop&) {
     if io._draining && io._clock >= io._stop_deadline {
         for slot in io._slots.len {
             if io._slots[slot].script < 0 { io._close_gracefully(slot, goose_io::CloseReason.Shutdown); }
+        }
+        if !io._fault_is(Fault.ResolveLeftAtFinish) {
+            for &lookup in io._lookups {
+                if lookup.state == _LookupState.Running { lookup.state = _LookupState.Settled; lookup.status = goose_io::ResolveStatus.Cancelled; }
+            }
         }
     }
     for slot in io._slots.len {
@@ -1482,6 +1554,15 @@ fn _connect(io: Loop&, dialled_slot: i64) {
     for listener, index in io._listeners {
         let ignored = io._fault_is(Fault.UnixListenerIgnored) && listener.addr.unix;      // a dial to a path never reaches its listener
         if listener.active && _listener_takes(listener.addr, target) && !ignored { listener_index = index; break; }
+    }
+    if listener_index >= 0 && io._listeners[listener_index].shared && !io._fault_is(Fault.SharedAlwaysFirst) {
+        // shared listeners on one address take connections in turn: the n-th of them takes the n-th connection
+        var same: i64[>..] = [];
+        for listener, index in io._listeners {
+            if listener.active && listener.shared && _same_endpoint(listener.addr, io._listeners[listener_index].addr) { same.push(index); }
+        }
+        listener_index = same[io._shared_turn % same.len];
+        io._shared_turn++;
     }
     for failing in io._failing {
         if _same_endpoint(failing.addr, target) { io._fail_dial(dialled_slot, failing.kind); return; }
@@ -1746,7 +1827,7 @@ fn _peer_read_work(io: Loop&) -> bool {
 fn _advance(io: Loop&) {
     var busy = io._pending_head < io._pending.len || io._wake_at <= io._clock;
     var next = min(io._next_tick, io._wake_at);
-    if io._draining && io._library_links > 0 {
+    if io._draining && (io._library_links > 0 || io._lookups_open()) {
         if io._stop_deadline <= io._clock { busy = true; }
         else { next = min(next, io._stop_deadline); }
     }
@@ -1761,6 +1842,13 @@ fn _advance(io: Loop&) {
     }
     let due_at = io._next_due();
     if due_at <= io._clock { busy = true; } else { next = min(next, due_at); }
+    for lookup in io._lookups {
+        if lookup.state == _LookupState.Settled { busy = true; }
+        else if lookup.state == _LookupState.Running {
+            let lookup_due = min(lookup.due_at, lookup.timeout_at);
+            if lookup_due <= io._clock { busy = true; } else { next = min(next, lookup_due); }
+        }
+    }
     if io._woken_head < io._woken_values.len { busy = true; }
     for script_index in io._scripts.len {
         let script .= io._scripts[script_index];
@@ -2057,6 +2145,131 @@ fn fail_dials(io: Loop&, address: const u8[:], kind: goose_io::ConnectFailure) {
 }
 
 // Makes a dial to this address never answer: it ends only when its connect time passes.
+// --- the name-resolution capability --------------------------------------------------------------
+//
+// resolve, resolved_address and cancel_resolve. Names are scripted by the test (script_name); a name nobody
+// scripted has no addresses. The answer comes after the name's delay on the loop's clock, and a lookup with
+// no answer by its timeout ends TimedOut.
+
+fn _name_index(io: Loop&, host: const u8[:]) -> i64 {
+    for name, index in io._names { if name.host[..] == host { return index; } }
+    return -1;
+}
+
+// Scripting, not part of the contract: `host` resolves after `delay_ms` to `addresses`, numeric addresses without a
+// port separated by commas ("10.0.0.1,10.0.0.2"); an empty list is a name with no addresses (NotFound).
+// Scripting a host again replaces it.
+fn script_name(io: Loop&, host: const u8[:], delay_ms: i64, addresses: const u8[:]) {
+    guard host.len > 0 && host.len <= 253 else { return; }
+    var entry = _Name { delay_ms: max(delay_ms, 0), first: io._name_addrs.len, .. };
+    entry.host.append(host);
+    var start = 0;
+    for index in addresses.len + 1 {
+        if index == addresses.len || addresses[index] == ',' {
+            let piece = addresses[start..index];
+            start = index + 1;
+            guard piece.len > 0 else { continue; }
+            var text: u8[..64] = [];
+            text.append(if piece.len > 0 && _has_colon(piece) { "[" } else { "" });
+            text.append(piece);
+            text.append(if _has_colon(piece) { "]:0" } else { ":0" });
+            let addr = _parse_address(text[..]);
+            if addr.ok { io._name_addrs.push(addr); entry.count++; }
+        }
+    }
+    let at = io._name_index(host);
+    if at >= 0 { io._names[at] = entry; } else { io._names.push(entry); }
+}
+
+// As script_name, for a name whose lookup ends Failed after `delay_ms`.
+fn script_name_failure(io: Loop&, host: const u8[:], delay_ms: i64) {
+    io.script_name(host, delay_ms, "");
+    let at = io._name_index(host);
+    if at >= 0 { io._names[at].fails = true; }
+}
+
+fn _has_colon(text: const u8[:]) -> bool {
+    for byte in text { if byte == ':' { return true; } }
+    return false;
+}
+
+fn resolve(io: Loop&, host: const u8[:], port: i64, timeout_ms: i64) -> goose_io::Query {
+    if io._finished && !io._fault_is(Fault.ResolveFinishedIssues) { return goose_io::Query { .. }; }
+    if (host.len == 0 && !io._fault_is(Fault.ResolveEmptyHostIssued)) || port < 0 || port > _LAST_PORT { return goose_io::Query { .. }; }
+    io._start();
+    let name = io._name_index(host);
+    var delay = 0;
+    if name >= 0 { delay = io._names[name].delay_ms; }
+    let wait = if timeout_ms > 0 { timeout_ms } else { io.cfg.resolve_timeout_ms };
+    var lookup = _Lookup { port: port, name: name, due_at: io._clock + delay, timeout_at: io._clock + wait, .. };
+    if io._fault_is(Fault.ResolveNoTimeout) { lookup.timeout_at = _FOREVER; }
+    io._lookups.push(lookup);
+    return goose_io::Query { id: io._lookups.len as u32 };
+}
+
+fn cancel_resolve(io: Loop&, query: goose_io::Query) {
+    guard query.id != 0 && query.id <= io._lookups.len else { return; }
+    if io._fault_is(Fault.ResolveCancelIgnored) { return; }
+    let lookup .= io._lookups[query.id - 1];
+    if lookup.state != _LookupState.Done { lookup.state = _LookupState.Done; }
+}
+
+// The address `index` of the Found result being handled, or an empty one.
+fn resolved_address(io: Loop&, query: goose_io::Query, index: i64) -> goose_io::Address {
+    guard io._resolving >= 0 && query.id == io._resolving + 1 else { return goose_io::Address { .. }; }
+    let lookup = io._lookups[io._resolving];
+    guard lookup.status == goose_io::ResolveStatus.Found && lookup.name >= 0 else { return goose_io::Address { .. }; }
+    let name = io._names[lookup.name];
+    guard index >= 0 && index < name.count else { return goose_io::Address { .. }; }
+    let position = if io._fault_is(Fault.ResolveOrderReversed) { name.count - 1 - index } else { index };
+    var addr = io._name_addrs[name.first + position];
+    addr.port = (if io._fault_is(Fault.ResolveWrongPort) { lookup.port + 1 } else { lookup.port }) as u16;
+    return _format_address(addr);
+}
+
+fn _lookups_open(io: Loop&) -> bool {
+    for lookup in io._lookups { if lookup.state != _LookupState.Done { return true; } }
+    return false;
+}
+
+// What has come due: an answer, or the timeout. The answer wins when both fall at one instant.
+fn _settle_lookups(io: Loop&) {
+    for &lookup in io._lookups {
+        guard lookup.state == _LookupState.Running else { continue; }
+        if io._clock >= lookup.due_at && lookup.due_at <= lookup.timeout_at {
+            lookup.state = _LookupState.Settled;
+            lookup.status = goose_io::ResolveStatus.NotFound;
+            if lookup.name >= 0 {
+                let name = io._names[lookup.name];
+                if name.fails { lookup.status = goose_io::ResolveStatus.Failed; }
+                else if name.count > 0 && !io._fault_is(Fault.ResolveNeverFinds) { lookup.status = goose_io::ResolveStatus.Found; }
+            }
+        } else if io._clock >= lookup.timeout_at {
+            lookup.state = _LookupState.Settled;
+            lookup.status = goose_io::ResolveStatus.TimedOut;
+        }
+    }
+}
+
+// Resolved for every lookup settled by now, in the order the lookups were made. A handler may make or cancel lookups.
+fn _deliver_resolved<F>(io: Loop&) {
+    var index = 0;
+    while index < io._lookups.len {
+        let lookup .= io._lookups[index];
+        if lookup.state == _LookupState.Settled {
+            lookup.state = _LookupState.Done;
+            var count = 0;
+            if lookup.status == goose_io::ResolveStatus.Found { count = io._names[lookup.name].count; }
+            else if lookup.status == goose_io::ResolveStatus.NotFound && io._fault_is(Fault.ResolveCountOnNotFound) { count = 1; }
+            io._resolving = index;
+            let event: goose_io::Event = goose_io::Event.Resolved { query: goose_io::Query { id: (index + 1) as u32 }, status: lookup.status, count: count };
+            F(io, event);
+            if !io._fault_is(Fault.ResolveAddressKept) { io._resolving = -1; }
+        }
+        index++;
+    }
+}
+
 fn silent(io: Loop&, address: const u8[:]) {
     let addr = _parse_address(address);
     if addr.ok { io._silent.push(addr); }
@@ -2110,6 +2323,12 @@ enum Fault {
     StalledNoProgressReset, StalledAlways, HalfOpenAlways, ExpiredRepeats, ExpiredAfterClose, AgeNeverExpires,
     // the wake capability
     WakeOrderReversed, WakeBodyDropped,
+    // the name-resolution capability
+    ResolveNeverFinds, ResolveCountOnNotFound, ResolveOrderReversed, ResolveAddressKept, ResolveNoTimeout,
+    ResolveCancelIgnored, ResolveWrongPort, ResolveEmptyHostIssued, ResolveLeftAtFinish, ResolveFinishedIssues,
+    DialTakesNames,
+    // the shared-listen capability
+    SharedListenMissing, SharedNotShared, SharedAlwaysFirst, SharedPlainOverlaps, SharedUnixAllowed, SharedStopStopsAll,
 }
 
 // Switches the loop to the fault of that name (a Fault variant without the "Fault." in front). A name that is no

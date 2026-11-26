@@ -143,6 +143,7 @@ fn forward_event<Io>(f: Forward&, io: Io&, ev: goose_io::Event) -> bool {
         Input i => { return false; },
         Expired x => { return false; },
         Woken w => { return false; },
+        Resolved r => { return false; },
         Opened o => {
             if goose_io::is_listener(o.listener) {
                 guard goose_io::same(o.listener, f.listener) else { return false; }

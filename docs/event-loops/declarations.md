@@ -1,7 +1,7 @@
 # Declaring the capabilities a loop supplies
 
 A loop supplies the core of the contract and, if it chooses, any of the optional capabilities: half_close, sizing, abort,
-inspection, batching, unix, relay, peek, revoke, wake and limits. A loop says which ones it supplies by declaring them, one
+inspection, batching, unix, relay, peek, revoke, wake, limits, name_resolution and shared_listen. A loop says which ones it supplies by declaring them, one
 line each, in its own namespace. Libraries and the conformance suite read those declarations; nothing else tells them.
 
 ## Declaring one

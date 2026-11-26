@@ -59,7 +59,7 @@ A library that calls `reset` says `// Needs: core and abort`, and `goose_io::req
 
 ## Supplied by
 
-The in-memory loop, the wrapper, and goose-io-epoll and goose-io-epoll-ext. Not the loop that supplies only the core.
+The in-memory loop, the wrapper, and goose-io-epoll, goose-io-epoll-ext and goose-io-iouring. Not the loop that supplies only the core.
 
 ## See also
 

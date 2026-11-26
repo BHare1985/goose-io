@@ -27,6 +27,8 @@ Small programs, one for each capability that has no example above, each with a p
 | [`capabilities/fenced_writer.goose`](capabilities/fenced_writer.goose) | revoke | `write_deadline` at a fence, `discard_unsent` on cancel |
 | [`capabilities/worker_reply.goose`](capabilities/worker_reply.goose) | wake | a worker thread answers through `wake_with` |
 | [`capabilities/idle_reaper.goose`](capabilities/idle_reaper.goose) | limits | `Idle` and `Age` on a relayed pair |
+| [`capabilities/dial_by_name.goose`](capabilities/dial_by_name.goose) | name-resolution | `resolve` a host name, `dial` the address in `Resolved`, with a timeout |
+| [`capabilities/loop_per_core.goose`](capabilities/loop_per_core.goose) | shared-listen | one worker per loop, all on one address with `listen_shared` |
 
 Half-close, unix and relay are shown by `lineserver/`, `tests/examples/unix_dial_test.goose` and `forward/`.
 
@@ -34,8 +36,10 @@ Half-close, unix and relay are shown by `lineserver/`, `tests/examples/unix_dial
 
 These are examples of how to implement and use goose-io. They are not authoritative: a loop or a library does not have to look like them, and others are encouraged to write their own. To have yours listed here, add a line (name, link, what it supplies or needs). Each has a README and fetches this package by commit.
 
-- **[goose-io-epoll](https://github.com/BHare1985/goose-io-epoll)**: an event loop on real sockets (Linux, epoll). It supplies the core and the half-close, sizing, abort, inspection and batching capabilities and passes the conformance suite on them. Read it to see what a conforming loop is, and derive a new loop from it.
-- **[goose-io-epoll-ext](https://github.com/BHare1985/goose-io-epoll-ext)**: the same loop with the proxy capabilities added (relay, peek, revoke, wake, limits) and a forwarding pump, for programs that move many bytes between sockets.
+- **[goose-io-epoll](https://github.com/BHare1985/goose-io-epoll)**: an event loop on real sockets (Linux, epoll). It supplies the core and the half-close, sizing, abort, inspection, batching and shared-listen capabilities and passes the conformance suite on them. Read it to see what a conforming loop is, and derive a new loop from it.
+- **[goose-io-epoll-ext](https://github.com/BHare1985/goose-io-epoll-ext)**: the same loop with the proxy capabilities added (relay, peek, revoke, wake, limits; and shared-listen) and a forwarding pump, for programs that move many bytes between sockets.
+- **[goose-io-iouring](https://github.com/BHare1985/goose-io-iouring)**: the same loop on Linux io_uring (a ring in place of epoll). It supplies what goose-io-epoll supplies and nothing more. Read it beside goose-io-epoll to see what changes when the readiness layer does.
+- **[goose-io-dns](https://github.com/BHare1985/goose-io-dns)**: a library beside a loop, not a loop: `Resolving<Io>` wraps any loop and adds the name-resolution capability (a thread asks the system resolver; the layer polls for the answer with `tick_by`). It needs only the core and forwards every other capability, so it composes over goose-io-iouring or goose-io-epoll. It passes the name-resolution conformance part, and an example dials by name over goose-io-iouring.
 - **[goose-io-tcpproxy](https://github.com/BHare1985/goose-io-tcpproxy)**: a library, a TCP proxy (forwarding by listener, SNI inspection, handler mode, tags and fences, messages, policy). It is generic over the event loop and needs the proxy capabilities; the application makes the loop and the proxy side by side.
 
 A library is written against the contract, not against a loop: the example libraries above run unchanged on the in-memory loop and on the loops here.

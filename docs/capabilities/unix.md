@@ -41,7 +41,7 @@ There is no operation to check, so `goose_io::require_unix(io)` checks the decla
 
 ## Supplied by
 
-The in-memory loop (turn it off with `io.cfg.unix_paths = false` to see a library meet a loop without it) and the wrapper. Neither goose-io-epoll nor goose-io-epoll-ext supplies it.
+The in-memory loop (turn it off with `io.cfg.unix_paths = false` to see a library meet a loop without it) and the wrapper. None of goose-io-epoll, goose-io-epoll-ext or goose-io-iouring supplies it.
 
 ## See also
 

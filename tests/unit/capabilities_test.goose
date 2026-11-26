@@ -41,6 +41,8 @@ fn main() {
     kit::check(is_supplied(goose_io::has_revoke(io)), "memory: revoke");
     kit::check(is_supplied(goose_io::has_wake(io)), "memory: wake");
     kit::check(is_supplied(goose_io::has_limits(io)), "memory: limits");
+    kit::check(is_supplied(goose_io::has_name_resolution(io)), "memory: name_resolution");
+    kit::check(is_supplied(goose_io::has_shared_listen(io)), "memory: shared_listen");
 
     // the core-only loop and the stub declare none
     var core = core_only::Core { .. };
@@ -55,6 +57,8 @@ fn main() {
     kit::check(!is_supplied(goose_io::has_revoke(core)), "core-only: revoke");
     kit::check(!is_supplied(goose_io::has_wake(core)), "core-only: wake");
     kit::check(!is_supplied(goose_io::has_limits(core)), "core-only: limits");
+    kit::check(!is_supplied(goose_io::has_name_resolution(core)), "core-only: name_resolution");
+    kit::check(!is_supplied(goose_io::has_shared_listen(core)), "core-only: shared_listen");
     kit::check(!is_supplied(goose_io::has_relay(stubbed)), "stub: relay");
 
     // a loop in a third namespace that declares relay and wake: exactly those two are supplied
@@ -69,7 +73,8 @@ fn main() {
     kit::check(is_supplied(goose_io::has_half_close(layer)), "wrapper: half_close");
     kit::check(is_supplied(goose_io::has_unix(layer)), "wrapper: unix");
     kit::check(!is_supplied(goose_io::has_relay(layer)), "wrapper: relay is not");
+    kit::check(is_supplied(goose_io::has_name_resolution(layer)), "wrapper: name_resolution");
 
-    kit::check(goose_io::VERSION_MAJOR == 0 && goose_io::VERSION_MINOR == 4, "the contract version is 0.4");
+    kit::check(goose_io::VERSION_MAJOR == 0 && goose_io::VERSION_MINOR == 5, "the contract version is 0.5");
     kit::finish();
 }

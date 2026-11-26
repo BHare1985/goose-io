@@ -25,7 +25,7 @@ Application authors implement nothing of goose-io. They get the ecosystem: any l
 | Guide | [docs/libraries.md](docs/libraries.md) | [docs/event-loops.md](docs/event-loops.md) | [docs/libraries.md](docs/libraries.md#the-application) |
 
 No side needs another's internals. All three rely on [the same contract](docs/contract.md), which exposes no socket,
-file descriptor or poll mask. The contract is a core and eleven optional capabilities; [docs/capabilities/](docs/capabilities/README.md) has a page for each, with an example.
+file descriptor or poll mask. The contract is a core and thirteen optional capabilities; [docs/capabilities/](docs/capabilities/README.md) has a page for each, with an example.
 
 ## How it fits together
 
@@ -156,7 +156,7 @@ client behind it. HTTP and Postgres libraries are separate projects; this reposi
 
 | | Status |
 |---|---|
-| The contract, version 0.4 | Implemented: the core and eleven optional capabilities (half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits) |
+| The contract, version 0.5 | Implemented: the core and thirteen optional capabilities (half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits, name-resolution, shared-listen) |
 | The conformance suite | Implemented: the core and each capability, with a fault for every check |
 | The in-memory event loop | Implemented, for tests: scripted peers and a virtual clock |
 | Example libraries | Implemented: echo, a line server, a pooled line client |
@@ -308,8 +308,8 @@ way. A layer is not an event loop of its own: it conforms by passing the suite o
 
 | Event loop | Kind | Contract | Core | Capabilities |
 |---|---|---|---|---|
-| in-memory (`memory.goose`) | event loop, for tests | 0.4 | yes | half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits |
-| wrapper (`tests/support/wrapper.goose`) | a layer over another event loop | 0.2 | yes | half-close, sizing, abort, inspection, batching, unix |
+| in-memory (`memory.goose`) | event loop, for tests | 0.5 | yes | half-close, sizing, abort, inspection, batching, unix, relay, peek, revoke, wake, limits, name-resolution, shared-listen |
+| wrapper (`tests/support/wrapper.goose`) | a layer over another event loop | 0.5 | yes | half-close, sizing, abort, inspection, batching, unix, name-resolution, shared-listen |
 | core only (`tests/support/core_only.goose`) | test scaffold | 0.2 | yes | none |
 
 ## Documentation
