@@ -64,7 +64,7 @@ A library that must dial names says `// Needs: core and name-resolution`. A libr
 
 ## Supplied by
 
-The in-memory loop (the lookups are scripted, with delays, on its clock) and the wrapper when its inner loop does. Not the loop that supplies only the core. A real loop must never call `getaddrinfo` on its own thread: libuv uses its thread pool (`uv_getaddrinfo`), libevent uses evdns, an io_uring or epoll loop uses a resolver thread that wakes the loop, or c-ares on its descriptors. The mapping documents in [event-loops](../event-loops/) say which fits.
+The in-memory loop (the lookups are scripted, with delays, on its clock), the wrapper when its inner loop does, and [goose-io-iouring](https://github.com/BHare1985/goose-io-iouring) (a resolver thread). The library [goose-io-dns](https://github.com/BHare1985/goose-io-dns) resolves names beside a loop that does not supply it. Not the loop that supplies only the core. A real loop must never call `getaddrinfo` on its own thread: libuv uses its thread pool (`uv_getaddrinfo`), libevent uses evdns, an io_uring or epoll loop uses a resolver thread that wakes the loop, or c-ares on its descriptors. The mapping documents in [event-loops](../event-loops/) say which fits.
 
 ## See also
 
